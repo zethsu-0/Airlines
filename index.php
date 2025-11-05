@@ -14,7 +14,7 @@ $destination_city = '';
 $origin_country = '';
 $destination_country = '';
 
-$error = '';
+$error_message = '';
 
 if (isset($_POST['submit'])) {
     $origin = trim($_POST['origin']);
@@ -32,7 +32,8 @@ if (isset($_POST['submit'])) {
         $origin_airline = $row['AirportName'];
         $origin_country = $row['CountryRegion'];
     } else {
-        $error .= " Origin code '$origin' not found in database.<br>";
+        $origin_airline = "Invalid code ($origin)";
+        $error_message = "One or more airline codes are invalid.";
     }
 
 
@@ -47,18 +48,14 @@ if (isset($_POST['submit'])) {
         $destination_country = $row['CountryRegion'];
         $destination_found = true;
     } else {
-        $error .= " Destination code '$destination' not found in database.<br>";
+       $destination_airline = "Invalid code ($destination)";
+        $error_message = "One or more airline codes are invalid.";
     }
-    if (empty($error)) {
-        $stmt = $conn->prepare("
-            INSERT INTO submitted_flights (origin_code, destination_code, origin_airline, destination_airline)
-            VALUES (?, ?, ?, ?)
-        ");
-        $stmt->bind_param("ssss", $origin, $destination, $origin_airline, $destination_airline);
-        $stmt->execute();
-        $stmt->close();
-        header("Location: " . $_SERVER['PHP_SELF']);
-    }
+
+    $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("ssss", $origin, $origin_airline, $destination, $destination_airline);
+    $stmt->execute();
+    
 
 }
 if (isset($_POST['clear'])) {
@@ -77,16 +74,16 @@ $conn->close();
     <title>Airline Route</title>
 </head>
 <body>
-    <div class="container center">
-        <form action="index1.php" method="POST" autocomplete="off">
+    <div class="bg-container container center">
+        <form action="index.php" method="POST" autocomplete="off">
             <div class="row">
                 <div class="col s4 md3">
                     <label>ORIGIN</label>
-                    <input type="text" name="origin">
+                    <input type="text" name="origin" class="center">
                 </div>
                 <div class="col s4 md3">
                     <label>DESTINATION</label>
-                    <input type="text" name="destination">
+                    <input type="text" name="destination" class="center">
                 </div>
                 <div class="col s4 md3">
                     <div class="center submitbtn">
@@ -136,5 +133,8 @@ $conn->close();
     }
     h2, h3{
         font-weight: bold;
+    }
+    body{
+        background-color: gray;
     }
 </style>

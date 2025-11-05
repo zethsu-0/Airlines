@@ -7,7 +7,6 @@ if (!$conn) {
 
 $sql = "SELECT * FROM submitted_flights ORDER BY submitted_at DESC";
 $result = $conn->query($sql);
-
 ?>
 
 <!DOCTYPE html>
@@ -35,13 +34,21 @@ $result = $conn->query($sql);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($row = $result->fetch_assoc()): ?>
-                        <tr>
+                    <?php while ($row = $result->fetch_assoc()): 
+                        // Detect invalid codes (anything that contains "Invalid code")
+                        $origin_invalid = str_contains($row['origin_airline'], 'Invalid code');
+                        $destination_invalid = str_contains($row['destination_airline'], 'Invalid code');
+                    ?>
+                        <tr class="<?php echo ($origin_invalid || $destination_invalid) ? 'red lighten-4' : ''; ?>">
                             <td><?php echo htmlspecialchars($row['id']); ?></td>
                             <td><?php echo htmlspecialchars($row['origin_code']); ?></td>
-                            <td><?php echo htmlspecialchars($row['origin_airline']); ?></td>
+                            <td class="<?php echo $origin_invalid ? 'red-text text-darken-2' : ''; ?>">
+                                <?php echo htmlspecialchars($row['origin_airline']); ?>
+                            </td>
                             <td><?php echo htmlspecialchars($row['destination_code']); ?></td>
-                            <td><?php echo htmlspecialchars($row['destination_airline']); ?></td>
+                            <td class="<?php echo $destination_invalid ? 'red-text text-darken-2' : ''; ?>">
+                                <?php echo htmlspecialchars($row['destination_airline']); ?>
+                            </td>
                             <td><?php echo htmlspecialchars($row['submitted_at']); ?></td>
                         </tr>
                     <?php endwhile; ?>
@@ -52,7 +59,6 @@ $result = $conn->query($sql);
                 <h5>No flights submitted yet.</h5>
             </div>
         <?php endif; ?>
-
     </div>
 </body>
 </html>
@@ -76,6 +82,9 @@ $result = $conn->query($sql);
     }
     td {
         font-size: 16px;
+    }
+    .red-text {
+        font-weight: bold;
     }
 </style>
 
