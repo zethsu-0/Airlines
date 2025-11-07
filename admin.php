@@ -30,6 +30,7 @@ $result = $conn->query($sql);
                         <th>Origin Airline</th>
                         <th>Destination Code</th>
                         <th>Destination Airline</th>
+                        <th>Departure Date</th>
                         <th>Submitted At</th>
                     </tr>
                 </thead>
@@ -49,6 +50,7 @@ $result = $conn->query($sql);
                             <td class="<?php echo $destination_invalid ? 'red-text text-darken-2' : ''; ?>">
                                 <?php echo htmlspecialchars($row['destination_airline']); ?>
                             </td>
+                            <td><?php echo htmlspecialchars($row['flight_date']); ?></td>
                             <td><?php echo htmlspecialchars($row['submitted_at']); ?></td>
                         </tr>
                     <?php endwhile; ?>

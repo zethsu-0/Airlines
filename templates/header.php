@@ -2,7 +2,8 @@
 	<title>TOURS</title>
 	<link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
 	<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 	<style type="text/css">
 	nav .brand-logo {
   	left: 15px; 
@@ -12,6 +13,7 @@
   		margin: 0;      
   		padding-bottom: 0;
 		}
+    
 	</style>
 </head>
 <body class="white lighten-4">
@@ -42,8 +44,7 @@
     </ul>
 
 
-  </nav>
-    
+  </nav>   
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
@@ -51,3 +52,4 @@
     $('.sidenav').sidenav();
   });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>

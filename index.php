@@ -13,6 +13,7 @@ $origin_city = '';
 $destination_city = '';
 $origin_country = '';
 $destination_country = '';
+$flight_date = '';
 $success_message = '';
 $error_message = '';
 
@@ -24,6 +25,7 @@ $errors = [
 if (isset($_POST['submit'])) {
     $origin = strtoupper(trim($_POST['origin']));
     $destination = strtoupper(trim($_POST['destination']));
+    $flight_date = trim($_POST['flight_date']);
 
     // ✅ Validate Origin input
     if (empty($origin)) {
@@ -37,6 +39,12 @@ if (isset($_POST['submit'])) {
         $errors['destination'] = 'Destination code is required.';
     } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
         $errors['destination'] = 'Destination must be a valid IATA code (3 uppercase letters).';
+    }
+
+    if (empty($flight_date)) {
+    $errors['flight_date'] = 'Departure date is required.';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+        $errors['flight_date'] = 'Invalid date format.';
     }
 
     // ✅ Continue only if no input validation errors
@@ -70,10 +78,9 @@ if (isset($_POST['submit'])) {
             $error_message .= " Destination code not found.";
         }
 
-        // ✅ Insert into DB only if at least one valid code exists
         if ($result_origin || $result_destination) {
-            $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("ssss", $origin, $origin_airline, $destination, $destination_airline);
+            $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
+            $stmt->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
             $stmt->execute();
             $stmt->close();
             $success_message = "Flight submitted successfully!";
@@ -97,72 +104,70 @@ $conn->close();
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
     <title>Airline Route</title>
 </head>
 <?php include('templates/header.php') ?>
 
 <body>
     <div class="bg-container container center">
-        <form action="index.php" method="POST" autocomplete="off">
+        <form action="index.php" method="POST" autocomplete="off" class="card">
             <div class="row">
-                <div class="col s4 md3">
-                    <label>ORIGIN</label>
-                    <input type="text" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
-                    <div class="red-text"><?php echo $errors['origin']; ?></div>
+                <div class="col s3 md3">
+                        <div class="input-field">
+                        <i class="material-icons prefix">flight_takeoff</i>
+                        <input type="text" name="origin" class="center" value="<?php echo htmlspecialchars($origin); ?>">
+                        <div class="red-text"><?php echo $errors['origin']; ?></div>
+                        <label for="origin">ORIGIN</label>
+                        </div>
                 </div>
 
-                <div class="col s4 md3">
-                    <label>DESTINATION</label>
-                    <input type="text" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
-                    <div class="red-text"><?php echo $errors['destination']; ?></div>
+                <div class="col s3 md3">
+                        <div class="input-field">
+                        <i class="material-icons prefix">flight_land</i>
+                        <input type="text" name="destination" class="center" value="<?php echo htmlspecialchars($destination); ?>"> 
+                        <div class="red-text"><?php echo $errors['destination']; ?></div>
+                        <label for="destination">DESTINATION</label>
+                        </div>
                 </div>
 
-                <div class="col s4 md3">
-                    <div class="center submitbtn">
+                <div class="col s3 md3">
+                    <div class="center">
+                        <div class="input-field">
+                            <i class="material-icons prefix">calendar_today</i>
+                            <input type="text" id="flight-date" name="flight_date" class="datepicker-input" readonly>
+                            <label for="flight-date">DEPARTURE</label>
+                            <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col s3 md3 submitbtn">
+                    <div class="center">
                         <input type="submit" name="submit" value="Submit" class="btn brand z-depth-0">
-                        <input type="submit" name="clear" value="Clear" class="btn grey z-depth-0">
                     </div>
                 </div>
             </div>
         </form>
-
     </div>
-
-    <!-- <?php if (isset($_POST['submit'])): ?>
-        <div class="container center">
-            <?php if ($error){ ?>
-                <div class="card-panel red lighten-3">
-                    <span style="color: black; font-weight: bold;"><?php echo $error; ?></span>
-                </div>
-            <?php }else{ ?>
-                <h3>YOU'RE GOING TO:</h3>
-                <h4><?php echo htmlspecialchars($destination_city) . ', ' .htmlspecialchars($destination_country); ?></h4>
-                <h3 style="color: green;"><?php echo htmlspecialchars($destination_airline); ?></h3>
-                <h3>FROM:</h3>
-                <h4><?php echo htmlspecialchars($origin_city) . ', ' .htmlspecialchars($origin_country); ?></h4>
-                <h3 style="color: green;"><?php echo htmlspecialchars($origin_airline); ?></h3>
-            <?php } ?>
-        </div>
-    <?php endif; ?> -->
-
+    
 </body>
 <?php include('templates/footer.php') ?>
 </html>
+
+
 <style type="text/css">
-    label {
-        font-size: 25px;
+    label{
+        font-size: 200px;
         font-weight: bold;
         color: black;
-    }
-    .submitbtn {
-        padding-top: 20px;
+        letter-spacing: 5px;
     }
     .btn{
         font-weight: bold;
         font-size: 20px;
         color: black;
         background-color: transparent;
+    }.submitbtn{
+        padding-top: 20px !important;
     }
     h2, h3{
         font-weight: bold;
@@ -175,5 +180,72 @@ $conn->close();
     }
     .bg-container{
         padding: 20px;
+        width: 90%;
+    }  
+
+    .flatpickr-current-month {
+    position: relative;
+    z-index: 10;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    
+    }
+
+    select.flatpickr-monthDropdown-months {
+    display: inline-block !important;
+    position: relative;
+    z-index: 11;
+    background: transparent;
+    color: #1976d2;
+    font-weight: bold;
+    border: none;
+    font-size: 1rem;
+    text-transform: capitalize;
+    }
+
+    .flatpickr-current-month .numInputWrapper {
+    display: inline-flex !important;
+    align-items: center;
+    position: relative;
+    z-index: 11;
+    background: transparent;
+    margin-left: 0.2rem;
+    width: 9ch;
+    }
+
+    .flatpickr-current-month input.cur-year {
+    display: inline-block !important;
+    color: #1976d2;
+    font-weight: bold;
+    border: none;
+    background: transparent;
+    text-align: center;
+    }
+
+    /* Inner container shouldn't overlap header */
+    .flatpickr-innerContainer {
+    position: relative;
+    z-index: 1;
+    }
+
+    .btn:hover, .btn-large:hover, .btn-small:hover{
+        background-color: #4993deff;
     }
 </style>
+
+<script>
+flatpickr("#flight-date", {
+  dateFormat: "Y-m-d",      
+  altFormat: "F j",   
+  minDate: "today",
+    allowInput: false,
+  onReady: function() {
+    M.updateTextFields(); // refresh Materialize input labels
+  }
+});
+
+
+
+</script>

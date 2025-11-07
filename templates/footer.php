@@ -20,9 +20,10 @@
   <div class="footer-copyright">
     <div class="container center black-text" style="margin-bottom:0;">
       TOURS @ URSAC2025
+      
     </div>
   </div>
-
+</footer>
   <style>
     html, body {
       margin: 0 !important;
@@ -60,4 +61,4 @@
       padding: 0;
     }
   </style>
-</footer>
+
