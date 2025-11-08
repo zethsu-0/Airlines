@@ -1,3 +1,4 @@
+
 <?php
 $conn = mysqli_connect('localhost', 'root', '', 'airlines');
 
@@ -102,281 +103,182 @@ $conn->close();
 
 <!DOCTYPE html>
 <html>
-		<?php include('templates/header.php');?>
+<?php include('templates/header.php'); ?>
 
 <head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title></title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/index.css">
+  <title>Travel Booking</title>
 </head>
+
 <body>
-	<section class="center-align">
-  <img src="assets/island2.jpg" alt="Island" class="responsive-img">
-	</section>
 
+  <!-- Hero Section -->
+  <section class="center-align">
+    <img src="assets/island2.jpg" alt="Island" class="responsive-img">
+  </section>
 
-<div class="bg-container container center">
-        <form action="index.php" method="POST" autocomplete="off" class="card">
-            <div class="row">
-                <div class="col s3 md3">
-                        <div class="input-field">
-                        <i class="material-icons prefix">flight_takeoff</i>
-                        <input type="text" name="origin" class="center" value="<?php echo htmlspecialchars($origin); ?>">
-                        <div class="red-text"><?php echo $errors['origin']; ?></div>
-                        <label for="origin">ORIGIN</label>
-                        </div>
-                </div>
+  <!-- Booking Form Card -->
+  <div class="bg-container container center">
+    <form action="index.php" method="POST" autocomplete="off" class="card">
+      <div class="row">
+        <div class="col s3 md3">
+          <div class="input-field">
+            <i class="material-icons prefix">flight_takeoff</i>
+            <input type="text" name="origin" class="center" value="<?php echo htmlspecialchars($origin); ?>">
+            <div class="red-text"><?php echo $errors['origin']; ?></div>
+            <label for="origin">ORIGIN</label>
+          </div>
+        </div>
 
-                <div class="col s3 md3">
-                        <div class="input-field">
-                        <i class="material-icons prefix">flight_land</i>
-                        <input type="text" name="destination" class="center" value="<?php echo htmlspecialchars($destination); ?>"> 
-                        <div class="red-text"><?php echo $errors['destination']; ?></div>
-                        <label for="destination">DESTINATION</label>
-                        </div>
-                </div>
+        <div class="col s3 md3">
+          <div class="input-field">
+            <i class="material-icons prefix">flight_land</i>
+            <input type="text" name="destination" class="center" value="<?php echo htmlspecialchars($destination); ?>">
+            <div class="red-text"><?php echo $errors['destination']; ?></div>
+            <label for="destination">DESTINATION</label>
+          </div>
+        </div>
 
-                <div class="col s3 md3">
-                    <div class="center">
-                        <div class="input-field">
-                            <i class="material-icons prefix">calendar_today</i>
-                            <input type="text" id="flight-date" name="flight_date" class="datepicker-input" readonly>
-                            <label for="flight-date">DEPARTURE</label>
-                            <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col s3 md3 submitbtn">
-                    <div class="center">
-                        <input type="submit" name="submit" value="Submit" class="btn brand z-depth-0">
-                    </div>
-                </div>
-            </div>
-        </form>
-    </div>
-
-
-<section class="hero-carousel" style="background-image: url('assets/island.jpg');">
-  <div class="overlay-bg">
-    <div class="container">
-      <h4 class="center-align white-text">Places, You🫵 wanna to Visit</h4>
-
-      <div class="carousel">
-
-      <!-- Philippines -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Boracay, Philippines">
-          <div class="country-label">Philippines</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Philippines <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Boracay Island</p>
+        <div class="col s3 md3">
+          <div class="center">
+            <div class="input-field">
+              <i class="material-icons prefix">calendar_today</i>
+              <input type="text" id="flight-date" name="flight_date" class="datepicker-input" readonly>
+              <label for="flight-date">DEPARTURE</label>
+              <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Singapore -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Singapore">
-          <div class="country-label">Singapore</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Singapore <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Marina Bay Sands</p>
-            </div>
+        <div class="col s3 md3 submitbtn">
+          <div class="center">
+            <input type="submit" name="submit" value="Submit" class="btn brand z-depth-0">
           </div>
         </div>
       </div>
-
-      <!-- Malaysia -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Malaysia">
-          <div class="country-label">Malaysia</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Malaysia <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Petronas Towers, Kuala Lumpur</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Thailand -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Thailand">
-          <div class="country-label">Thailand</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Thailand <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Phuket Island</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Vietnam -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Vietnam">
-          <div class="country-label">Vietnam</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Vietnam <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Ha Long Bay</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Indonesia -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Indonesia">
-          <div class="country-label">Indonesia</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Indonesia <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Bali</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Brunei -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Brunei">
-          <div class="country-label">Brunei</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Brunei <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Omar Ali Saifuddien Mosque</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Cambodia -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Cambodia">
-          <div class="country-label">Cambodia</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Cambodia <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Angkor Wat</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Laos -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Laos">
-          <div class="country-label">Laos</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Laos <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Luang Prabang</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Myanmar -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Myanmar">
-          <div class="country-label">Myanmar</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Myanmar <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Bagan Temples</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Timor-Leste -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Timor-Leste">
-          <div class="country-label">Timor-Leste</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Timor-Leste <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Cristo Rei, Dili</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Japan -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Japan">
-          <div class="country-label">Japan</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Japan <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Tokyo Tower</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- South Korea -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="South Korea">
-          <div class="country-label">South Korea</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">South Korea <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Gyeongbokgung Palace, Seoul</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Taiwan -->
-      <div class="carousel-item">
-        <div class="destination-card">
-          <img src="assets/island.jpg" alt="Taiwan">
-          <div class="country-label">Taiwan</div>
-          <div class="card-reveal-overlay">
-            <div class="reveal-content">
-              <div class="card-title">Taiwan <span class="close-reveal">✕</span></div>
-              <p><strong>Location:</strong> Taipei 101</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div>
+    </form>
   </div>
-</section>
 
+  <!-- Carousel Section -->
+  <section class="hero-carousel" style="background-image: url('assets/island.jpg');">
+    <div class="overlay-bg">
+      <div class="container">
+        <h4 class="center-align white-text">Places, You🫵 wanna to Visit</h4>
 
+        <div class="carousel">
 
+          <!-- Destination Cards -->
+          <?php
+          $destinations = [
+            ["Philippines", "Boracay Island", "assets/tourist/boracay.jpg"],
+            ["Singapore", "Marina Bay Sands", "assets/tourist/singapore.jpg"],
+            ["Malaysia", "Petronas Towers, Kuala Lumpur", "assets/tourist/malaysia.jpg"],
+            ["Thailand", "Phuket Island", "assets/tourist/thailand.jpeg"],
+            ["Vietnam", "Ha Long Bay", "assets/tourist/vietnam.jpg"],
+            ["Indonesia", "Bali", "assets/tourist/indonesia.jpg"],
+            ["Brunei", "Omar Ali Saifuddien Mosque", "assets/tourist/brunei.jpg"],
+            ["Cambodia", "Angkor Wat", "assets/tourist/cambodia.jpg"],
+            ["Laos", "Luang Prabang", "assets/tourist/laos.webp"],
+            ["Myanmar", "Bagan Temples", "assets/tourist/myanmar.jpg"],
+            ["Timor-Leste", "Cristo Rei, Dili", "assets/tourist/timor_leste.jpg"],
+            ["Japan", "Tokyo Tower", "assets/tourist/japan.jpg"],
+            ["South Korea", "Gyeongbokgung Palace, Seoul", "assets/tourist/south_korea.jpg"],
+            ["Taiwan", "Taipei 101", "assets/tourist/taiwan.jpg"]
+          ];
 
+          foreach ($destinations as $dest) : ?>
+            <div class="carousel-item">
+              <div class="destination-card">
+                <img src="<?php echo $dest[2]; ?>" alt="<?php echo $dest[0]; ?>">
+                <div class="country-label"><?php echo $dest[0]; ?></div>
+                <div class="card-reveal-overlay">
+                  <div class="reveal-content">
+                    <div class="card-title"><?php echo $dest[0]; ?> <span class="close-reveal">✕</span></div>
+                    <p><strong>Location:</strong> <?php echo $dest[1]; ?></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <?php endforeach; ?>
 
-	
+        </div>
+      </div>
+    </div>
+  </section>
 
-	<div class="container">	<h6>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
-	tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
-	quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
-	consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
-	cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
-	proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</h6>
-	</div>
+  <!-- Info Section -->
+  <div class="container">
+    <h6>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat...</h6>
+  </div>
 
-	<?php include('templates/footer.php');?>
+  <!-- Materialize JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const carouselElems = document.querySelectorAll('.carousel');
+      M.Carousel.init(carouselElems, { indicators: false, dist: -50, padding: 20 });
+
+      const carouselElem = document.querySelector('.carousel');
+      if (!carouselElem) return;
+
+      const instance = M.Carousel.getInstance(carouselElem);
+      const items = [...carouselElem.querySelectorAll('.carousel-item')];
+      const cards = [...carouselElem.querySelectorAll('.destination-card')];
+
+      const hideAll = () => document.querySelectorAll('.card-reveal-overlay.active')
+        .forEach(o => o.classList.remove('active'));
+
+      cards.forEach((card, index) => {
+        const overlay = card.querySelector('.card-reveal-overlay');
+        const closeBtn = card.querySelector('.close-reveal');
+
+        card.querySelector('img')?.addEventListener('click', e => {
+          e.stopPropagation();
+          hideAll();
+          instance.set(index);
+          setTimeout(() => overlay?.classList.add('active'), 400);
+        });
+
+        closeBtn?.addEventListener('click', e => {
+          e.stopPropagation();
+          overlay?.classList.remove('active');
+        });
+      });
+
+      let last = -1;
+      setInterval(() => {
+        const cr = carouselElem.getBoundingClientRect();
+        const cx = cr.left + cr.width / 2;
+        const idx = items.reduce((b, it, i) => {
+          const r = it.getBoundingClientRect();
+          const d = Math.abs((r.left + r.width / 2) - cx);
+          return d < b[0] ? [d, i] : b;
+        }, [Infinity, 0])[1];
+        if (idx !== last) { hideAll(); last = idx; }
+      }, 150);
+
+      ['touchstart', 'mousedown', 'click'].forEach(evt => {
+        carouselElem.addEventListener(evt, e => {
+          if (!e.target.closest('.destination-card')) hideAll();
+        }, { passive: true });
+      });
+
+      if (typeof flatpickr !== "undefined") {
+        flatpickr("#flight-date", {
+          dateFormat: "Y-m-d",
+          altFormat: "F j",
+          minDate: "today",
+          allowInput: false,
+          onReady: function () { M.updateTextFields(); }
+        });
+      }
+    });
+  </script>
+
+  <?php include('templates/footer.php'); ?>
+
 </body>
 </html>
