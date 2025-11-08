@@ -1,17 +1,13 @@
 <head>
-	<title>TOURS</title>
-	<link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
-	<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
+  <title>TOURS</title>
+  <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-	<style type="text/css">
-	nav .brand-logo {
-  	left: 15px; 
-  	transform: none; 
-		}
-	.page-footer {
-  		margin: 0;      
-  		padding-bottom: 0;
-		}
+  <style type="text/css">
+  <style type="text/css">
+    
+  
+
 
   html, body { margin: 0; padding: 0; background-color: gray; }
 
@@ -119,6 +115,37 @@
     .destination-card img { height: 110px; }
     .country-label { font-size: 0.8rem; bottom: 6px; left: 6px; }
   }
+  nav{
+    background-image: url(assets/Banner.png);
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center center;
+    height: 100px;
+  }
+  a #tours{
+    left: 50px; 
+    size: 100px;
+    
+    }
+  .page-footer {
+      margin: 0;      
+      padding-bottom: 0;
+    }
+
+     #urs-logo{
+
+    height: 100px;
+    width: 140px;
+    
+
+  }
+  #sayd{
+    left: -25;
+  }
+  #mat{
+    color: purple;
+  }
+  
 
 
 
@@ -136,20 +163,35 @@
 
 
   
-	</style>
+  </style>
 </head>
 <body class="white lighten-4">
-<nav class="blue">
+<nav>
     <div class="nav-wrapper">
-      <a href="index.php" class="brand-logo center"><i class="material-icons hide-on-med-and-down">flight_takeoff</i>TOURS</a>
-      <a href="#" class="sidenav-trigger show-on-large" data-target="mobile-menu">                    
-                <i class="material-icons">menu</i>
-            </a>
-      <ul class="right hide-on-med-and-down">
-        <li><a class="btn wave-effect wave-light " href="ticket.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
-        <li><a class="btn wave-effect wave-light " href="#"><i class="material-icons left">login</i>Login</a></li>
-      </ul>
+
+              <a href="#" class="brand-logo center" id="tours"><i class="material-icons hide-on-med-and-down ">flight_takeoff</i>TOURS</a>
+          
+                <a href="#" class="sidenav-trigger show-on-large" data-target="mobile-menu" id="sayd">       
+                      
+                <i class="img" id="log">
+                  <img  src="assets/Logo.png" id="urs-logo" >
+                </i></a>  
+
+
+              <ul class="hide-on-med-and-down" id="asdasd">
+                <li><a class="" style="position: relative; top: 15px; right: -1250px;" id="lolap"><i class="material-icons left" id="mat">airplane_ticket</i>Get your tickets here</a></li>
+              </ul>  
+              <ul class=" hide-on-med-and-down" id="logen">
+                 <li><a class="" href="#" style="position: relative; top: 15px; right: -1400px;" ><i class="material-icons left" id="mat">login</i></a>Log-in</li>
+              </ul>  
+
+
+             
+        
     </div>
+   
+
+                
 
 
 
@@ -160,14 +202,13 @@
 
           </div></li>
           <li><a href="#">Travels</a></li>
-          <li><a href="#" >Ticket</a></li>
+          <li><a href="#" >TITE</a></li>
           <li><a href="#">Ewan</a></li>
   
     </ul>
 
 
-  </nav>
-    
+  </nav>   
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
@@ -175,3 +216,4 @@
     $('.sidenav').sidenav();
   });
 </script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
