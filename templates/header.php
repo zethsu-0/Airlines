@@ -182,7 +182,7 @@
                 <li><a class="" style="position: relative; top: 15px; right: -1250px;" id="lolap"><i class="material-icons left" id="mat">airplane_ticket</i>Get your tickets here</a></li>
               </ul>  
               <ul class=" hide-on-med-and-down" id="logen">
-                 <li><a class="" href="#" style="position: relative; top: 15px; right: -1400px;" ><i class="material-icons left" id="mat">login</i>Log-in</li></a>
+                 <li><a class="" href="#" style="position: relative; top: 15px; right: -1400px;" ><i class="material-icons left" id="mat">login</i>Log-in</a></li>
               </ul>  
 
 
