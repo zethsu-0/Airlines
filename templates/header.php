@@ -2,8 +2,7 @@
 	<title>TOURS</title>
 	<link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
 	<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 	<style type="text/css">
 	nav .brand-logo {
   	left: 15px; 
@@ -13,13 +12,12 @@
   		margin: 0;      
   		padding-bottom: 0;
 		}
-    
 	</style>
 </head>
 <body class="white lighten-4">
 <nav class="blue">
     <div class="nav-wrapper">
-      <a href="#" class="brand-logo center"><i class="material-icons hide-on-med-and-down">flight_takeoff</i>TOURS</a>
+      <a href="#!" class="brand-logo center"><i class="material-icons hide-on-med-and-down">flight_takeoff</i>TOURS</a>
       <a href="#" class="sidenav-trigger show-on-large" data-target="mobile-menu">                    
                 <i class="material-icons">menu</i>
             </a>
@@ -38,13 +36,14 @@
 
           </div></li>
           <li><a href="#">Travels</a></li>
-          <li><a href="#" >TITE</a></li>
+          <li><a href="#" >Ticket</a></li>
           <li><a href="#">Ewan</a></li>
   
     </ul>
 
 
-  </nav>   
+  </nav>
+    
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
@@ -52,4 +51,3 @@
     $('.sidenav').sidenav();
   });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
