@@ -41,13 +41,18 @@ if (isset($_POST['submit'])) {
         $errors['destination'] = 'Destination must be a valid IATA code (3 uppercase letters).';
     }
 
+    if (empty($errors['origin']) && empty($errors['destination'])) {
+    if ($origin === $destination) {
+        $errors['destination'] = 'Origin and destination cannot be the same.';
+    }
+    }
+
     if (empty($flight_date)) {
     $errors['flight_date'] = 'Departure date is required.';
     } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
         $errors['flight_date'] = 'Invalid date format.';
     }
 
-    // ✅ Continue only if no input validation errors
     if (!array_filter($errors)) {
 
         // Check origin in DB
@@ -64,7 +69,7 @@ if (isset($_POST['submit'])) {
             $error_message .= " Origin code not found.";
         }
 
-        // Check destination in DB
+
         $sql_destination = "SELECT AirportName, City, CountryRegion FROM airports WHERE IATACode = '$destination' LIMIT 1";
         $result_destination = $conn->query($sql_destination);
 
@@ -84,15 +89,13 @@ if (isset($_POST['submit'])) {
             $stmt->execute();
             $stmt->close();
             $success_message = "Flight submitted successfully!";
+            $origin = '';
+            $destination = '';
+            $flight_date = '';
             header("Location: " . $_SERVER['PHP_SELF']);
             exit;
         }
     }
-}
-
-if (isset($_POST['clear'])) {
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit;
 }
 
 $conn->close();
@@ -114,7 +117,7 @@ $conn->close();
             <div class="row">
                 <div class="col s3 md3">
                         <div class="input-field">
-                        <i class="material-icons prefix">flight_takeoff</i>
+                        <i class="material-icons prefix">pin_drop</i>
                         <input type="text" name="origin" class="center" value="<?php echo htmlspecialchars($origin); ?>">
                         <div class="red-text"><?php echo $errors['origin']; ?></div>
                         <label for="origin">ORIGIN</label>
@@ -236,16 +239,31 @@ $conn->close();
 </style>
 
 <script>
-flatpickr("#flight-date", {
-  dateFormat: "Y-m-d",      
-  altFormat: "F j",   
-  minDate: "today",
+document.addEventListener("DOMContentLoaded", function() {
+  const dateInput = document.getElementById("flight-date");
+
+  // Initialize Flatpickr and save the instance
+  const fp = flatpickr(dateInput, {
+    dateFormat: "Y-m-d",
+    altFormat: "F j",
+    minDate: "today",
     allowInput: false,
-  onReady: function() {
-    M.updateTextFields(); // refresh Materialize input labels
+    disableMobile: true,
+    onReady: function() {
+      M.updateTextFields();
+    }
+  });
+
+  // ✅ Reapply previously entered date if validation failed
+  const existingDate = "<?php echo isset($flight_date) ? $flight_date : ''; ?>";
+  if (existingDate) {
+    fp.setDate(existingDate, true);
+  }
+
+  // ✅ Add red border if PHP detected a flight_date error
+  const hasError = "<?php echo !empty($errors['flight_date']) ? 'true' : 'false'; ?>";
+  if (hasError === "true") {
+    dateInput.classList.add("invalid");
   }
 });
-
-
-
 </script>
