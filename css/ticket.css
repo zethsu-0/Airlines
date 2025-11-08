@@ -1,0 +1,125 @@
+/* === PAGE LAYOUT === */
+html, body {
+  height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: url('../assets/island.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.container {
+  flex: 1 0 auto;
+  padding: 40px 15px 20px;
+}
+
+/* === TICKET CARD === */
+.ticket-card {
+  background: rgba(255,255,255,0.95);
+  border-radius: 15px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+  padding: 20px;
+  margin-bottom: 15px;
+  position: relative;
+  border-left: 6px solid #2196f3;
+  transition: transform 0.2s ease;
+}
+
+.ticket-card:hover {
+  transform: scale(1.01);
+}
+
+.remove-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  color: #e53935;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+.counter {
+  font-weight: bold;
+  font-size: 1.2rem;
+  color: #0d47a1;
+  margin-bottom: 10px;
+}
+
+label {
+  color: #0d47a1;
+  font-weight: bold;
+}
+
+/* === ADD BUTTON (+) === */
+.add-btn {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+#addTicketBtn {
+  font-size: 2rem;
+  width: 56px;
+  height: 56px;
+  background-color: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.25);
+  transition: transform 0.2s ease, background 0.3s ease;
+}
+
+#addTicketBtn:hover {
+  transform: scale(1.1);
+  background-color: #1976d2;
+}
+
+/* === CONFIRM BOOKING BUTTON === */
+.form-actions {
+  margin-top: 40px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.form-actions .btn {
+  border-radius: 50px;
+  font-weight: bold;
+  padding: 14px 36px;
+  font-size: 1rem;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #2196f3;
+  color: white;
+  transition: all 0.2s ease-in-out;
+}
+
+.form-actions .btn:hover {
+  background-color: #1976d2;
+  transform: scale(1.05);
+}
+
+/* === RESPONSIVE === */
+@media (max-width: 600px) {
+  .row .col.s6 {
+    width: 100%;
+  }
+
+  .form-actions {
+    justify-content: center;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+    border-radius: 30px;
+  }
+}

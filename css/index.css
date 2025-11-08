@@ -1,0 +1,76 @@
+/* === Global Layout === */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: #fff; /* make the page background white */
+}
+
+/* Make main content grow to push footer down */
+body > .container:first-of-type,
+main {
+  flex: 1 0 auto;
+}
+
+/* === Booking Form Card === */
+.bg-container .card {
+  background-color: rgba(255, 255, 255, 0.95); /* slightly transparent white */
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* soft shadow */
+  border-radius: 12px;
+  padding: 20px;
+}
+
+/* Remove unwanted gray in input fields */
+.input-field input,
+.input-field textarea {
+  background-color: transparent !important;
+  color: #000;
+}
+
+/* Materialize labels color fix */
+.input-field label {
+  color: #333;
+}
+
+/* === Carousel Section === */
+/* We leave the carousel intact as requested */
+
+/* === Info Section / Lorem text === */
+.container {
+  background-color: transparent !important; /* remove gray behind containers */
+  padding: 20px 0;
+}
+
+.container h6 {
+  background-color: transparent !important;
+  color: #000;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+/* === Footer Transparency === */
+footer.page-footer {
+  background-color: rgba(33, 150, 243, 0.85) !important;
+  color: white !important;
+  width: 100% !important;
+  box-shadow: 0 -2px 5px rgba(0,0,0,0.2) !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  z-index: 9999 !important;
+}
+
+footer.page-footer .footer-copyright {
+  background-color: rgba(25, 118, 210, 0.6) !important;
+  text-align: center !important;
+  padding: 10px 0 !important;
+  font-weight: bold !important;
+}
+
+/* === Buttons / Branding === */
+.btn.brand {
+  background-color: #2196F3 !important;
+  color: #fff !important;
+  text-transform: uppercase;
+}
