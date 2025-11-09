@@ -184,8 +184,8 @@ $conn->close();
             ["Myanmar", "Bagan Temples", "assets/tourist/myanmar.jpg"],
             ["Timor-Leste", "Cristo Rei, Dili", "assets/tourist/timor_leste.jpg"],
             ["Japan", "Tokyo Tower", "assets/tourist/japan.jpg"],
-            ["South Korea", "Gyeongbokgung Palace, Seoul", "assets/tourist/south_korea.jpg"],
-            ["Taiwan", "Taipei 101", "assets/tourist/taiwan.jpg"]
+            ["Taiwan", "Taipei 101", "assets/tourist/taiwan.jpg"],
+            ["Hong Kong", "Disney Land", "assets/tourist/hong_kong.jpg"]
           ];
 
           foreach ($destinations as $dest) : ?>
