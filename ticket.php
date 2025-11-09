@@ -6,8 +6,7 @@
   <meta charset="UTF-8">
   <title>Flight Booking</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Materialize CSS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/ticket.css">
 </head>
 
@@ -15,9 +14,8 @@
   <div class="container">
     <h4 class="center-align">🎫 Plane Ticket Booking</h4>
 
-    <form id="bookingForm">
+    <form id="bookingForm" method="POST" action="save_booking.php">
       <div id="ticketContainer">
-        <!-- Default Passenger -->
         <div class="ticket-card">
           <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
           <div class="counter">Passenger 1</div>
@@ -29,17 +27,39 @@
 
           <div class="row">
             <div class="input-field col s6">
-              <input type="number" name="age[]" min="0" required>
+              <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)">
               <label>Age</label>
             </div>
             <div class="input-field col s6">
-              <select name="special[]" required>
-                <option value="Regular" selected>Regular</option>
-                <option value="Child">Child (Below 12)</option>
-                <option value="Elderly">Elderly (60+)</option>
-                <option value="PWD">PWD</option>
-              </select>
+              <input type="text" name="special[]" readonly disabled placeholder="Adult/Minor/Senior">
               <label>Passenger Type</label>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col s6">
+              <span class="field-title">Gender</span><br>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Male" required>
+                <span class="checkmark"></span> Male
+              </label>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Female">
+                <span class="checkmark"></span> Female
+              </label>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Prefer not to say">
+                <span class="checkmark"></span> Prefer not to say
+              </label>
+            </div>
+
+            <div class="col s6 pwd-group">
+              <span class="field-title">Disability</span><br>
+              <label class="custom-checkbox-inline">
+                <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
+                <span class="checkmark"></span> 
+              </label>
+              <input type="text" name="impairment[]" class="impairment-field" placeholder="Specify" disabled style="display:none;">
             </div>
           </div>
 
@@ -56,41 +76,38 @@
 
           <div class="row">
             <div class="input-field col s6">
-              <input type="text" class="datepicker" name="date[]" required>
-              <label>Departure Date</label>
-            </div>
-            <div class="input-field col s6">
               <input type="text" name="seat[]" required>
               <label>Seat Type</label>
+            </div>
+            <div class="input-field col s6">
+              <input type="text" class="datepicker" name="date[]" required>
+              <label>Departure Date</label>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Add More Button -->
       <div class="add-btn">
-        <button type="button" id="addTicketBtn">+</button>
+        <button type="button" id="addTicketBtn" class="btn-floating blue">+</button>
       </div>
 
-      <!-- Confirm Booking -->
       <div class="form-actions">
-        <button type="submit" class="btn waves-effect waves-light">
-          Confirm Booking
-        </button>
+        <button type="submit" class="btn waves-effect waves-light">Confirm Booking</button>
       </div>
     </form>
   </div>
 
-  <!-- Materialize JS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-
   <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      M.FormSelect.init(document.querySelectorAll('select'));
-      M.Datepicker.init(document.querySelectorAll('.datepicker'), {
+    function initDatepickers(container) {
+      M.Datepicker.init(container.querySelectorAll('.datepicker'), {
         format: 'yyyy-mm-dd',
         minDate: new Date()
       });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      initDatepickers(document);
     });
 
     let ticketCount = 1;
@@ -103,79 +120,57 @@
       }
 
       const container = document.getElementById('ticketContainer');
-      const newCard = document.createElement('div');
-      newCard.classList.add('ticket-card');
+      const firstTicket = container.querySelector('.ticket-card');
+      const newTicket = firstTicket.cloneNode(true);
+      ticketCount++;
 
-      newCard.innerHTML = `
-        <button type="button" class="remove-btn" onclick="removeTicket(this)">✕</button>
-        <div class="counter">Passenger ${ticketCount + 1}</div>
-        <div class="input-field">
-          <input type="text" name="name[]" required>
-          <label>Full Name</label>
-        </div>
-        <div class="row">
-          <div class="input-field col s6">
-            <input type="number" name="age[]" min="0" required>
-            <label>Age</label>
-          </div>
-          <div class="input-field col s6">
-            <select name="special[]" required>
-              <option value="Regular" selected>Regular</option>
-              <option value="Child">Child (Below 12)</option>
-              <option value="Elderly">Elderly (60+)</option>
-              <option value="PWD">PWD</option>
-            </select>
-            <label>Passenger Type</label>
-          </div>
-        </div>
-        <div class="row">
-          <div class="input-field col s6">
-            <input type="text" name="from[]" required>
-            <label>From</label>
-          </div>
-          <div class="input-field col s6">
-            <input type="text" name="to[]" required>
-            <label>To</label>
-          </div>
-        </div>
-        <div class="row">
-          <div class="input-field col s6">
-            <input type="text" class="datepicker" name="date[]" required>
-            <label>Departure Date</label>
-          </div>
-          <div class="input-field col s6">
-            <input type="text" name="seat[]" required>
-            <label>Seat Type</label>
-          </div>
-        </div>
-      `;
-
-      container.appendChild(newCard);
-      M.FormSelect.init(newCard.querySelectorAll('select'));
-      M.Datepicker.init(newCard.querySelectorAll('.datepicker'), {
-        format: 'yyyy-mm-dd',
-        minDate: new Date()
+      newTicket.querySelectorAll('input').forEach(input => {
+        if (['checkbox', 'radio'].includes(input.type)) input.checked = false;
+        else input.value = '';
       });
 
-      ticketCount++;
+      newTicket.querySelectorAll('input[type="radio"]').forEach(r => {
+        const index = ticketCount - 1;
+        r.name = `gender[${index}]`;
+      });
+
+      const impairmentField = newTicket.querySelector('.impairment-field');
+      impairmentField.style.display = 'none';
+      impairmentField.disabled = true;
+
+      newTicket.querySelector('.counter').textContent = `Passenger ${ticketCount}`;
+      newTicket.querySelector('.remove-btn').style.display = 'block';
+
+      container.appendChild(newTicket);
+      M.updateTextFields();
+      initDatepickers(newTicket);
     });
 
     function removeTicket(btn) {
       btn.parentElement.remove();
       ticketCount--;
-      updateCounters();
-    }
-
-    function updateCounters() {
       document.querySelectorAll('.counter').forEach((c, i) => {
         c.textContent = `Passenger ${i + 1}`;
       });
     }
 
-    document.getElementById('bookingForm').addEventListener('submit', e => {
-      e.preventDefault();
-      M.toast({ html: 'Booking data ready to send to backend!' });
-    });
+    function checkAge(input) {
+      let age = parseInt(input.value);
+      if (!isNaN(age) && age > 130) { age = 130; input.value = age; }
+      const card = input.closest('.ticket-card');
+      const typeField = card.querySelector('input[name="special[]"]');
+      if (!isNaN(age)) {
+        if (age <= 17) typeField.value = 'Minor';
+        else if (age >= 60) typeField.value = 'Senior';
+        else typeField.value = 'Regular';
+      } else { typeField.value = ''; }
+    }
+
+    function toggleImpairment(checkbox) {
+      const field = checkbox.closest('.pwd-group').querySelector('.impairment-field');
+      if (checkbox.checked) { field.style.display = 'inline-block'; field.disabled = false; }
+      else { field.style.display = 'none'; field.disabled = true; field.value = ''; }
+    }
   </script>
 
   <?php include('templates/footer.php'); ?>
