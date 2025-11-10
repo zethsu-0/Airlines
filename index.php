@@ -1,103 +1,76 @@
 
 <?php
 $conn = mysqli_connect('localhost', 'root', '', 'airlines');
-
 if (!$conn) {
     die('Connection error: ' . mysqli_connect_error());
 }
-
-$origin = '';
-$destination = '';
-$origin_airline = '';
-$destination_airline = '';
-$origin_city = '';
-$destination_city = '';
-$origin_country = '';
-$destination_country = '';
-$flight_date = '';
-$success_message = '';
-$error_message = '';
-
-$errors = [
-    'origin' => '',
-    'destination' => ''
-];
+$origin = strtoupper(trim($_POST['origin'] ?? ''));
+$destination = strtoupper(trim($_POST['destination'] ?? ''));
+$flight_date = trim($_POST['flight_date'] ?? '');
+$errors = [];
 
 if (isset($_POST['submit'])) {
-    $origin = strtoupper(trim($_POST['origin']));
-    $destination = strtoupper(trim($_POST['destination']));
-    $flight_date = trim($_POST['flight_date']);
 
-    // ✅ Validate Origin input
-    if (empty($origin)) {
-        $errors['origin'] = 'Origin code is required.';
-    } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
-        $errors['origin'] = 'Origin must be a valid IATA code (3 uppercase letters).';
-    }
+// ---------- VALIDATION ----------
 
-    // ✅ Validate Destination input
-    if (empty($destination)) {
-        $errors['destination'] = 'Destination code is required.';
-    } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
-        $errors['destination'] = 'Destination must be a valid IATA code (3 uppercase letters).';
-    }
+// Origin required + 3 letters
+if (empty($origin)) {
+    $errors['origin'] = 'Origin code is required.';
+} elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
+    $errors['origin'] = 'Origin must be 3 uppercase letters.';
+}
 
-    if (empty($flight_date)) {
+// Destination required + 3 letters
+if (empty($destination)) {
+    $errors['destination'] = 'Destination code is required.';
+} elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
+    $errors['destination'] = 'Destination must be 3 uppercase letters.';
+}
+
+// Origin ≠ Destination
+if ($origin === $destination && !empty($origin)) {
+    $errors['destination'] = 'Destination code cannot be the same as origin.';
+}
+
+// Flight date required
+if (empty($flight_date)) {
     $errors['flight_date'] = 'Departure date is required.';
-    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-        $errors['flight_date'] = 'Invalid date format.';
-    }
-
-    // ✅ Continue only if no input validation errors
-    if (!array_filter($errors)) {
-
-        // Check origin in DB
-        $sql_origin = "SELECT AirportName, City, CountryRegion FROM airports WHERE IATACode = '$origin' LIMIT 1";
-        $result_origin = $conn->query($sql_origin);
-
-        if ($result_origin && $result_origin->num_rows > 0) {
-            $row = $result_origin->fetch_assoc();
-            $origin_city = $row['City'];
-            $origin_airline = $row['AirportName'];
-            $origin_country = $row['CountryRegion'];
-        } else {
-            $origin_airline = "Invalid code ($origin)";
-            $error_message .= " Origin code not found.";
-        }
-
-        // Check destination in DB
-        $sql_destination = "SELECT AirportName, City, CountryRegion FROM airports WHERE IATACode = '$destination' LIMIT 1";
-        $result_destination = $conn->query($sql_destination);
-
-        if ($result_destination && $result_destination->num_rows > 0) {
-            $row = $result_destination->fetch_assoc();
-            $destination_city = $row['City'];
-            $destination_airline = $row['AirportName'];
-            $destination_country = $row['CountryRegion'];
-        } else {
-            $destination_airline = "Invalid code ($destination)";
-            $error_message .= " Destination code not found.";
-        }
-
-        if ($result_origin || $result_destination) {
-            $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
-            $stmt->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
-            $stmt->execute();
-            $stmt->close();
-            $success_message = "Flight submitted successfully!";
-            header("Location: " . $_SERVER['PHP_SELF']);
-            exit;
-        }
-    }
+} elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+    $errors['flight_date'] = 'Invalid date format.';
 }
 
-if (isset($_POST['clear'])) {
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit;
-}
+// ---------- INSERT IF VALID ----------
+if (empty($errors)) {
 
+    // Lookup origin airline
+    $result_origin = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$origin' LIMIT 1");
+    $origin_airline = ($result_origin && $result_origin->num_rows > 0) 
+        ? $result_origin->fetch_assoc()['AirportName'] 
+        : "Invalid code ($origin)";
+
+    // Lookup destination airline
+    $result_destination = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$destination' LIMIT 1");
+    $destination_airline = ($result_destination && $result_destination->num_rows > 0) 
+        ? $result_destination->fetch_assoc()['AirportName'] 
+        : "Invalid code ($destination)";
+
+    // Insert into DB
+    $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
+    $stmt->execute();
+   
+    $last_id = $stmt->insert_id;
+
+    $stmt->close();
+
+    header("Location: ticket.php?id=$last_id");
+    
+    $origin = $destination = $flight_date = '';
+}
+}
 $conn->close();
 ?>
+
 
 
 
@@ -126,8 +99,8 @@ $conn->close();
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_takeoff</i>
-            <input type="text" name="origin" class="center" value="<?php echo htmlspecialchars($origin); ?>">
-            <div class="red-text"><?php echo $errors['origin']; ?></div>
+            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin); ?>">
+            <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
             <label for="origin">ORIGIN</label>
           </div>
         </div>
@@ -135,8 +108,8 @@ $conn->close();
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_land</i>
-            <input type="text" name="destination" class="center" value="<?php echo htmlspecialchars($destination); ?>">
-            <div class="red-text"><?php echo $errors['destination']; ?></div>
+            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination); ?>">
+            <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
             <label for="destination">DESTINATION</label>
           </div>
         </div>
@@ -145,7 +118,8 @@ $conn->close();
           <div class="center">
             <div class="input-field">
               <i class="material-icons prefix">calendar_today</i>
-              <input type="text" id="flight-date" name="flight_date" class="datepicker-input" readonly>
+              <input type="text" id="flight-date" name="flight_date" class="datepicker-input" 
+       value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
               <label for="flight-date">DEPARTURE</label>
               <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
             </div>
@@ -153,8 +127,9 @@ $conn->close();
         </div>
 
         <div class="col s3 md3 submitbtn">
-          <div class="center">
-            <input type="submit" name="submit" value="Submit" class="btn brand z-depth-0">
+            <div class="center">
+              <input type="button" id="submitBtn" name="doSubmit" value="Submit" class="btn brand z-depth-0">
+            </div>
           </div>
         </div>
       </div>
@@ -207,6 +182,17 @@ $conn->close();
       </div>
     </div>
   </section>
+  <!-- Confirmation Modal -->
+  <div id="confirmModal" class="modal">
+    <div class="modal-content center">
+      <h5>Confirm Submission</h5>
+      <p>Are you sure you want to submit this flight?</p>
+    </div>
+    <div class="modal-footer center">
+      <button class="modal-close btn-flat red-text" id="cancelBtn">Cancel</button>
+      <button type="button" class="modal-close btn green" id="confirmBtn">Confirm</button>
+    </div>
+  </div>
 
   <!-- Info Section -->
   <div class="container">
@@ -215,70 +201,149 @@ $conn->close();
 
   <!-- Materialize JS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-
+  
   <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      const carouselElems = document.querySelectorAll('.carousel');
-      M.Carousel.init(carouselElems, { indicators: false, dist: -50, padding: 20 });
+document.addEventListener('DOMContentLoaded', function () {
 
-      const carouselElem = document.querySelector('.carousel');
-      if (!carouselElem) return;
+  // ==============================
+  // 1. Initialize Materialize Carousel
+  // ==============================
+  const carouselElems = document.querySelectorAll('.carousel');
+  M.Carousel.init(carouselElems, { indicators: false, dist: -50, padding: 20 });
 
-      const instance = M.Carousel.getInstance(carouselElem);
-      const items = [...carouselElem.querySelectorAll('.carousel-item')];
-      const cards = [...carouselElem.querySelectorAll('.destination-card')];
+  const carouselElem = document.querySelector('.carousel');
+  if (carouselElem) {
+    const instance = M.Carousel.getInstance(carouselElem);
+    const items = [...carouselElem.querySelectorAll('.carousel-item')];
+    const cards = [...carouselElem.querySelectorAll('.destination-card')];
 
-      const hideAll = () => document.querySelectorAll('.card-reveal-overlay.active')
-        .forEach(o => o.classList.remove('active'));
+    const hideAll = () => document.querySelectorAll('.card-reveal-overlay.active')
+      .forEach(o => o.classList.remove('active'));
 
-      cards.forEach((card, index) => {
-        const overlay = card.querySelector('.card-reveal-overlay');
-        const closeBtn = card.querySelector('.close-reveal');
+    cards.forEach((card, index) => {
+      const overlay = card.querySelector('.card-reveal-overlay');
+      const closeBtn = card.querySelector('.close-reveal');
 
-        card.querySelector('img')?.addEventListener('click', e => {
-          e.stopPropagation();
-          hideAll();
-          instance.set(index);
-          setTimeout(() => overlay?.classList.add('active'), 400);
-        });
-
-        closeBtn?.addEventListener('click', e => {
-          e.stopPropagation();
-          overlay?.classList.remove('active');
-        });
+      card.querySelector('img')?.addEventListener('click', e => {
+        e.stopPropagation();
+        hideAll();
+        instance.set(index);
+        setTimeout(() => overlay?.classList.add('active'), 400);
       });
 
-      let last = -1;
-      setInterval(() => {
-        const cr = carouselElem.getBoundingClientRect();
-        const cx = cr.left + cr.width / 2;
-        const idx = items.reduce((b, it, i) => {
-          const r = it.getBoundingClientRect();
-          const d = Math.abs((r.left + r.width / 2) - cx);
-          return d < b[0] ? [d, i] : b;
-        }, [Infinity, 0])[1];
-        if (idx !== last) { hideAll(); last = idx; }
-      }, 150);
-
-      ['touchstart', 'mousedown', 'click'].forEach(evt => {
-        carouselElem.addEventListener(evt, e => {
-          if (!e.target.closest('.destination-card')) hideAll();
-        }, { passive: true });
+      closeBtn?.addEventListener('click', e => {
+        e.stopPropagation();
+        overlay?.classList.remove('active');
       });
-
-      if (typeof flatpickr !== "undefined") {
-        flatpickr("#flight-date", {
-          dateFormat: "Y-m-d",
-          altFormat: "F j",
-          minDate: "today",
-          allowInput: false,
-          onReady: function () { M.updateTextFields(); }
-        });
-      }
     });
-  </script>
 
-  <?php include('templates/footer.php'); ?>
+    let last = -1;
+    setInterval(() => {
+      const cr = carouselElem.getBoundingClientRect();
+      const cx = cr.left + cr.width / 2;
+      const idx = items.reduce((b, it, i) => {
+        const r = it.getBoundingClientRect();
+        const d = Math.abs((r.left + r.width / 2) - cx);
+        return d < b[0] ? [d, i] : b;
+      }, [Infinity, 0])[1];
+      if (idx !== last) { hideAll(); last = idx; }
+    }, 150);
+
+    ['touchstart', 'mousedown', 'click'].forEach(evt => {
+      carouselElem.addEventListener(evt, e => {
+        if (!e.target.closest('.destination-card')) hideAll();
+      }, { passive: true });
+    });
+  }
+
+  // ==============================
+  // 2. Initialize Flatpickr
+  // ==============================
+  if (typeof flatpickr !== "undefined") {
+    flatpickr("#flight-date", {
+      dateFormat: "Y-m-d",
+      altFormat: "F j",
+      minDate: "today",
+      allowInput: false,
+      onReady: function () { M.updateTextFields(); }
+    });
+  }
+
+  // ==============================
+  // 3. Initialize Materialize Modal + Form Submit
+  // ==============================
+  const modalElem = document.querySelector('#confirmModal');
+  const modalInstance = M.Modal.init(modalElem);
+  const form = document.querySelector('form');
+  const submitBtn = document.getElementById('submitBtn');
+  const confirmBtn = document.getElementById('confirmBtn');
+
+  submitBtn.addEventListener('click', function () {
+    modalInstance.open();
+  });
+
+  confirmBtn.addEventListener('click', function () {
+    console.log("Submitting form...");
+
+    // Remove any previous hidden submit input
+    const old = form.querySelector('input[name="submit"]');
+    if (old) old.remove();
+
+    // Add hidden submit input for PHP
+    const hiddenSubmit = document.createElement('input');
+    hiddenSubmit.type = 'hidden';
+    hiddenSubmit.name = 'submit';
+    hiddenSubmit.value = 'true';
+    form.appendChild(hiddenSubmit);
+
+    // Call native form submit safely
+    HTMLFormElement.prototype.submit.call(form);
+  });
+
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    const modalElem = document.querySelector('#confirmModal');
+    const modalInstance = M.Modal.init(modalElem);
+
+    const form = document.querySelector('form');
+    const submitBtn = document.getElementById('submitBtn');
+    const confirmBtn = document.getElementById('confirmBtn');
+
+    // Open modal on submit click only if no validation errors
+    submitBtn.addEventListener('click', function() {
+        const originError = document.querySelector('#origin + .red-text')?.textContent.trim();
+        const destinationError = document.querySelector('#destination + .red-text')?.textContent.trim();
+        const dateError = document.querySelector('#flight-date + .red-text')?.textContent.trim();
+
+        if (!originError && !destinationError && !dateError) {
+            modalInstance.open();
+        }
+    });
+
+    // Confirm modal -> submit form
+    confirmBtn.addEventListener('click', function() {
+        // Remove any old hidden input
+        const oldSubmit = form.querySelector('input[name="submit"]');
+        if (oldSubmit) oldSubmit.remove();
+
+        const hiddenSubmit = document.createElement('input');
+        hiddenSubmit.type = 'hidden';
+        hiddenSubmit.name = 'submit';
+        hiddenSubmit.value = 'true';
+        form.appendChild(hiddenSubmit);
+
+        // Submit form normally
+        form.submit();
+    });
+
+});
+
+
+</script>
 
 </body>
+<?php include('templates/footer.php'); ?>
 </html>
+

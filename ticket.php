@@ -1,3 +1,38 @@
+<?php
+$conn = mysqli_connect('localhost','root','','airlines');
+if (!$conn) { die('Connection error: ' . mysqli_connect_error()); }
+
+// Get the flight ID from URL
+$flight_id = $_GET['id'] ?? null;
+
+if (!$flight_id) {
+    // No flight specified → go back to index
+    header("Location: index.php");
+    exit;
+}
+
+// Fetch flight info
+$sql = "SELECT origin_code, destination_code FROM submitted_flights WHERE id = ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("i", $flight_id);
+$stmt->execute();
+$result = $stmt->get_result();
+
+if ($result->num_rows === 0) {
+    // Flight not found → go back
+    header("Location: index.php");
+    exit;
+}
+
+$flight = $result->fetch_assoc();
+$stmt->close();
+$conn->close();
+?>
+
+
+
+
+
 <!DOCTYPE html>
 <html lang="en">
 <?php include('templates/header.php'); ?>
@@ -13,6 +48,17 @@
 <body>
   <div class="container">
     <h4 class="center-align">🎫 Plane Ticket Booking</h4>
+
+      <!-- mababago after meron ng login -->
+
+      <div class="container center white flight-container">
+        <span><?php echo htmlspecialchars($flight['origin_code']); ?></span>
+        <i class="material-icons prefix">calendar_today</i>
+        <span><?php echo htmlspecialchars($flight['destination_code']); ?></span>
+    </div>
+      <!-- mababago after meron ng login -->
+      <!-- design nalang hahahha -->
+
 
     <form id="bookingForm" method="POST" action="save_booking.php">
       <div id="ticketContainer">

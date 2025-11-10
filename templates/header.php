@@ -3,10 +3,9 @@
   <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
     <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
-  <style type="text/css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"> 
   <style type="text/css">
     
-  
 
 
   html, body { margin: 0; padding: 0; background-color: gray; }
@@ -211,9 +210,11 @@
   </nav>   
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
   $(document).ready(function(){
     $('.sidenav').sidenav();
   });
+
 </script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+

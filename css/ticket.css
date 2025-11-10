@@ -73,3 +73,12 @@ label, .field-title { font-weight: bold; color: #666; }
   .form-actions { justify-content: center; }
   .form-actions .btn { width: 100%; }
 }
+.flight-container{
+  background-color: #00aaff !important;
+  padding: 20px;
+}
+.flight-container span {
+    font-weight: bold;
+    font-size: 2rem;
+    margin: 0 5px;
+}
