@@ -146,29 +146,13 @@
   }
   
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
   </style>
 </head>
 <body class="white lighten-4">
 <nav>
     <div class="nav-wrapper">
 
-              <a href="#" class="brand-logo center" id="tours"><i class="material-icons hide-on-med-and-down ">flight_takeoff</i>TOURS</a>
+              <a href="index.php" class="brand-logo center" id="tours"><i class="material-icons hide-on-med-and-down ">flight_takeoff</i>TOURS</a>
           
                 <a href="#" class="sidenav-trigger show-on-large" data-target="mobile-menu" id="sayd">       
                       

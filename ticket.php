@@ -1,33 +1,46 @@
 <?php
-$conn = mysqli_connect('localhost','root','','airlines');
-if (!$conn) { die('Connection error: ' . mysqli_connect_error()); }
+session_start();
 
-// Get the flight ID from URL
-$flight_id = $_GET['id'] ?? null;
+$conn = mysqli_connect('localhost', 'root', '', 'airlines');
+if (!$conn) {
+    die('Connection error: ' . mysqli_connect_error());
+}
 
-if (!$flight_id) {
-    // No flight specified → go back to index
+// ✅ 1. Check session first
+if (!isset($_SESSION['flight_id'])) {
     header("Location: index.php");
     exit;
 }
 
-// Fetch flight info
-$sql = "SELECT origin_code, destination_code FROM submitted_flights WHERE id = ?";
-$stmt = $conn->prepare($sql);
+// ✅ 2. Assign flight_id after confirming session exists
+$flight_id = $_SESSION['flight_id'] ?? ($_GET['id'] ?? null);
+
+if (!$flight_id) {
+    header("Location: index.php");
+    exit;
+}
+if (isset($_POST['new_booking'])) {
+    unset($_SESSION['flight_id']); // only remove flight_id, keep session
+}
+
+
+// ✅ 3. Now safely query
+$stmt = $conn->prepare("SELECT origin_code, destination_code, flight_date FROM submitted_flights WHERE id = ?");
 $stmt->bind_param("i", $flight_id);
 $stmt->execute();
 $result = $stmt->get_result();
 
 if ($result->num_rows === 0) {
-    // Flight not found → go back
     header("Location: index.php");
     exit;
 }
 
 $flight = $result->fetch_assoc();
+
 $stmt->close();
 $conn->close();
 ?>
+
 
 
 
@@ -47,18 +60,12 @@ $conn->close();
 
 <body>
   <div class="container">
+    <form action="index.php" method="POST">
+    <button type="submit" class="btn waves-effect waves-light blue darken-2" name="new_booking">
+        Book Another Flight
+    </button>
+    </form>
     <h4 class="center-align">🎫 Plane Ticket Booking</h4>
-
-      <!-- mababago after meron ng login -->
-
-      <div class="container center white flight-container">
-        <span><?php echo htmlspecialchars($flight['origin_code']); ?></span>
-        <i class="material-icons prefix">calendar_today</i>
-        <span><?php echo htmlspecialchars($flight['destination_code']); ?></span>
-    </div>
-      <!-- mababago after meron ng login -->
-      <!-- design nalang hahahha -->
-
 
     <form id="bookingForm" method="POST" action="save_booking.php">
       <div id="ticketContainer">
@@ -67,7 +74,7 @@ $conn->close();
           <div class="counter">Passenger 1</div>
 
           <div class="input-field">
-            <input type="text" name="name[]" required>
+            <input type="text" name="name[]" required autocomplete="false">
             <label>Full Name</label>
           </div>
 
@@ -111,12 +118,12 @@ $conn->close();
 
           <div class="row">
             <div class="input-field col s6">
-              <input type="text" name="from[]" required>
-              <label>From</label>
+              <h6>FROM</h6>
+              <span><?php echo htmlspecialchars($flight['origin_code']); ?></span>
             </div>
             <div class="input-field col s6">
-              <input type="text" name="to[]" required>
-              <label>To</label>
+              <h6>TO</h6>
+              <span><?php echo htmlspecialchars($flight['destination_code']); ?></span>
             </div>
           </div>
 
@@ -124,10 +131,13 @@ $conn->close();
             <div class="input-field col s6">
               <input type="text" name="seat[]" required>
               <label>Seat Type</label>
+          <!-- DROPDOWN TAS RADIO BUTTON NALANG TO? OR ANOTHER PAGE PARA SA PAGPILI NG SEAT TYPE? -->
             </div>
+
             <div class="input-field col s6">
-              <input type="text" class="datepicker" name="date[]" required>
-              <label>Departure Date</label>
+              <h6>DEPARTURE DATE</h6>
+              <span><?php echo htmlspecialchars($flight['flight_date']); ?></span>
+            </div>
             </div>
           </div>
         </div>
@@ -154,6 +164,9 @@ $conn->close();
 
     document.addEventListener('DOMContentLoaded', function () {
       initDatepickers(document);
+      var elems = document.querySelectorAll('.dropdown-trigger');
+      var instances = M.Dropdown.init(elems, options);
+
     });
 
     let ticketCount = 1;

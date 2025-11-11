@@ -1,5 +1,8 @@
-
 <?php
+session_start();
+if (!empty($_SESSION['flight_id'])) {
+    unset($_SESSION['flight_id']); // clear last booking
+} 
 $conn = mysqli_connect('localhost', 'root', '', 'airlines');
 if (!$conn) {
     die('Connection error: ' . mysqli_connect_error());
@@ -9,7 +12,7 @@ $destination = strtoupper(trim($_POST['destination'] ?? ''));
 $flight_date = trim($_POST['flight_date'] ?? '');
 $errors = [];
 
-if (isset($_POST['submit'])) {
+if (isset($_POST['form_submit'])) {
 
 // ---------- VALIDATION ----------
 
@@ -60,6 +63,7 @@ if (empty($errors)) {
     $stmt->execute();
    
     $last_id = $stmt->insert_id;
+    $_SESSION['flight_id'] = $last_id;
 
     $stmt->close();
 
@@ -86,7 +90,6 @@ $conn->close();
 </head>
 
 <body>
-
   <!-- Hero Section -->
   <section class="center-align">
     <img src="assets/island2.jpg" alt="Island" class="responsive-img">
@@ -128,7 +131,7 @@ $conn->close();
 
         <div class="col s3 md3 submitbtn">
             <div class="center">
-              <input type="button" id="submitBtn" name="doSubmit" value="Submit" class="btn brand z-depth-0">
+              <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0">
             </div>
           </div>
         </div>
@@ -190,7 +193,7 @@ $conn->close();
     </div>
     <div class="modal-footer center">
       <button class="modal-close btn-flat red-text" id="cancelBtn">Cancel</button>
-      <button type="button" class="modal-close btn green" id="confirmBtn">Confirm</button>
+      <button type="button" class=" btn green" id="confirmBtn">Confirm</button>
     </div>
   </div>
 
@@ -203,7 +206,7 @@ $conn->close();
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   
   <script>
-document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function () {
 
   // ==============================
   // 1. Initialize Materialize Carousel
@@ -272,73 +275,95 @@ document.addEventListener('DOMContentLoaded', function () {
   // ==============================
   // 3. Initialize Materialize Modal + Form Submit
   // ==============================
-  const modalElem = document.querySelector('#confirmModal');
+ const modalElem = document.querySelector('#confirmModal');
   const modalInstance = M.Modal.init(modalElem);
   const form = document.querySelector('form');
   const submitBtn = document.getElementById('submitBtn');
   const confirmBtn = document.getElementById('confirmBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
 
-  submitBtn.addEventListener('click', function () {
-    modalInstance.open();
+  // Validation function
+  function validateForm() {
+    const originInput = document.getElementById('origin');
+    const destinationInput = document.getElementById('destination');
+    const dateInput = document.getElementById('flight-date');
+
+    const originErrorDiv = originInput.nextElementSibling;
+    const destinationErrorDiv = destinationInput.nextElementSibling;
+    const dateErrorDiv = dateInput.nextElementSibling;
+
+    let isValid = true;
+
+    // Clear previous errors
+    originErrorDiv.textContent = '';
+    destinationErrorDiv.textContent = '';
+    dateErrorDiv.textContent = '';
+
+    const origin = originInput.value.trim().toUpperCase();
+    const destination = destinationInput.value.trim().toUpperCase();
+    const flightDate = dateInput.value.trim();
+
+    // Validation rules
+    if (!origin) {
+      originErrorDiv.textContent = 'Origin code is required.';
+      isValid = false;
+    } else if (!/^[A-Z]{3}$/.test(origin)) {
+      originErrorDiv.textContent = 'Origin must be 3 uppercase letters.';
+      isValid = false;
+    }
+
+    if (!destination) {
+      destinationErrorDiv.textContent = 'Destination code is required.';
+      isValid = false;
+    } else if (!/^[A-Z]{3}$/.test(destination)) {
+      destinationErrorDiv.textContent = 'Destination must be 3 uppercase letters.';
+      isValid = false;
+    }
+
+    if (origin && destination && origin === destination) {
+      destinationErrorDiv.textContent = 'Destination cannot be the same as origin.';
+      isValid = false;
+    }
+
+    if (!flightDate) {
+      dateErrorDiv.textContent = 'Departure date is required.';
+      isValid = false;
+    }
+
+    return isValid;
+  }
+
+  // When user clicks Submit
+  submitBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+
+    if (validateForm()) {
+      modalInstance.open(); // Show confirm modal only if valid
+    }
   });
 
+  // When user clicks Confirm
   confirmBtn.addEventListener('click', function () {
-    console.log("Submitting form...");
+  // Remove any old hidden input
+  let old = form.querySelector('input[name="form_submit"]');
+  if (old) old.remove();
 
-    // Remove any previous hidden submit input
-    const old = form.querySelector('input[name="submit"]');
-    if (old) old.remove();
+  // Add hidden input for PHP
+  const hiddenSubmit = document.createElement('input');
+  hiddenSubmit.type = 'hidden';
+  hiddenSubmit.name = 'form_submit';
+  hiddenSubmit.value = 'true';
+  form.appendChild(hiddenSubmit);
 
-    // Add hidden submit input for PHP
-    const hiddenSubmit = document.createElement('input');
-    hiddenSubmit.type = 'hidden';
-    hiddenSubmit.name = 'submit';
-    hiddenSubmit.value = 'true';
-    form.appendChild(hiddenSubmit);
+  modalInstance.close();
 
-    // Call native form submit safely
-    HTMLFormElement.prototype.submit.call(form);
-  });
+  // ✅ Safe native submission
+  HTMLFormElement.prototype.submit.call(form);
+});
 
 });
 
-document.addEventListener('DOMContentLoaded', function() {
 
-    const modalElem = document.querySelector('#confirmModal');
-    const modalInstance = M.Modal.init(modalElem);
-
-    const form = document.querySelector('form');
-    const submitBtn = document.getElementById('submitBtn');
-    const confirmBtn = document.getElementById('confirmBtn');
-
-    // Open modal on submit click only if no validation errors
-    submitBtn.addEventListener('click', function() {
-        const originError = document.querySelector('#origin + .red-text')?.textContent.trim();
-        const destinationError = document.querySelector('#destination + .red-text')?.textContent.trim();
-        const dateError = document.querySelector('#flight-date + .red-text')?.textContent.trim();
-
-        if (!originError && !destinationError && !dateError) {
-            modalInstance.open();
-        }
-    });
-
-    // Confirm modal -> submit form
-    confirmBtn.addEventListener('click', function() {
-        // Remove any old hidden input
-        const oldSubmit = form.querySelector('input[name="submit"]');
-        if (oldSubmit) oldSubmit.remove();
-
-        const hiddenSubmit = document.createElement('input');
-        hiddenSubmit.type = 'hidden';
-        hiddenSubmit.name = 'submit';
-        hiddenSubmit.value = 'true';
-        form.appendChild(hiddenSubmit);
-
-        // Submit form normally
-        form.submit();
-    });
-
-});
 
 
 </script>
@@ -347,3 +372,8 @@ document.addEventListener('DOMContentLoaded', function() {
 <?php include('templates/footer.php'); ?>
 </html>
 
+<style>
+  .flatpickr-month .flatpickr-current-month{
+  display: flex !important;
+}
+</style>

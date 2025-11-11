@@ -74,3 +74,8 @@ footer.page-footer .footer-copyright {
   color: #fff !important;
   text-transform: uppercase;
 }
+
+
+.flatpickr-month .flatpickr-current-month{
+  display: flex !important;
+}
