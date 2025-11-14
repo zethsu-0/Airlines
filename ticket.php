@@ -1,10 +1,7 @@
 <?php
 session_start();
 
-$conn = mysqli_connect('localhost', 'root', '', 'airlines');
-if (!$conn) {
-    die('Connection error: ' . mysqli_connect_error());
-}
+include('config/db_connect.php');
 
 // ✅ 1. Check session first
 if (!isset($_SESSION['flight_id'])) {
@@ -54,7 +51,6 @@ $conn->close();
   <meta charset="UTF-8">
   <title>Flight Booking</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/ticket.css">
 </head>
 
@@ -80,11 +76,11 @@ $conn->close();
 
           <div class="row">
             <div class="input-field col s6">
-              <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)">
+              <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)" autocomplete="false">
               <label>Age</label>
             </div>
             <div class="input-field col s6">
-              <input type="text" name="special[]" readonly disabled placeholder="Adult/Minor/Senior">
+              <input type="text" name="special[]" readonly disabled placeholder="Adult/Minor/Senior" autocomplete="false">
               <label>Passenger Type</label>
             </div>
           </div>
@@ -108,7 +104,7 @@ $conn->close();
 
             <div class="col s6 pwd-group">
               <span class="field-title">Disability</span><br>
-              <label class="custom-checkbox-inline">
+              <label class="custom-checkbox-inline" autocomplete="false">
                 <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
                 <span class="checkmark"></span> 
               </label>
@@ -153,7 +149,7 @@ $conn->close();
     </form>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+  <script src="materialize\js\materialize.min.js"></script>
   <script>
     function initDatepickers(container) {
       M.Datepicker.init(container.querySelectorAll('.datepicker'), {

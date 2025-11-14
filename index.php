@@ -1,5 +1,4 @@
 <?php
-session_start();
 if (!empty($_SESSION['flight_id'])) {
     unset($_SESSION['flight_id']); // clear last booking
 } 
@@ -204,7 +203,7 @@ $conn->close();
 
   <!-- Materialize JS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-  
+  <script></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
 

@@ -1,0 +1,14 @@
+[2025-11-14 07:37:43] Received login attempt for acc_id=AC2024-00067 (debug=0)
+[2025-11-14 07:37:43] Statement executed. num_rows=1
+[2025-11-14 07:37:43] mysqli_stmt_fetch returned: true
+[2025-11-14 07:37:43] Found account: acc_id=AC2024-00067, acc_name=Herrera, Andrei, password_length=7
+[2025-11-14 07:37:43] password_get_info algo=NULL, is_hash=0
+[2025-11-14 07:37:43] plain compare result: 1 (len input=7, len stored=7)
+[2025-11-14 07:37:43] Login success for acc_id=AC2024-00067
+[2025-11-14 07:39:10] Received login attempt for acc_id=AC2024-00067 (debug=0)
+[2025-11-14 07:39:10] Statement executed. num_rows=1
+[2025-11-14 07:39:10] mysqli_stmt_fetch returned: true
+[2025-11-14 07:39:10] Found account: acc_id=AC2024-00067, acc_name=Herrera, Andrei, password_length=7
+[2025-11-14 07:39:10] password_get_info algo=NULL, is_hash=0
+[2025-11-14 07:39:10] plain compare result: 1 (len input=7, len stored=7)
+[2025-11-14 07:39:10] Login success for acc_id=AC2024-00067
