@@ -1,7 +1,16 @@
 <?php
-    $conn = mysqli_connect('localhost', 'Pizzatime', 'pass123' , 'ninja_pizza');
+    $conn = mysqli_connect('localhost', 'root', '', 'airlines');
+    $acc_conn = mysqli_connect('localhost', 'root', '', 'account');
 
-    if(!$conn){
-        echo 'Connection error: ' . mysqli_connect_error();
+    if (!$conn) {
+        die('Connection error: ' . mysqli_connect_error());
     }
-?>
+
+    if (!$acc_conn) {
+        die('Connection error: ' . mysqli_connect_error());
+    }
+    $sql = "SELECT * FROM accounts";
+    $result = mysqli_query($acc_conn, $sql);
+
+
+?>  

@@ -1,93 +1,91 @@
 <?php
-session_start();
-if (!empty($_SESSION['flight_id'])) {
-    unset($_SESSION['flight_id']); // clear last booking
-} 
-$conn = mysqli_connect('localhost', 'root', '', 'airlines');
-if (!$conn) {
-    die('Connection error: ' . mysqli_connect_error());
-}
-$origin = strtoupper(trim($_POST['origin'] ?? ''));
-$destination = strtoupper(trim($_POST['destination'] ?? ''));
-$flight_date = trim($_POST['flight_date'] ?? '');
-$errors = [];
+  // ---------- PHP INDEX ----------
+  session_start();
+  if (!empty($_SESSION['flight_id'])) {
+      unset($_SESSION['flight_id']); // clear last booking
+  } 
+  $conn = mysqli_connect('localhost', 'root', '', 'airlines');
+  if (!$conn) {
+      die('Connection error: ' . mysqli_connect_error());
+  }
+  $origin = strtoupper(trim($_POST['origin'] ?? ''));
+  $destination = strtoupper(trim($_POST['destination'] ?? ''));
+  $flight_date = trim($_POST['flight_date'] ?? '');
+  $errors = [];
 
-if (isset($_POST['form_submit'])) {
+  if (isset($_POST['form_submit'])) {
 
-// ---------- VALIDATION ----------
+  // ---------- VALIDATION ----------
 
-// Origin required + 3 letters
-if (empty($origin)) {
-    $errors['origin'] = 'Origin code is required.';
-} elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
-    $errors['origin'] = 'Origin must be 3 uppercase letters.';
-}
 
-// Destination required + 3 letters
-if (empty($destination)) {
-    $errors['destination'] = 'Destination code is required.';
-} elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
-    $errors['destination'] = 'Destination must be 3 uppercase letters.';
-}
+  // Must be logged in to submit flights
+  if (!isset($_SESSION['acc_id'])) {
+    $errors['login'] = 'You must be logged in to submit a flight.';
+  }
 
-// Origin ≠ Destination
-if ($origin === $destination && !empty($origin)) {
-    $errors['destination'] = 'Destination code cannot be the same as origin.';
-}
+  // Origin required + 3 letters
+  if (empty($origin)) {
+      $errors['origin'] = 'Origin code is required.';
+  } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
+      $errors['origin'] = 'Origin must be 3 uppercase letters.';
+  }
 
-// Flight date required
-if (empty($flight_date)) {
-    $errors['flight_date'] = 'Departure date is required.';
-} elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-    $errors['flight_date'] = 'Invalid date format.';
-}
+  // Destination required + 3 letters
+  if (empty($destination)) {
+      $errors['destination'] = 'Destination code is required.';
+  } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
+      $errors['destination'] = 'Destination must be 3 uppercase letters.';
+  }
 
-// ---------- INSERT IF VALID ----------
-if (empty($errors)) {
+  // Origin ≠ Destination
+  if ($origin === $destination && !empty($origin)) {
+      $errors['destination'] = 'Destination code cannot be the same as origin.';
+  }
 
-    // Lookup origin airline
-    $result_origin = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$origin' LIMIT 1");
-    $origin_airline = ($result_origin && $result_origin->num_rows > 0) 
-        ? $result_origin->fetch_assoc()['AirportName'] 
-        : "Invalid code ($origin)";
+  // Flight date required
+  if (empty($flight_date)) {
+      $errors['flight_date'] = 'Departure date is required.';
+  } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+      $errors['flight_date'] = 'Invalid date format.';
+  }
 
-    // Lookup destination airline
-    $result_destination = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$destination' LIMIT 1");
-    $destination_airline = ($result_destination && $result_destination->num_rows > 0) 
-        ? $result_destination->fetch_assoc()['AirportName'] 
-        : "Invalid code ($destination)";
+  // ---------- INSERT IF VALID ----------
+  if (empty($errors)) {
 
-    // Insert into DB
-    $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
-    $stmt->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
-    $stmt->execute();
-   
-    $last_id = $stmt->insert_id;
-    $_SESSION['flight_id'] = $last_id;
+      // Lookup origin airline
+      $result_origin = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$origin' LIMIT 1");
+      $origin_airline = ($result_origin && $result_origin->num_rows > 0) 
+          ? $result_origin->fetch_assoc()['AirportName'] 
+          : "Invalid code ($origin)";
 
-    $stmt->close();
+      // Lookup destination airline
+      $result_destination = $conn->query("SELECT AirportName FROM airports WHERE IATACode = '$destination' LIMIT 1");
+      $destination_airline = ($result_destination && $result_destination->num_rows > 0) 
+          ? $result_destination->fetch_assoc()['AirportName'] 
+          : "Invalid code ($destination)";
 
-    header("Location: ticket.php?id=$last_id");
+      // Insert into DB
+      $stmt = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
+      $stmt->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
+      $stmt->execute();
     
-    $origin = $destination = $flight_date = '';
-}
-}
-$conn->close();
+      $last_id = $stmt->insert_id;
+      $_SESSION['flight_id'] = $last_id;
+
+      $stmt->close();
+
+      header("Location: ticket.php?id=$last_id");
+      
+      $origin = $destination = $flight_date = '';
+  }
+  }
+  $conn->close();
 ?>
-
-
 
 
 <!DOCTYPE html>
 <html>
 <?php include('templates/header.php'); ?>
-
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="css/index.css">
-  <title>Travel Booking</title>
-</head>
 
 <body>
   <!-- Hero Section -->
@@ -97,12 +95,19 @@ $conn->close();
 
   <!-- Booking Form Card -->
   <div class="bg-container container center">
-    <form action="index.php" method="POST" autocomplete="off" class="card">
+    <?php $logged_in = !empty($_SESSION['acc_id']); ?>
+    <?php if (!$logged_in): ?>
+    <div class="yellow-text center" style="margin-bottom: 10px;">
+        Please log in to book a flight.
+    </div>
+    <?php endif; ?>
+
+    <form id="flightForm" action="index.php" method="POST" autocomplete="off" class="card">
       <div class="row">
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_takeoff</i>
-            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin); ?>">
+            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin); ?>"<?php echo !$logged_in ? 'disabled' : ''; ?>>
             <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
             <label for="origin">ORIGIN</label>
           </div>
@@ -111,7 +116,7 @@ $conn->close();
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_land</i>
-            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination); ?>">
+            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination); ?>"<?php echo !$logged_in ? 'disabled' : ''; ?>>
             <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
             <label for="destination">DESTINATION</label>
           </div>
@@ -122,7 +127,7 @@ $conn->close();
             <div class="input-field">
               <i class="material-icons prefix">calendar_today</i>
               <input type="text" id="flight-date" name="flight_date" class="datepicker-input" 
-       value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
+       value="<?php echo htmlspecialchars($flight_date); ?>" readonly <?php echo !$logged_in ? 'disabled' : ''; ?>>
               <label for="flight-date">DEPARTURE</label>
               <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
             </div>
@@ -131,7 +136,7 @@ $conn->close();
 
         <div class="col s3 md3 submitbtn">
             <div class="center">
-              <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0">
+              <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0" <?php echo !$logged_in ? 'disabled' : ''; ?>>
             </div>
           </div>
         </div>
@@ -201,6 +206,16 @@ $conn->close();
   <div class="container">
     <h6>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat...</h6>
   </div>
+
+
+
+
+
+
+
+</body>
+</html>
+
 
   <!-- Materialize JS -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
@@ -275,9 +290,9 @@ $conn->close();
   // ==============================
   // 3. Initialize Materialize Modal + Form Submit
   // ==============================
- const modalElem = document.querySelector('#confirmModal');
+  const modalElem = document.querySelector('#confirmModal');
   const modalInstance = M.Modal.init(modalElem);
-  const form = document.querySelector('form');
+  const form = document.getElementById('flightForm');
   const submitBtn = document.getElementById('submitBtn');
   const confirmBtn = document.getElementById('confirmBtn');
   const cancelBtn = document.getElementById('cancelBtn');
@@ -337,6 +352,12 @@ $conn->close();
   submitBtn.addEventListener('click', function (e) {
     e.preventDefault();
 
+        // User must be logged in
+    if (!document.getElementById('userMenu')) {
+        M.toast({html: 'Please log in to continue.'});
+        return;
+    }
+
     if (validateForm()) {
       modalInstance.open(); // Show confirm modal only if valid
     }
@@ -363,15 +384,136 @@ $conn->close();
 
 });
 
-
-
-
 </script>
 
-</body>
-<?php include('templates/footer.php'); ?>
-</html>
 
+<script>
+(function () {
+  // delegated submit handler for login form — prevents double submits
+  document.addEventListener('submit', async function (e) {
+    const form = e.target;
+    if (!form || form.id !== 'loginForm') return;
+
+    e.preventDefault();
+
+    // Prevent duplicate sends
+    if (form.dataset.sending === '1') {
+      console.warn('[login] duplicate submit suppressed');
+      return;
+    }
+    form.dataset.sending = '1';
+
+    // Disable submit button for UX
+    const submitBtn = form.querySelector('[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.dataset.origText = submitBtn.innerHTML;
+      submitBtn.innerHTML = 'Logging in...';
+    }
+
+    // Error nodes
+    const errAccId = document.getElementById('err-acc_id');
+    const errPassword = document.getElementById('err-password');
+    const errGeneral = document.getElementById('err-general');
+    if (errAccId) errAccId.textContent = '';
+    if (errPassword) errPassword.textContent = '';
+    if (errGeneral) errGeneral.textContent = '';
+
+    const fd = new FormData(form);
+    const acc = (fd.get('acc_id') || '').toString().trim();
+    const pw  = (fd.get('password') || '').toString();
+
+    if (!acc) { if (errAccId) errAccId.textContent = 'Please enter Account ID.'; cleanup(); return; }
+    if (!pw)  { if (errPassword) errPassword.textContent = 'Please enter password.'; cleanup(); return; }
+
+    try {
+      console.log('[login] sending fetch to', form.action || 'login.php');
+      const res = await fetch(form.action || 'login.php', {
+        method: 'POST',
+        body: fd,
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+
+      // If the server returned a redirect or non-JSON, fall back gracefully
+      if (!res.ok) {
+        console.warn('[login] fetch returned non-ok', res.status);
+        if (errGeneral) errGeneral.textContent = 'Server error. Try again.';
+        cleanup();
+        return;
+      }
+
+      // parse response
+      const data = await res.json();
+      console.log('[login] server response', data);
+
+      if (!data.success) {
+        if (data.errors) {
+          if (data.errors.acc_id && errAccId) errAccId.textContent = data.errors.acc_id;
+          if (data.errors.password && errPassword) errPassword.textContent = data.errors.password;
+          if (data.errors.general && errGeneral) errGeneral.textContent = data.errors.general;
+        } else if (errGeneral) {
+          errGeneral.textContent = 'Login failed. Try again.';
+        }
+        cleanup();
+        return;
+      }
+
+      // success: close modal and update nav (same as before)
+      try {
+        const modalElem = document.getElementById('loginModal');
+        if (modalElem && window.M) {
+          let inst = M.Modal.getInstance(modalElem);
+          if (!inst) inst = M.Modal.init(modalElem);
+          if (inst && typeof inst.close === 'function') inst.close();
+        }
+      } catch (err) { console.warn('[login] modal close error', err); }
+
+      const navRight = document.getElementById('nav-right') || document.querySelector('.right.hide-on-med-and-down');
+      if (navRight) {
+        document.getElementById('loginLi')?.remove();
+        document.getElementById('userMenu')?.remove();
+        document.getElementById('logoutLi')?.remove();
+
+        const liUser = document.createElement('li');
+        liUser.id = 'userMenu';
+        liUser.innerHTML = `<a class="waves-effect waves-light" href="#!"><i class="material-icons left">account_circle</i>${data.user?.acc_name||'User'}</a>`;
+        navRight.appendChild(liUser);
+
+        const liLogout = document.createElement('li');
+        liLogout.id = 'logoutLi';
+        liLogout.innerHTML = `<a href="logout.php">Logout</a>`;
+        navRight.appendChild(liLogout);
+      }
+
+      if (window.M && M.toast) M.toast({ html: 'Logged in as ' + (data.user?.acc_name || 'user') });
+
+      form.reset();
+      cleanup();
+      return;
+
+    } catch (err) {
+      console.error('[login] fetch error', err);
+      if (errGeneral) errGeneral.textContent = 'Network/server error.';
+      cleanup();
+    }
+
+    function cleanup() {
+      // re-enable submit & clear sending flag
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        if (submitBtn.dataset.origText) submitBtn.innerHTML = submitBtn.dataset.origText;
+      }
+      form.dataset.sending = '0';
+    }
+  }, true);
+})();
+</script>
+
+
+
+
+<?php include('templates/footer.php'); ?>
 <style>
   .flatpickr-month .flatpickr-current-month{
   display: flex !important;
