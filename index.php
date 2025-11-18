@@ -126,8 +126,7 @@
           <div class="center">
             <div class="input-field">
               <i class="material-icons prefix">calendar_today</i>
-              <input type="text" id="flight-date" name="flight_date" class="datepicker-input" 
-       value="<?php echo htmlspecialchars($flight_date); ?>" readonly <?php echo !$logged_in ? 'disabled' : ''; ?>>
+              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly <?php echo !$logged_in ? 'disabled' : ''; ?>>
               <label for="flight-date">DEPARTURE</label>
               <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
             </div>
@@ -205,27 +204,20 @@
   <!-- Info Section -->
   <div class="container">
     <h6>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat...</h6>
+
   </div>
-
-
-
-
-
 
 
 </body>
 </html>
-
-
   <!-- Materialize JS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
   
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-
   // ==============================
   // 1. Initialize Materialize Carousel
   // ==============================
+  
   const carouselElems = document.querySelectorAll('.carousel');
   M.Carousel.init(carouselElems, { indicators: false, dist: -50, padding: 20 });
 
@@ -275,17 +267,15 @@
   }
 
   // ==============================
-  // 2. Initialize Flatpickr
+  // 2. DATE PICKER
   // ==============================
-  if (typeof flatpickr !== "undefined") {
-    flatpickr("#flight-date", {
-      dateFormat: "Y-m-d",
-      altFormat: "F j",
-      minDate: "today",
-      allowInput: false,
-      onReady: function () { M.updateTextFields(); }
-    });
-  }
+  console.log('running datepicker init');
+  var elems = document.querySelectorAll('.datepicker');
+  var instances = M.Datepicker.init(elems, {
+    format: 'yyyy-mm-dd',
+    autoClose: true,
+    minDate: new Date(),
+  });
 
   // ==============================
   // 3. Initialize Materialize Modal + Form Submit
@@ -515,7 +505,21 @@
 
 <?php include('templates/footer.php'); ?>
 <style>
-  .flatpickr-month .flatpickr-current-month{
-  display: flex !important;
-}
+   .datepicker-date-display{
+    display: none;
+  }
+  .datepicker-modal{
+    width: 344px;
+    border-radius: 20px;
+    color: blue;
+  }
+  .datepicker-cancel, .datepicker-done{
+        color: blue !important;
+  }
+  .datepicker-controls .select-month {
+    width: 90px !important;
+  }
+  select.datepicker-select{
+    display: none !important;
+  }
 </style>

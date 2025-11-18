@@ -296,3 +296,17 @@
 [2025-11-15 08:38:49] password_get_info algo=NULL, is_hash=0
 [2025-11-15 08:38:49] plain compare result: 1 (len input=6, len stored=6)
 [2025-11-15 08:38:49] Login success for acc_id=AC2024-00827
+[2025-11-18 18:38:29] Received login attempt for acc_id=AC2024-00827 (debug=0)
+[2025-11-18 18:38:29] Statement executed. num_rows=1
+[2025-11-18 18:38:29] mysqli_stmt_fetch returned: true
+[2025-11-18 18:38:29] Found account: acc_id=AC2024-00827, acc_name=Jushtin Valdez, password_length=6
+[2025-11-18 18:38:29] password_get_info algo=NULL, is_hash=0
+[2025-11-18 18:38:29] plain compare result: 1 (len input=6, len stored=6)
+[2025-11-18 18:38:29] Login success for acc_id=AC2024-00827
+[2025-11-18 18:38:29] Received login attempt for acc_id=AC2024-00827 (debug=0)
+[2025-11-18 18:38:29] Statement executed. num_rows=1
+[2025-11-18 18:38:29] mysqli_stmt_fetch returned: true
+[2025-11-18 18:38:29] Found account: acc_id=AC2024-00827, acc_name=Jushtin Valdez, password_length=6
+[2025-11-18 18:38:29] password_get_info algo=NULL, is_hash=0
+[2025-11-18 18:38:29] plain compare result: 1 (len input=6, len stored=6)
+[2025-11-18 18:38:29] Login success for acc_id=AC2024-00827
