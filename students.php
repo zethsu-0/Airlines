@@ -1,5 +1,6 @@
 <?php
 // students.php - standalone (header embedded), synchronous, double-confirm edit
+// Added: single toggle Collapse/Expand button (label switches) + button animations.
 // IMPORTANT: save this file as UTF-8 WITHOUT BOM and place in your project root.
 
 session_start();
@@ -77,7 +78,6 @@ function render_student_row_html($st) {
 }
 
 // ---------- POST HANDLERS (synchronous) ----------
-// Process POSTs BEFORE any output so header() works
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ADD STUDENT
@@ -152,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---------- FETCH students ----------
 $students = [];
-$stmt = $conn->prepare("SELECT id, student_id, name, section, avatar FROM students ORDER BY section, name");
+$stmt = $conn->prepare("SELECT id, student_id, name, section, avatar FROM students ORDER BY COALESCE(NULLIF(section,''),'~'), section, name");
 $stmt->execute();
 $stmt->bind_result($sid_pk, $sid_val, $sname, $ssection, $savatar);
 while ($stmt->fetch()) {
@@ -165,6 +165,16 @@ while ($stmt->fetch()) {
     ];
 }
 $stmt->close();
+
+// group by section and compute counts
+$groups = [];
+foreach ($students as $st) {
+    $sec = trim((string)$st['section']);
+    if ($sec === '') $sec = 'Unassigned';
+    if (!isset($groups[$sec])) $groups[$sec] = ['count' => 0, 'students' => []];
+    $groups[$sec]['students'][] = $st;
+    $groups[$sec]['count']++;
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -177,11 +187,55 @@ $stmt->close();
   <style>
     html, body { margin: 0; padding: 0; background-color: #f5f5f5; }
     .page-wrap { padding:18px 0 48px; }
-    .small-btn { border-radius:40px; padding:10px 20px; background:#4a74ff; color:#fff; font-weight:700; text-transform:uppercase; display:inline-block; }
-    .small-btn.delete { background:#ff5252; }
+    .small-btn {
+      border-radius:40px; padding:10px 20px; background:#4a74ff; color:#fff; font-weight:700;
+      text-transform:uppercase; display:inline-block; border: none; cursor: pointer;
+      transition: transform .12s ease, box-shadow .18s ease, background .12s ease;
+      box-shadow: 0 6px 18px rgba(74,116,255,0.12);
+    }
+    .small-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(74,116,255,0.16); }
+    .small-btn:active { transform: translateY(0); box-shadow: 0 6px 14px rgba(74,116,255,0.12); }
+    .small-btn.delete { background:#ff5252; box-shadow: 0 6px 18px rgba(255,82,82,0.12); }
+    .small-btn.ghost {
+      background: transparent; color: #4a74ff; border: 2px solid #4a74ff; padding:8px 14px; text-transform:none; border-radius:8px; font-weight:700;
+      transition: transform .12s ease, box-shadow .12s ease, background .12s ease, color .12s ease;
+    }
+    .btn-pulse {
+      animation: pulse .5s ease;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); box-shadow: 0 6px 18px rgba(74,116,255,0.12); }
+      50% { transform: scale(1.05); box-shadow: 0 14px 34px rgba(74,116,255,0.18); }
+      100% { transform: scale(1); box-shadow: 0 6px 18px rgba(74,116,255,0.12); }
+    }
+
     .table-avatar { width:64px; height:64px; border-radius:50%; background-size:cover; background-position:center; }
-    .edit-btn { background:#00d1ff; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer; }
+    .edit-btn { background:#00d1ff; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer; transition: transform .12s ease; }
+    .edit-btn:hover { transform: translateY(-3px); }
     nav{ background-image: url(assets/Banner.png); background-size: cover; background-repeat: no-repeat; background-position: center center; height: 80px;}
+
+    /* section header styling */
+    .section-wrap { margin-bottom: 18px; }
+    .section-header {
+      display:flex; align-items:center; justify-content:space-between; background: transparent;
+      padding: 8px 10px 6px 10px; color: #6b6b6b; text-transform: uppercase; font-weight: 700;
+      letter-spacing: 0.6px; font-size: 14px; cursor: pointer; user-select: none;
+      transition: background .12s ease;
+    }
+    .section-header:hover { background: rgba(0,0,0,0.02); }
+    .section-title { display:flex; gap:10px; align-items:baseline; }
+    .section-count { color:#9a9a9a; font-weight:600; font-size:12px; text-transform:none; }
+    .section-hr {
+      border: 0; height: 1px; background: linear-gradient(to right, rgba(0,0,0,0.06), rgba(0,0,0,0.12), rgba(0,0,0,0.06));
+      margin: 6px 0 12px 0;
+    }
+    .section-body { transition: max-height 0.28s cubic-bezier(.4,0,.2,1), opacity 0.22s ease; overflow: hidden; }
+    .section-body.collapsed { max-height: 0 !important; opacity: 0; padding: 0; margin: 0; }
+    .collapse-icon { transition: transform 0.25s ease; color:#6b6b6b; }
+    .collapsed .collapse-icon { transform: rotate(-90deg); }
+    .section-table tbody tr td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+    @media (max-width: 600px) { .table-avatar { width:48px; height:48px; } }
+    .top-controls { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
   </style>
 </head>
 <body>
@@ -194,13 +248,15 @@ $stmt->close();
 </nav>
 
 <div class="container page-wrap">
-  <div class="row" style="margin-bottom:10px;">
-    <div class="col s12 m8">
-      <a class="small-btn modal-trigger" href="#addStudentModal">Add Student</a>
-      <button id="deleteSelectedBtn" class="small-btn delete">Delete Selected</button>
-    </div>
-    <div class="col s12 m4 right-align">
-      <span style="font-weight:800; font-size:16px;" class="blue-text">Enrolled Students</span>
+  <div class="row" style="margin-bottom:6px;">
+    <div class="col s12 m12">
+      <div class="top-controls">
+        <button id="addBtn" class="small-btn modal-trigger">Add Student</button>
+        <button id="deleteSelectedBtn" class="small-btn delete">Delete Selected</button>
+
+        <!-- Single toggle button for collapse/expand -->
+        <button id="toggleCollapseBtn" class="small-btn ghost" type="button">Collapse All</button>
+      </div>
     </div>
   </div>
 
@@ -208,27 +264,49 @@ $stmt->close();
     <input type="hidden" name="action" value="delete_selected">
   </form>
 
-  <table id="studentsTable" class="highlight responsive-table">
-    <thead>
-      <tr>
-        <th style="width:48px;"><label><input type="checkbox" id="checkAll"/><span></span></label></th>
-        <th>Avatar</th>
-        <th>Name</th>
-        <th>Student ID</th>
-        <th>Section</th>
-        <th style="width:120px;">Actions</th>
-      </tr>
-    </thead>
-    <tbody id="studentsTbody">
-      <?php if (empty($students)): ?>
-        <tr><td colspan="6">No students found.</td></tr>
-      <?php else: ?>
-        <?php foreach ($students as $st): ?>
-          <?php echo render_student_row_html($st); ?>
-        <?php endforeach; ?>
-      <?php endif; ?>
-    </tbody>
-  </table>
+  <!-- Render groups -->
+  <?php if (empty($groups)): ?>
+    <div class="card-panel">No students found.</div>
+  <?php else: ?>
+    <?php foreach ($groups as $sectionName => $grp): ?>
+      <?php
+        $safeSection = htmlspecialchars($sectionName, ENT_QUOTES);
+        $count = (int)$grp['count'];
+        // create a safe id for DOM storage
+        $domId = 'sec_' . preg_replace('/[^a-z0-9_-]/i', '_', strtolower($sectionName));
+      ?>
+      <div class="section-wrap" id="<?php echo $domId; ?>_wrap">
+        <div class="section-header" data-section="<?php echo $domId; ?>">
+          <div class="section-title">
+            <span><?php echo $safeSection; ?></span>
+            <span class="section-count"><?php echo $count . ' student' . ($count === 1 ? '' : 's'); ?></span>
+          </div>
+          <i class="material-icons collapse-icon">expand_less</i>
+        </div>
+        <hr class="section-hr">
+        <div class="section-body" id="<?php echo $domId; ?>_body">
+          <table class="highlight responsive-table section-table">
+            <thead>
+              <tr>
+                <th style="width:48px;"><label><input type="checkbox" class="check-section-all" data-section="<?php echo $domId; ?>" /><span></span></label></th>
+                <th>Avatar</th>
+                <th>Name</th>
+                <th>Student ID</th>
+                <th>Section</th>
+                <th style="width:120px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($grp['students'] as $st): ?>
+                <?php echo render_student_row_html($st); ?>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
+
 </div>
 
 <!-- Add Student Modal -->
@@ -313,6 +391,12 @@ document.addEventListener('DOMContentLoaded', function() {
   var tips = document.querySelectorAll('.tooltipped');
   M.Tooltip.init(tips);
 
+  // wire Add button to open modal
+  document.getElementById('addBtn').addEventListener('click', function(){ 
+    var modal = document.getElementById('addStudentModal');
+    M.Modal.getInstance(modal).open();
+  });
+
   // fill edit modal when edit button clicked
   document.querySelectorAll('.edit-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -332,17 +416,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // intercept edit form submit and ask two confirmations before submitting
   document.getElementById('editForm').addEventListener('submit', function(e) {
-    // first confirmation
     if (!confirm('Are you sure you want to save changes to this student?')) {
       e.preventDefault();
       return;
     }
-    // second confirmation (ask again)
     if (!confirm('Please confirm again: proceed with editing this student?')) {
       e.preventDefault();
       return;
     }
-    // allow form to submit (synchronous POST)
   });
 
   // delete selected -> build and submit POST form
@@ -374,14 +455,120 @@ document.addEventListener('DOMContentLoaded', function() {
     form.submit();
   });
 
-  // check/uncheck all
-  var checkAll = document.getElementById('checkAll');
-  if (checkAll) {
-    checkAll.addEventListener('change', function() {
+  // section header collapse/expand
+  var headers = document.querySelectorAll('.section-header');
+  var COLL_KEY = 'students_sections_collapsed_v1';
+  var collapsedState = {};
+  try { collapsedState = JSON.parse(localStorage.getItem(COLL_KEY)) || {}; } catch(e) { collapsedState = {}; }
+
+  // DEFAULT behavior: collapse all sections by default on first load if there's no saved state
+  var DEFAULT_COLLAPSED = true;
+  var hasSavedState = Object.keys(collapsedState).length > 0;
+  if (!hasSavedState && DEFAULT_COLLAPSED) {
+    headers.forEach(function(h){ var sec = h.getAttribute('data-section'); collapsedState[sec] = true; });
+  }
+
+  headers.forEach(function(h){
+    var sec = h.getAttribute('data-section');
+    var body = document.getElementById(sec + '_body');
+    var wrap = document.getElementById(sec + '_wrap');
+    var icon = h.querySelector('.collapse-icon');
+
+    if (collapsedState[sec]) {
+      body.classList.add('collapsed');
+      wrap.classList.add('collapsed');
+      if (icon) icon.style.transform = 'rotate(-90deg)';
+    }
+
+    h.addEventListener('click', function(){
+      var isCollapsed = body.classList.toggle('collapsed');
+      wrap.classList.toggle('collapsed', isCollapsed);
+      if (icon) icon.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+      try { collapsedState[sec] = isCollapsed; localStorage.setItem(COLL_KEY, JSON.stringify(collapsedState)); } catch(e){}
+      updateToggleBtnLabel(); // reflect new aggregate state
+    });
+
+    // 'check all in section' toggle
+    var sectionCheck = wrap.querySelector('.check-section-all');
+    if (sectionCheck) {
+      sectionCheck.addEventListener('change', function(){
+        var checked = this.checked;
+        wrap.querySelectorAll('.chk').forEach(function(cb){ cb.checked = checked; });
+      });
+    }
+  });
+
+  // helper: are all sections collapsed?
+  function areAllCollapsed() {
+    var all = true, any = false;
+    headers.forEach(function(h){
+      var sec = h.getAttribute('data-section');
+      any = true;
+      if (!collapsedState[sec]) { all = false; }
+    });
+    // if no sections, treat as expanded (so button shows "Collapse All")
+    if (!any) return false;
+    return all;
+  }
+
+  var toggleBtn = document.getElementById('toggleCollapseBtn');
+
+  function updateToggleBtnLabel(pulse) {
+    var allCollapsed = areAllCollapsed();
+    toggleBtn.textContent = allCollapsed ? 'Expand All' : 'Collapse All';
+    // animated pulse for feedback
+    if (pulse) {
+      toggleBtn.classList.remove('btn-pulse');
+      // force reflow then add
+      void toggleBtn.offsetWidth;
+      toggleBtn.classList.add('btn-pulse');
+    }
+  }
+
+  function setAllSectionsCollapsed(collapsed) {
+    headers.forEach(function(h){
+      var sec = h.getAttribute('data-section');
+      var body = document.getElementById(sec + '_body');
+      var wrap = document.getElementById(sec + '_wrap');
+      var icon = h.querySelector('.collapse-icon');
+
+      if (collapsed) {
+        body.classList.add('collapsed');
+        wrap.classList.add('collapsed');
+        if (icon) icon.style.transform = 'rotate(-90deg)';
+      } else {
+        body.classList.remove('collapsed');
+        wrap.classList.remove('collapsed');
+        if (icon) icon.style.transform = 'rotate(0deg)';
+      }
+      collapsedState[sec] = collapsed;
+    });
+    try { localStorage.setItem(COLL_KEY, JSON.stringify(collapsedState)); } catch(e){}
+    updateToggleBtnLabel(true);
+  }
+
+  // initialize toggle button state & attach handler
+  updateToggleBtnLabel(false);
+
+  toggleBtn.addEventListener('click', function(){
+    var toCollapse = !areAllCollapsed(); // if not all collapsed -> collapse, else expand
+    // We want button to toggle: if some expanded, pressing should collapse all (so toCollapse=true)
+    setAllSectionsCollapsed(toCollapse);
+    // small visual feedback on click: pulse
+    toggleBtn.classList.remove('btn-pulse');
+    void toggleBtn.offsetWidth;
+    toggleBtn.classList.add('btn-pulse');
+  });
+
+  // global check/uncheck all optionally
+  var globalCheck = document.getElementById('checkAll');
+  if (globalCheck) {
+    globalCheck.addEventListener('change', function() {
       var checked = this.checked;
       document.querySelectorAll('.chk').forEach(function(cb) { cb.checked = checked; });
     });
   }
+
 });
 </script>
 
