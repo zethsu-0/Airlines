@@ -1,0 +1,267 @@
+/* GENERAL LAYOUT --------------------------------------------------- */
+
+body {
+  background: #f5f5f5;
+  font-family: "Roboto", sans-serif;
+  margin: 0;
+}
+
+.page-wrap {
+  padding: 30px 0;
+}
+
+.layout.container {
+  display: grid;
+  grid-template-columns: 220px 1fr 280px;
+  gap: 30px;
+}
+
+
+/* LEFT COLUMN – CREATE QUIZ BUTTON -------------------------------- */
+
+.left-create {
+  display: inline-block;
+  background: #1976d2; /* YOUR PRIMARY BLUE */
+  color: white;
+  padding: 14px 22px;
+  border-radius: 28px;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.20);
+  transition: 0.2s ease;
+}
+
+.left-create:hover {
+  background: #1565c0; /* darker blue hover */
+  transform: translateY(-2px);
+}
+
+
+/* QUIZ CARDS (Middle Column) --------------------------------------- */
+
+.quiz-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.frame-card {
+  width: 100%;
+  background: white;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+  position: relative;
+  transition: 0.2s ease;
+}
+
+.frame-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+}
+
+.quiz-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.quiz-dead {
+  font-size: 13px;
+  color: #555;
+  margin-top: 6px;
+}
+
+
+/* EDIT BUTTON (circle) --------------------------------------------- */
+
+.edit-circle {
+  width: 38px;
+  height: 38px;
+  background: #e8eaf6; /* soft blue tint */
+  color: #1976d2;       /* your primary blue */
+  border-radius: 50%;
+  display: flex;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.edit-circle:hover {
+  background: #d0d7f2; /* slightly darker */
+}
+
+
+/* RIGHT COLUMN – STATS + EDIT STUDENTS ---------------------------- */
+
+.edit-students-btn {
+  background: #1976d2;      /* YOUR BLUE */
+  padding: 10px 20px;
+  border-radius: 24px;
+  color: white !important;
+  font-size: 14px;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.20);
+  transition: 0.2s ease;
+}
+
+.edit-students-btn:hover {
+  background: #1565c0;
+  transform: translateY(-2px);
+}
+
+.stats-box {
+  background: white;
+  padding: 18px;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+
+/* MODALS ----------------------------------------------------------- */
+
+.modal {
+  border-radius: 12px !important;
+}
+
+.modal-content {
+  padding: 24px !important;
+}
+
+.modal .btn {
+  border-radius: 10px;
+  background: #1976d2 !important; /* YOUR BLUE */
+}
+
+.modal .btn:hover {
+  background: #1565c0 !important;
+}
+
+
+/* RESPONSIVE ------------------------------------------------------- */
+
+@media screen and (max-width: 1050px) {
+  .layout.container {
+    grid-template-columns: 1fr;
+    padding: 0 20px;
+  }
+
+  .left-col {
+    justify-content: center;
+  }
+
+  .stats-box {
+    margin-top: 20px;
+  }
+
+  .edit-students-btn {
+    display: block;
+    margin: 0 auto 20px auto;
+  }
+}
+
+
+
+/* FORCE OVERRIDES FOR MATERIALIZE */
+.frame-card,
+.edit-circle,
+.quiz-title,
+.quiz-dead,
+.left-create,
+.edit-students-btn,
+.stats-box {
+    all: unset;
+    display: block;
+}
+
+
+/* REBUILD THE DESIGN AFTER RESET ---------------------------- */
+
+.frame-card {
+  background: #ffffff !important;
+  border-radius: 14px !important;
+  padding: 20px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+  margin-bottom: 20px !important;
+  position: relative !important;
+  transition: 0.2s !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.frame-card:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.15) !important;
+}
+
+.quiz-title {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  color: #1a1a1a !important;
+}
+
+.quiz-dead {
+  font-size: 13px !important;
+  color: #555 !important;
+  margin-top: 5px !important;
+}
+
+.edit-circle {
+  width: 40px !important;
+  height: 40px !important;
+  background: #e3f2fd !important;
+  color: #1976d2 !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  position: absolute !important;
+  right: 16px !important;
+  top: 16px !important;
+  cursor: pointer !important;
+  transition: 0.3s !important;
+}
+
+.edit-circle:hover {
+  background: #bbdefb !important;
+}
+
+/* BUTTONS --------------------------------------------------- */
+
+.left-create,
+.edit-students-btn {
+  background: #1976d2 !important;
+  color: #fff !important;
+  padding: 12px 20px !important;
+  border-radius: 25px !important;
+  text-decoration: none !important;
+  font-weight: 500 !important;
+  display: inline-block !important;
+  transition: 0.2s !important;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15) !important;
+}
+
+.left-create:hover,
+.edit-students-btn:hover {
+  background: #1565c0 !important;
+  transform: translateY(-2px) !important;
+}
+
+/* STATS BOX ------------------------------------------------ */
+
+.stats-box {
+  background: #fff !important;
+  padding: 20px !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+}
