@@ -1,7 +1,5 @@
 <?php
-// students.php - standalone (header embedded), synchronous, double-confirm edit
-// Added: single toggle Collapse/Expand button (label switches) + button animations.
-// IMPORTANT: save this file as UTF-8 WITHOUT BOM and place in your project root.
+
 
 session_start();
 
@@ -124,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // DELETE SELECTED (bulk)
+    // DELETE SELECTED (bulk) - form from deleteConfirmModal
     if (!empty($_POST['action']) && $_POST['action'] === 'delete_selected') {
         $ids = $_POST['delete_ids'] ?? [];
         if (is_array($ids) && count($ids) > 0) {
@@ -200,20 +198,17 @@ foreach ($students as $st) {
       background: transparent; color: #4a74ff; border: 2px solid #4a74ff; padding:8px 14px; text-transform:none; border-radius:8px; font-weight:700;
       transition: transform .12s ease, box-shadow .12s ease, background .12s ease, color .12s ease;
     }
-    .btn-pulse {
-      animation: pulse .5s ease;
-    }
+    .btn-pulse { animation: pulse .5s ease; }
     @keyframes pulse {
       0% { transform: scale(1); box-shadow: 0 6px 18px rgba(74,116,255,0.12); }
       50% { transform: scale(1.05); box-shadow: 0 14px 34px rgba(74,116,255,0.18); }
       100% { transform: scale(1); box-shadow: 0 6px 18px rgba(74,116,255,0.12); }
     }
-
     .table-avatar { width:64px; height:64px; border-radius:50%; background-size:cover; background-position:center; }
+    .delete-list-avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; display:inline-block; vertical-align:middle; margin-right:10px; }
     .edit-btn { background:#00d1ff; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer; transition: transform .12s ease; }
     .edit-btn:hover { transform: translateY(-3px); }
     nav{ background-image: url(assets/Banner.png); background-size: cover; background-repeat: no-repeat; background-position: center center; height: 80px;}
-
     /* section header styling */
     .section-wrap { margin-bottom: 18px; }
     .section-header {
@@ -236,6 +231,11 @@ foreach ($students as $st) {
     .section-table tbody tr td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
     @media (max-width: 600px) { .table-avatar { width:48px; height:48px; } }
     .top-controls { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    /* confirmation checkbox styles */
+    .confirm-row { display:flex; gap:8px; align-items:center; margin-top:12px; }
+    /* delete modal names list */
+    #deleteNamesList { max-height: 240px; overflow:auto; padding-left:0; margin-top:8px; list-style:none; }
+    #deleteNamesList li { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:14px; color:#333; padding:6px 8px; border-radius:6px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
   </style>
 </head>
 <body>
@@ -343,7 +343,7 @@ foreach ($students as $st) {
   </div>
 </div>
 
-<!-- Edit Student Modal -->
+<!-- Edit Student Modal (checkbox confirmation inside modal) -->
 <div id="editStudentModal" class="modal">
   <div class="modal-content">
     <h5>Edit Student</h5>
@@ -371,8 +371,45 @@ foreach ($students as $st) {
         <label for="editSectionInput">Section</label>
       </div>
 
-      <div class="right-align">
-        <button class="btn blue" type="submit" id="saveEditBtn">Save</button>
+      <div class="confirm-row">
+        <label>
+          <input type="checkbox" id="editConfirmCheckbox" />
+          <span>Confirm Changes</span>
+        </label>
+      </div>
+
+      <div class="right-align" style="margin-top:12px;">
+        <button class="btn blue" type="submit" id="saveEditBtn" disabled>Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal (bulk): shows avatars + names and autofocuses checkbox -->
+<div id="deleteConfirmModal" class="modal">
+  <div class="modal-content">
+    <h5>Delete Selected Students</h5>
+    <p id="deleteConfirmText">You are about to delete <strong id="deleteCount">0</strong> student(s).</p>
+
+    <div id="deleteNamesContainer">
+      <small class="grey-text">Selected students:</small>
+      <ul id="deleteNamesList"></ul>
+    </div>
+
+    <div class="confirm-row">
+      <label>
+        <input type="checkbox" id="deleteConfirmCheckbox" />
+        <span>Delete Confirmation</span>
+      </label>
+    </div>
+
+    <form method="post" id="deleteConfirmForm">
+      <input type="hidden" name="action" value="delete_selected">
+      <div id="deleteHiddenInputs"></div>
+
+      <div class="right-align" style="margin-top:16px;">
+        <button type="button" class="btn grey modal-close" id="cancelDeleteBtn">Cancel</button>
+        <button type="submit" class="btn red" id="confirmDeleteBtn" disabled>Delete</button>
       </div>
     </form>
   </div>
@@ -392,76 +429,149 @@ document.addEventListener('DOMContentLoaded', function() {
   M.Tooltip.init(tips);
 
   // wire Add button to open modal
-  document.getElementById('addBtn').addEventListener('click', function(){ 
+  document.getElementById('addBtn').addEventListener('click', function(){
     var modal = document.getElementById('addStudentModal');
     M.Modal.getInstance(modal).open();
   });
 
-  // fill edit modal when edit button clicked
-  document.querySelectorAll('.edit-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var dbId = this.getAttribute('data-db-id');
-      var name = this.getAttribute('data-name');
-      var studentId = this.getAttribute('data-studentid');
-      var section = this.getAttribute('data-section');
+  // EDIT modal handling
+  function openEditModalFromBtn(btn) {
+    var dbId = btn.getAttribute('data-db-id');
+    var name = btn.getAttribute('data-name');
+    var studentId = btn.getAttribute('data-studentid');
+    var section = btn.getAttribute('data-section');
 
-      document.getElementById('edit_db_id').value = dbId;
-      document.getElementById('editStudentName').value = name;
-      document.getElementById('editStudentID').value = studentId;
-      document.getElementById('editSectionInput').value = section;
-      M.updateTextFields();
-      setTimeout(function(){ var input = document.getElementById('editStudentName'); if (input) input.focus(); }, 200);
+    document.getElementById('edit_db_id').value = dbId;
+    document.getElementById('editStudentName').value = name;
+    document.getElementById('editStudentID').value = studentId;
+    document.getElementById('editSectionInput').value = section;
+    M.updateTextFields();
+
+    // reset checkbox + disable save
+    var chk = document.getElementById('editConfirmCheckbox');
+    var saveBtn = document.getElementById('saveEditBtn');
+    chk.checked = false;
+    saveBtn.disabled = true;
+
+    // open modal
+    var modal = document.getElementById('editStudentModal');
+    M.Modal.getInstance(modal).open();
+
+    // focus after open
+    setTimeout(function(){ var input = document.getElementById('editStudentName'); if (input) input.focus(); }, 200);
+  }
+
+  document.querySelectorAll('.edit-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      openEditModalFromBtn(this);
     });
   });
 
-  // intercept edit form submit and ask two confirmations before submitting
+  // enable Save only when checkbox checked
+  document.getElementById('editConfirmCheckbox').addEventListener('change', function(){
+    document.getElementById('saveEditBtn').disabled = !this.checked;
+  });
+
+  // EDIT form still submits synchronously when Save is clicked
   document.getElementById('editForm').addEventListener('submit', function(e) {
-    if (!confirm('Are you sure you want to save changes to this student?')) {
+    if (!document.getElementById('editConfirmCheckbox').checked) {
       e.preventDefault();
-      return;
-    }
-    if (!confirm('Please confirm again: proceed with editing this student?')) {
-      e.preventDefault();
+      M.toast({html: 'Please confirm before saving.'});
       return;
     }
   });
 
-  // delete selected -> build and submit POST form
+  // DELETE Selected -> open confirmation modal (shows avatars + names and autofocuses checkbox)
   document.getElementById('deleteSelectedBtn').addEventListener('click', function(e) {
     e.preventDefault();
-    var checked = document.querySelectorAll('.chk:checked');
-    if (!checked.length) {
+    var checkedEls = Array.from(document.querySelectorAll('.chk:checked'));
+    var checkedIds = checkedEls.map(function(i){ return i.getAttribute('data-id'); });
+    if (!checkedIds.length) {
       M.toast({html: 'Select at least one student to delete.'});
       return;
     }
-    if (!confirm('Delete selected students? This cannot be undone.')) return;
 
-    var form = document.createElement('form');
-    form.method = 'post';
-    form.style.display = 'none';
-    var actionInput = document.createElement('input');
-    actionInput.name = 'action'; actionInput.value = 'delete_selected';
-    form.appendChild(actionInput);
+    // collect student names and avatar URLs from DOM rows (safe)
+    var items = checkedEls.map(function(checkbox){
+      var row = checkbox.closest('tr');
+      var nameCell = row ? row.querySelector('.cell-name') : null;
+      var avatarDiv = row ? row.querySelector('.table-avatar') : null;
+      var name = nameCell ? nameCell.textContent.trim() : '(unknown)';
+      var avatarUrl = '';
+      if (avatarDiv) {
+        // backgroundImage may be like: url("path") or url(path)
+        var bg = avatarDiv.style.backgroundImage || '';
+        var m = bg.match(/url\((['"]?)(.*?)\1\)/);
+        avatarUrl = m ? m[2] : '';
+      }
+      if (!avatarUrl) avatarUrl = 'assets/avatar.png';
+      return { id: checkbox.getAttribute('data-id'), name: name, avatar: avatarUrl };
+    });
 
-    checked.forEach(function(ch) {
+    // populate modal: count, names list with avatars, hidden inputs
+    document.getElementById('deleteCount').textContent = items.length;
+    var namesList = document.getElementById('deleteNamesList');
+    namesList.innerHTML = '';
+    items.forEach(function(it){
+      var li = document.createElement('li');
+      var img = document.createElement('img');
+      img.src = it.avatar;
+      img.alt = it.name;
+      img.className = 'delete-list-avatar';
+      // fallback: if image fails to load, use placeholder
+      img.onerror = function(){ this.src = 'assets/avatar.png'; };
+      var span = document.createElement('span');
+      span.textContent = it.name;
+      li.appendChild(img);
+      li.appendChild(span);
+      namesList.appendChild(li);
+    });
+
+    var container = document.getElementById('deleteHiddenInputs');
+    container.innerHTML = ''; // clear
+    checkedIds.forEach(function(id){
       var inp = document.createElement('input');
       inp.type = 'hidden';
       inp.name = 'delete_ids[]';
-      inp.value = ch.getAttribute('data-id');
-      form.appendChild(inp);
+      inp.value = id;
+      container.appendChild(inp);
     });
 
-    document.body.appendChild(form);
-    form.submit();
+    // reset checkbox & disable Delete
+    var chk = document.getElementById('deleteConfirmCheckbox');
+    var delBtn = document.getElementById('confirmDeleteBtn');
+    chk.checked = false;
+    delBtn.disabled = true;
+
+    // open modal and autofocus checkbox shortly after open
+    var modal = document.getElementById('deleteConfirmModal');
+    M.Modal.getInstance(modal).open();
+    setTimeout(function(){
+      try { chk.focus(); } catch(e) {}
+    }, 220);
   });
 
-  // section header collapse/expand
+  // enable Delete button only when checkbox checked
+  document.getElementById('deleteConfirmCheckbox').addEventListener('change', function(){
+    document.getElementById('confirmDeleteBtn').disabled = !this.checked;
+  });
+
+  // when Delete form submitted, allow normal POST to run (handled server-side)
+  document.getElementById('deleteConfirmForm').addEventListener('submit', function(e){
+    if (!document.getElementById('deleteConfirmCheckbox').checked) {
+      e.preventDefault();
+      M.toast({html: 'Please confirm before deleting.'});
+      return;
+    }
+    // allow synchronous POST
+  });
+
+  // Collapse/Expand toggle + other behavior
   var headers = document.querySelectorAll('.section-header');
   var COLL_KEY = 'students_sections_collapsed_v1';
   var collapsedState = {};
   try { collapsedState = JSON.parse(localStorage.getItem(COLL_KEY)) || {}; } catch(e) { collapsedState = {}; }
 
-  // DEFAULT behavior: collapse all sections by default on first load if there's no saved state
   var DEFAULT_COLLAPSED = true;
   var hasSavedState = Object.keys(collapsedState).length > 0;
   if (!hasSavedState && DEFAULT_COLLAPSED) {
@@ -485,10 +595,9 @@ document.addEventListener('DOMContentLoaded', function() {
       wrap.classList.toggle('collapsed', isCollapsed);
       if (icon) icon.style.transform = isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
       try { collapsedState[sec] = isCollapsed; localStorage.setItem(COLL_KEY, JSON.stringify(collapsedState)); } catch(e){}
-      updateToggleBtnLabel(); // reflect new aggregate state
+      updateToggleBtnLabel();
     });
 
-    // 'check all in section' toggle
     var sectionCheck = wrap.querySelector('.check-section-all');
     if (sectionCheck) {
       sectionCheck.addEventListener('change', function(){
@@ -498,15 +607,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // helper: are all sections collapsed?
   function areAllCollapsed() {
-    var all = true, any = false;
+    var any = false, all = true;
     headers.forEach(function(h){
       var sec = h.getAttribute('data-section');
       any = true;
-      if (!collapsedState[sec]) { all = false; }
+      if (!collapsedState[sec]) all = false;
     });
-    // if no sections, treat as expanded (so button shows "Collapse All")
     if (!any) return false;
     return all;
   }
@@ -516,12 +623,8 @@ document.addEventListener('DOMContentLoaded', function() {
   function updateToggleBtnLabel(pulse) {
     var allCollapsed = areAllCollapsed();
     toggleBtn.textContent = allCollapsed ? 'Expand All' : 'Collapse All';
-    // animated pulse for feedback
     if (pulse) {
-      toggleBtn.classList.remove('btn-pulse');
-      // force reflow then add
-      void toggleBtn.offsetWidth;
-      toggleBtn.classList.add('btn-pulse');
+      toggleBtn.classList.remove('btn-pulse'); void toggleBtn.offsetWidth; toggleBtn.classList.add('btn-pulse');
     }
   }
 
@@ -533,13 +636,9 @@ document.addEventListener('DOMContentLoaded', function() {
       var icon = h.querySelector('.collapse-icon');
 
       if (collapsed) {
-        body.classList.add('collapsed');
-        wrap.classList.add('collapsed');
-        if (icon) icon.style.transform = 'rotate(-90deg)';
+        body.classList.add('collapsed'); wrap.classList.add('collapsed'); if (icon) icon.style.transform = 'rotate(-90deg)';
       } else {
-        body.classList.remove('collapsed');
-        wrap.classList.remove('collapsed');
-        if (icon) icon.style.transform = 'rotate(0deg)';
+        body.classList.remove('collapsed'); wrap.classList.remove('collapsed'); if (icon) icon.style.transform = 'rotate(0deg)';
       }
       collapsedState[sec] = collapsed;
     });
@@ -547,20 +646,14 @@ document.addEventListener('DOMContentLoaded', function() {
     updateToggleBtnLabel(true);
   }
 
-  // initialize toggle button state & attach handler
   updateToggleBtnLabel(false);
 
   toggleBtn.addEventListener('click', function(){
-    var toCollapse = !areAllCollapsed(); // if not all collapsed -> collapse, else expand
-    // We want button to toggle: if some expanded, pressing should collapse all (so toCollapse=true)
+    var toCollapse = !areAllCollapsed();
     setAllSectionsCollapsed(toCollapse);
-    // small visual feedback on click: pulse
-    toggleBtn.classList.remove('btn-pulse');
-    void toggleBtn.offsetWidth;
-    toggleBtn.classList.add('btn-pulse');
+    toggleBtn.classList.remove('btn-pulse'); void toggleBtn.offsetWidth; toggleBtn.classList.add('btn-pulse');
   });
 
-  // global check/uncheck all optionally
   var globalCheck = document.getElementById('checkAll');
   if (globalCheck) {
     globalCheck.addEventListener('change', function() {
