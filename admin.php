@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html>
 <head>
-	<?php include('templates/header.php'); ?>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	  <link rel="stylesheet" href="css/admin.css">
-	<title>Admin</title>
+  <?php include('templates/header_admin.php'); ?>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="css/admin.css">
+  <title>Admin</title>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div class="page-wrap">
@@ -31,9 +33,9 @@
       </div>
 
       <div class="stats-box">
+        <!-- Replaced placeholder with a canvas for Chart.js -->
         <div style="width:100%; height:140px; display:flex; justify-content:center; align-items:center;">
-          <!-- small placeholder chart (user can replace with image or chart lib) -->
-          <img src="/assets/pie-sample.png" alt="pie" style="max-width:140px;">
+          <canvas id="quizPieChart" style="max-width:140px; max-height:140px;"></canvas>
         </div>
 
         <div style="margin-top: 18px;">
@@ -126,6 +128,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
       quizzesContainer.appendChild(wrapper);
     });
+    // update pie chart after rendering
+    updatePieChart();
   }
 
   renderQuizzes();
@@ -154,14 +158,74 @@ document.addEventListener('DOMContentLoaded', function() {
 
 });
 
-	    document.addEventListener('DOMContentLoaded', function() {
-        var modals = document.querySelectorAll('.modal');
-        M.Modal.init(modals);
-    });
+// init Materialize in case of multiple DOMContentLoaded listeners
+document.addEventListener('DOMContentLoaded', function() {
+  var modals = document.querySelectorAll('.modal');
+  M.Modal.init(modals);
+});
+
+// ---------------------- Pie chart code ----------------------
+// This uses Chart.js and will display a small pie chart inside the stats box.
+// Data source: for demo it tries to read a 'submissions_v1' object from localStorage
+// Format (optional): { totalStudents: 30, submitted: 12 }
+
+function getSubmissionData(){
+  try{
+    const raw = localStorage.getItem('submissions_v1');
+    if(raw){
+      const obj = JSON.parse(raw);
+      const total = parseInt(obj.totalStudents,10) || 30;
+      const submitted = Math.max(0, Math.min(total, parseInt(obj.submitted,10) || 0));
+      return { total, submitted };
+    }
+  }catch(e){/* ignore parse errors */}
+  // fallback demo values
+  return { total: 30, submitted: 12 };
+}
+
+let pieChart = null;
+function updatePieChart(){
+  const data = getSubmissionData();
+  const submitted = data.submitted;
+  const notSubmitted = Math.max(0, data.total - submitted);
+
+  const ctx = document.getElementById('quizPieChart').getContext('2d');
+
+  const chartData = {
+    labels: ['Submitted', 'Not submitted'],
+    datasets: [{
+      data: [submitted, notSubmitted],
+      // Chart.js will assign default colors; you can configure them if you want.
+    }]
+  };
+
+  const config = {
+    type: 'pie',
+    data: chartData,
+    options: {
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: true }
+      }
+    }
+  };
+
+  // destroy existing instance if present
+  if(pieChart){ pieChart.destroy(); }
+  pieChart = new Chart(ctx, config);
+}
+
+// call updatePieChart once the page is ready (in case DOM was parsed earlier)
+window.addEventListener('load', () => {
+  // small timeout to ensure canvas sizing is ready in some layouts
+  setTimeout(updatePieChart, 50);
+});
+
 </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
 
 
-</html>aa
+</html>
