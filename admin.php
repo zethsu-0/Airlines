@@ -1,28 +1,103 @@
-<!DOCTYPE html>
+<?php
+// Admin.php (Quizzes list — reads from DB)
+// uses header/footer you uploaded at /mnt/data/header.php and /mnt/data/footer.php
+include('templates/header_admin.php');
+
+// DB connection (adjust credentials if needed)
+$host = 'localhost';
+$user = 'root';
+$pass = '';
+$db   = 'airlines';
+$conn = new mysqli($host, $user, $pass, $db);
+if ($conn->connect_error) {
+  // We'll still render the page; JS will show fallback content.
+  $dbError = $conn->connect_error;
+} else {
+  $dbError = null;
+  // fetch quizzes
+  $quizzes = [];
+  $sql = "SELECT id, title, code, COALESCE(deadline, '') AS deadline, COALESCE(num_questions,0) AS num_questions FROM quizzes ORDER BY id DESC";
+  if ($res = $conn->query($sql)) {
+    while ($r = $res->fetch_assoc()) $quizzes[] = $r;
+    $res->free();
+  }
+
+  // fetch submission summary: total students & total submitted (global)
+  $totalStudents = 0;
+  $totalSubmitted = 0;
+  // try students table
+  $r = $conn->query("SELECT COUNT(*) AS c FROM students");
+  if ($r) {
+    $row = $r->fetch_assoc();
+    $totalStudents = intval($row['c']);
+    $r->free();
+  }
+  // submissions count (distinct student+quiz submissions)
+  $r = $conn->query("SELECT COUNT(*) AS c FROM submissions");
+  if ($r) {
+    $row = $r->fetch_assoc();
+    $totalSubmitted = intval($row['c']);
+    $r->free();
+  }
+}
+?>
+<!doctype html>
 <html>
 <head>
-  <?php include('templates/header_admin.php'); ?>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin — Quizzes</title>
   <link rel="stylesheet" href="css/admin.css">
-  <title>Admin</title>
-  <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* small helpers so the frame-cards look reasonable if your css isn't loaded */
+    .frame-card{border-radius:8px; padding:12px; margin-bottom:10px; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,0.04); display:flex; align-items:center; justify-content:space-between}
+    .quiz-title{font-weight:700}
+    .quiz-dead{color:#666; font-size:13px}
+    .left-create{display:inline-block; padding:8px 12px; background:#0d6efd; color:#fff; border-radius:8px; text-decoration:none}
+    .edit-circle{cursor:pointer; padding:8px}
+  </style>
 </head>
 <body>
 <div class="page-wrap">
-  <div class="layout container">
+  <div class="layout container" style="display:grid; grid-template-columns:200px 1fr 320px; gap:18px; align-items:start">
 
     <!-- LEFT: Create Button -->
     <div class="left-col">
-      <a class="left-create modal-trigger" href="#createExamModal">CREATE QUIZ</a>
+      <a class="left-create" href="quizmaker.php">CREATE QUIZ</a>
     </div>
 
     <!-- MIDDLE: Quizzes list -->
     <div>
       <div class="quiz-list">
-        <!-- quiz cards populated by JS -->
-        <div id="quizzesContainer"></div>
+        <div id="quizzesContainer">
+          <?php if(isset($dbError)): ?>
+            <div class="frame-card">DB error: <?php echo htmlspecialchars($dbError); ?> — falling back to demo list</div>
+            <div class="frame-card"><div class="quiz-title">EXAM/QUIZ NAME:</div><div class="quiz-dead">DEADLINE: —</div></div>
+            <div class="frame-card"><div class="quiz-title">EXAM/QUIZ NAME:</div><div class="quiz-dead">DEADLINE: —</div></div>
+          <?php else: ?>
+            <?php if(count($quizzes) === 0): ?>
+              <div class="frame-card">No quizzes found. Click CREATE QUIZ to add one.</div>
+            <?php else: ?>
+              <?php foreach($quizzes as $q): ?>
+                <div class="frame-card" data-id="<?php echo (int)$q['id']; ?>">
+                  <div class="inner" style="flex:1; display:flex; gap:12px; align-items:center;">
+                    <div style="width:48px; height:48px; border-radius:6px; background:#eef6ff; display:flex; align-items:center; justify-content:center; font-weight:800; color:#0b5ed7;"><?php echo htmlspecialchars($q['code'] ?: 'Q'); ?></div>
+                    <div style="flex:1">
+                      <div class="quiz-title"><?php echo htmlspecialchars($q['title']); ?></div>
+                      <div class="quiz-dead">DEADLINE: <?php echo $q['deadline'] ? htmlspecialchars($q['deadline']) : '—'; ?></div>
+                    </div>
+                  </div>
+
+                  <div style="display:flex; gap:8px; align-items:center; margin-left:12px;">
+                    <a class="btn-flat" href="Exam.php?id=<?php echo (int)$q['id']; ?>">Open</a>
+                    <a class="edit-circle" href="quizmaker.php"?id=<?php echo (int)$q['id']; ?>" title="Edit"><i class="material-icons">edit</i></a>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            <?php endif; ?>
+          <?php endif; ?>
+        </div>
       </div>
     </div>
 
@@ -32,8 +107,7 @@
         <a href="Students.php" class="edit-students-btn">EDIT STUDENTS</a>
       </div>
 
-      <div class="stats-box">
-        <!-- Replaced placeholder with a canvas for Chart.js -->
+      <div class="stats-box" style="padding:12px; background:#fff; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.04)">
         <div style="width:100%; height:140px; display:flex; justify-content:center; align-items:center;">
           <canvas id="quizPieChart" style="max-width:140px; max-height:140px;"></canvas>
         </div>
@@ -51,181 +125,48 @@
   </div>
 </div>
 
-<!-- Create Exam Modal -->
-<div id="createExamModal" class="modal">
-  <div class="modal-content">
-    <h5>Create Quiz</h5>
-    <div class="input-field">
-      <input id="newQuizName" type="text">
-      <label for="newQuizName">Exam/Quiz Name</label>
-    </div>
-    <div class="input-field">
-      <input id="newQuizDeadline" type="date">
-      <label for="newQuizDeadline">Deadline</label>
-    </div>
-    <a class="btn green" id="createQuizBtn">Create & Open</a>
-  </div>
-</div>
-
-<!-- Edit Quiz Modal -->
-<div id="editQuizModal" class="modal">
-  <div class="modal-content">
-    <h5>Edit Quiz</h5>
-    <input type="hidden" id="editQuizIndex">
-    <div class="input-field">
-      <input id="editQuizName" type="text">
-      <label for="editQuizName">Exam/Quiz Name</label>
-    </div>
-    <div class="input-field">
-      <input id="editQuizDeadline" type="date">
-      <label for="editQuizDeadline">Deadline</label>
-    </div>
-    <a class="btn blue" id="saveQuizBtn">Save</a>
-  </div>
-</div>
-
-<!-- Materialize & app JS -->
+<!-- Materialize & app JS (keep minimal) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  M.Modal.init(document.querySelectorAll('.modal'));
+(function(){
+  // Pull server-provided submission counts (inlined for speed). PHP will echo numbers.
+  const totalStudents = <?php echo isset($totalStudents) ? (int)$totalStudents : 30; ?>;
+  const totalSubmitted = <?php echo isset($totalSubmitted) ? (int)$totalSubmitted : 12; ?>;
 
-  // load quizzes from localStorage or sample
-  let quizzes = JSON.parse(localStorage.getItem('quizzes_v1')) || [
-    {name:'EXAM/QUIZ NAME:', deadline:''},
-    {name:'EXAM/QUIZ NAME:', deadline:''},
-    {name:'EXAM/QUIZ NAME:', deadline:''}
-  ];
-
-  const quizzesContainer = document.getElementById('quizzesContainer');
-
-  function renderQuizzes(){
-    quizzesContainer.innerHTML = '';
-    quizzes.forEach((q, idx) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'frame-card';
-      wrapper.style.position = 'relative';
-      wrapper.innerHTML = `
-        <div class="inner">
-          <div style="flex:1">
-            <div class="quiz-title">${q.name}</div>
-            <div class="quiz-dead">DEAD LINE: ${q.deadline || '—'}</div>
-          </div>
-        </div>
-        <div class="edit-circle" data-idx="${idx}">
-          <i class="material-icons">edit</i>
-        </div>
-      `;
-      // clicking edit circle opens modal and fills values
-      wrapper.querySelector('.edit-circle').addEventListener('click', () => {
-        document.getElementById('editQuizIndex').value = idx;
-        document.getElementById('editQuizName').value = q.name;
-        document.getElementById('editQuizDeadline').value = q.deadline || '';
-        M.updateTextFields(); // update labels
-        const modal = M.Modal.getInstance(document.getElementById('editQuizModal'));
-        modal.open();
-      });
-
-      quizzesContainer.appendChild(wrapper);
-    });
-    // update pie chart after rendering
-    updatePieChart();
-  }
-
-  renderQuizzes();
-
-  // Create new quiz button -> add and open Exam.php
-  document.getElementById('createQuizBtn').addEventListener('click', () => {
-    const name = document.getElementById('newQuizName').value || 'EXAM/QUIZ NAME:';
-    const deadline = document.getElementById('newQuizDeadline').value || '';
-    quizzes.push({name, deadline});
-    localStorage.setItem('quizzes_v1', JSON.stringify(quizzes));
-    renderQuizzes();
-    // open Exam.php (user said create -> open Exam page). Pass index via query param
-    const idx = quizzes.length - 1;
-    window.location.href = `Exam.php?q=${idx}`;
-  });
-
-  // Save edit
-  document.getElementById('saveQuizBtn').addEventListener('click', () => {
-    const idx = parseInt(document.getElementById('editQuizIndex').value,10);
-    quizzes[idx].name = document.getElementById('editQuizName').value || 'EXAM/QUIZ NAME:';
-    quizzes[idx].deadline = document.getElementById('editQuizDeadline').value || '';
-    localStorage.setItem('quizzes_v1', JSON.stringify(quizzes));
-    renderQuizzes();
-    M.Modal.getInstance(document.getElementById('editQuizModal')).close();
-  });
-
-});
-
-// init Materialize in case of multiple DOMContentLoaded listeners
-document.addEventListener('DOMContentLoaded', function() {
-  var modals = document.querySelectorAll('.modal');
-  M.Modal.init(modals);
-});
-
-// ---------------------- Pie chart code ----------------------
-// This uses Chart.js and will display a small pie chart inside the stats box.
-// Data source: for demo it tries to read a 'submissions_v1' object from localStorage
-// Format (optional): { totalStudents: 30, submitted: 12 }
-
-function getSubmissionData(){
-  try{
-    const raw = localStorage.getItem('submissions_v1');
-    if(raw){
-      const obj = JSON.parse(raw);
-      const total = parseInt(obj.totalStudents,10) || 30;
-      const submitted = Math.max(0, Math.min(total, parseInt(obj.submitted,10) || 0));
-      return { total, submitted };
-    }
-  }catch(e){/* ignore parse errors */}
-  // fallback demo values
-  return { total: 30, submitted: 12 };
-}
-
-let pieChart = null;
-function updatePieChart(){
-  const data = getSubmissionData();
-  const submitted = data.submitted;
-  const notSubmitted = Math.max(0, data.total - submitted);
-
+  // Build pie
   const ctx = document.getElementById('quizPieChart').getContext('2d');
-
-  const chartData = {
-    labels: ['Submitted', 'Not submitted'],
-    datasets: [{
-      data: [submitted, notSubmitted],
-      // Chart.js will assign default colors; you can configure them if you want.
-    }]
-  };
-
-  const config = {
+  const notSubmitted = Math.max(0, totalStudents - totalSubmitted);
+  const pie = new Chart(ctx, {
     type: 'pie',
-    data: chartData,
-    options: {
-      maintainAspectRatio: true,
-      plugins: {
-        legend: { display: false },
-        tooltip: { enabled: true }
-      }
+    data: {
+      labels: ['Submitted','Not submitted'],
+      datasets: [{ data: [totalSubmitted, notSubmitted] }]
+    },
+    options: { plugins:{ legend:{ display:false } } }
+  });
+
+  // enhance cards: allow clicking card to open exam page
+  document.querySelectorAll('#quizzesContainer .frame-card').forEach(card => {
+    const openBtn = card.querySelector('a[href^="Exam.php"]');
+    if(openBtn) {
+      // keep link as-is
+      return;
     }
-  };
+    // If card has data-id, make the whole card clickable
+    const id = card.dataset.id;
+    if(id){
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', (e) => {
+        // avoid clicks on the edit button
+        if(e.target.closest('.edit-circle')) return;
+        window.location.href = 'Exam.php?id=' + id;
+      });
+    }
+  });
 
-  // destroy existing instance if present
-  if(pieChart){ pieChart.destroy(); }
-  pieChart = new Chart(ctx, config);
-}
-
-// call updatePieChart once the page is ready (in case DOM was parsed earlier)
-window.addEventListener('load', () => {
-  // small timeout to ensure canvas sizing is ready in some layouts
-  setTimeout(updatePieChart, 50);
-});
-
+})();
 </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
-
-
 </html>
