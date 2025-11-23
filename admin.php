@@ -10,7 +10,6 @@
 <body>
 <div class="page-wrap">
   <div class="layout container">
-
     <!-- LEFT: Create Button -->
     <div class="left-col">
       <a class="left-create modal-trigger" href="#createExamModal">CREATE QUIZ</a>
@@ -26,10 +25,6 @@
 
     <!-- RIGHT: Stats + Edit Students -->
     <div>
-      <div style="display:flex; justify-content:flex-end; margin-bottom:18px;">
-        <a href="Students.php" class="edit-students-btn">EDIT STUDENTS</a>
-      </div>
-
       <div class="stats-box">
         <div style="width:100%; height:140px; display:flex; justify-content:center; align-items:center;">
           <!-- small placeholder chart (user can replace with image or chart lib) -->
@@ -52,18 +47,146 @@
 <!-- Create Exam Modal -->
 <div id="createExamModal" class="modal">
   <div class="modal-content">
-    <h5>Create Quiz</h5>
-    <div class="input-field">
-      <input id="newQuizName" type="text">
-      <label for="newQuizName">Exam/Quiz Name</label>
-    </div>
-    <div class="input-field">
-      <input id="newQuizDeadline" type="date">
-      <label for="newQuizDeadline">Deadline</label>
-    </div>
-    <a class="btn green" id="createQuizBtn">Create & Open</a>
+    <h4 class="center-align">🎫 Plane Ticket Booking</h4>
+
+
+    <!-- FIX: make the submit actually send POST by using type="submit" and name=form_submit -->
+    <form id="flightForm" action="ticket.php" method="POST" autocomplete="off">
+      <div class="row">
+        <!-- ORIGIN -->
+        <div class="col s4 md3">
+          <div class="input-field" style="position:relative;">
+            <i class="material-icons prefix">flight_takeoff</i>
+            <!-- visible, typable input -->
+            <input
+              type="text"
+              id="origin_autocomplete"
+              class="center"
+              autocomplete="off"
+              value="<?php echo htmlspecialchars($origin ? ($origin . ' — ' . ($iataList[$origin] ?? '')) : ''); ?>">
+            <label for="origin_autocomplete">ORIGIN</label>
+            <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
+
+            <!-- actual code submitted -->
+            <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
+
+            <!-- suggestions dropdown container -->
+            <ul id="origin_suggestions" class="custom-autocomplete-list" style="display:none; position:absolute; z-index:999; left:0; right:0; background:#fff; max-height:280px; overflow:auto; border:1px solid rgba(0,0,0,0.12); padding:0; margin-top:4px;">
+            </ul>
+          </div>
+        </div>
+
+        <!-- DESTINATION -->
+        <div class="col s4 md3">
+          <div class="input-field" style="position:relative;">
+            <i class="material-icons prefix">flight_land</i>
+
+            <input
+              type="text"
+              id="destination_autocomplete"
+              class="center"
+              autocomplete="off"
+              value="<?php echo htmlspecialchars($destination ? ($destination . ' — ' . ($iataList[$destination] ?? '')) : ''); ?>">
+            <label for="destination_autocomplete">DESTINATION</label>
+            <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
+
+            <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
+
+            <ul id="destination_suggestions" class="custom-autocomplete-list" style="display:none; position:absolute; z-index:999; left:0; right:0; background:#fff; max-height:280px; overflow:auto; border:1px solid rgba(0,0,0,0.12); padding:0; margin-top:4px;">
+            </ul>
+          </div>
+        </div>
+
+        <div class="col s4 md3">
+          <div class="center">
+            <div class="input-field">
+              <i class="material-icons prefix">calendar_today</i>
+              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
+              <label for="flight-date">DEPARTURE</label>
+              <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+
+
+    <form id="bookingForm" method="POST" action="save_booking.php">
+      <div id="ticketContainer">
+        <div class="ticket-card">
+          <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
+          <div class="counter">Passenger 1</div>
+
+          <div class="input-field">
+            <input type="text" name="name[]" required autocomplete="false">
+            <label>Full Name</label>
+          </div>
+
+          <div class="row">
+            <div class="input-field col s6">
+              <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)">
+              <label>Age</label>
+            </div>
+            <div class="input-field col s2">
+              <input type="text" name="special[]" readonly disabled placeholder="Adult/Minor/Senior">
+              <label>Passenger Type</label>
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="col s6">
+              <span class="field-title">Gender</span><br>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Male" required>
+                <span class="checkmark"></span> Male
+              </label>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Female">
+                <span class="checkmark"></span> Female
+              </label>
+              <label class="custom-radio-inline">
+                <input type="radio" name="gender[0]" value="Prefer not to say">
+                <span class="checkmark"></span> Prefer not to say
+              </label>
+            </div>
+
+            <div class="col s6 pwd-group">
+              <span class="field-title">Disability</span><br>
+              <label class="custom-checkbox-inline">
+                <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
+                <span class="checkmark"></span>
+              </label>
+              <input type="text" name="impairment[]" class="impairment-field" placeholder="Specify" disabled style="display:none;">
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="input-field col s6">
+              <input type="text" name="seat[]" id="seatInput" class="dropdown-trigger" data-target="dropdown_1" readonly required>
+              <label for="seatInput">Seat Type</label>
+
+              <ul id="dropdown_1" class="dropdown-content seat-options">
+                <li><a data-value="Economy">Economy</a></li>
+                <li><a data-value="Premium">Premium</a></li>
+                <li><a data-value="Business">Business</a></li>
+                <li><a data-value="First Class">First Class</a></li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="add-btn">
+        <button type="button" id="addTicketBtn" class="btn-floating blue">+</button>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn waves-effect waves-light">Confirm Booking</button>
+      </div>
+    </form>
   </div>
-</div>
+  </div>
 
 <!-- Edit Quiz Modal -->
 <div id="editQuizModal" class="modal">
@@ -84,84 +207,26 @@
 
 <!-- Materialize & app JS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  M.Modal.init(document.querySelectorAll('.modal'));
+  document.addEventListener('DOMContentLoaded', function() {
+    var modals = document.querySelectorAll('.modal');
+    M.Modal.init(modals);
 
-  // load quizzes from localStorage or sample
-  let quizzes = JSON.parse(localStorage.getItem('quizzes_v1')) || [
-    {name:'EXAM/QUIZ NAME:', deadline:''},
-    {name:'EXAM/QUIZ NAME:', deadline:''},
-    {name:'EXAM/QUIZ NAME:', deadline:''}
-  ];
-
-  const quizzesContainer = document.getElementById('quizzesContainer');
-
-  function renderQuizzes(){
-    quizzesContainer.innerHTML = '';
-    quizzes.forEach((q, idx) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'frame-card';
-      wrapper.style.position = 'relative';
-      wrapper.innerHTML = `
-        <div class="inner">
-          <div style="flex:1">
-            <div class="quiz-title">${q.name}</div>
-            <div class="quiz-dead">DEAD LINE: ${q.deadline || '—'}</div>
-          </div>
-        </div>
-        <div class="edit-circle" data-idx="${idx}">
-          <i class="material-icons">edit</i>
-        </div>
-      `;
-      // clicking edit circle opens modal and fills values
-      wrapper.querySelector('.edit-circle').addEventListener('click', () => {
-        document.getElementById('editQuizIndex').value = idx;
-        document.getElementById('editQuizName').value = q.name;
-        document.getElementById('editQuizDeadline').value = q.deadline || '';
-        M.updateTextFields(); // update labels
-        const modal = M.Modal.getInstance(document.getElementById('editQuizModal'));
-        modal.open();
-      });
-
-      quizzesContainer.appendChild(wrapper);
+    var datepickers = document.querySelectorAll('.datepicker');
+    M.Datepicker.init(datepickers, {
+      format: 'yyyy-mm-dd',
+      minDate: new Date(),
+      autoClose: true
     });
-  }
 
-  renderQuizzes();
-
-  // Create new quiz button -> add and open Exam.php
-  document.getElementById('createQuizBtn').addEventListener('click', () => {
-    const name = document.getElementById('newQuizName').value || 'EXAM/QUIZ NAME:';
-    const deadline = document.getElementById('newQuizDeadline').value || '';
-    quizzes.push({name, deadline});
-    localStorage.setItem('quizzes_v1', JSON.stringify(quizzes));
-    renderQuizzes();
-    // open Exam.php (user said create -> open Exam page). Pass index via query param
-    const idx = quizzes.length - 1;
-    window.location.href = `Exam.php?q=${idx}`;
-  });
-
-  // Save edit
-  document.getElementById('saveQuizBtn').addEventListener('click', () => {
-    const idx = parseInt(document.getElementById('editQuizIndex').value,10);
-    quizzes[idx].name = document.getElementById('editQuizName').value || 'EXAM/QUIZ NAME:';
-    quizzes[idx].deadline = document.getElementById('editQuizDeadline').value || '';
-    localStorage.setItem('quizzes_v1', JSON.stringify(quizzes));
-    renderQuizzes();
-    M.Modal.getInstance(document.getElementById('editQuizModal')).close();
-  });
-
-});
-
-	    document.addEventListener('DOMContentLoaded', function() {
-        var modals = document.querySelectorAll('.modal');
-        M.Modal.init(modals);
+    var dropdowns = document.querySelectorAll('.dropdown-trigger');
+    M.Dropdown.init(dropdowns, {
+      constrainWidth: false,
+      coverTrigger: false
     });
+  });
 </script>
-
-<?php include('templates/footer.php'); ?>
 </body>
-
-
-</html>aa
+</html>
+<?php include('templates/footer.php'); ?>

@@ -82,3 +82,42 @@ label, .field-title { font-weight: bold; color: #666; }
     font-size: 2rem;
     margin: 0 5px;
 }
+
+
+.floating-seat-dropdown {
+  display: none;
+  position: fixed;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,0.12);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.12);
+  border-radius: 6px;
+  z-index: 99999 !important;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 180px;
+  padding: 6px 0;
+}
+
+/* Items */
+.floating-seat-dropdown .item {
+  padding: 10px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #222;
+}
+.floating-seat-dropdown .item:hover,
+.floating-seat-dropdown .item.active {
+  background: rgba(0,0,0,0.04);
+}
+
+/* Small responsive tweak */
+@media (max-width:600px) {
+  .floating-seat-dropdown { max-width: calc(100% - 16px); }
+}
+
+/* make sure the input field's container doesn't hide the absolute dropdown */
+.ticket-card .input-field {
+  position: relative; /* important so .seat-options absolute is positioned inside card */
+}
