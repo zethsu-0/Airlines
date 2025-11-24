@@ -1,5 +1,5 @@
 <?php
-// admin_quiz_maker.php
+// admin_quiz_maker.php (improved)
 include('templates/header.php');
 
 // Fetch airports for the IATA select and create a JSON list for JS
@@ -12,50 +12,55 @@ $airportOptionsHtml = '<option value="" disabled selected>Choose IATA code</opti
 $airportList = []; // array of objects for JS autocomplete
 
 $conn = new mysqli($host, $user, $pass, $db);
-if (!$conn->connect_error) {
-    // Using your actual column names: IATACode, AirportName, City
-    $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(AirportName,'') AS AirportName FROM airports ORDER BY IATACode ASC";
+if ($conn->connect_errno) {
+    // Connection failed — use fallback
+    error_log("DB connect failed: " . $conn->connect_error);
+    $airportOptionsHtml = '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
+    $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
+    $airportList = [
+        ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','region'=>'PHILIPPINES','name'=>'Manila Airport'],
+        ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','region'=>'USA','name'=>'Los Angeles Intl']
+    ];
+} else {
+    // Proper SQL: fetch IATA, City, CountryRegion, AirportName
+    $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(CountryRegion,'') AS CountryRegion, COALESCE(AirportName,'') AS AirportName FROM airports ORDER BY IATACode ASC";
     if ($res = $conn->query($sql)) {
         while ($row = $res->fetch_assoc()) {
-            $iata = strtoupper(trim($row['IATACode']));
+            $iata = strtoupper(trim($row['IATACode'] ?? ''));
             if ($iata === '') continue;
-            $city = trim($row['City']);
-            $name = trim($row['AirportName']);
+            $city = trim($row['City'] ?? '');
+            $name = trim($row['AirportName'] ?? '');
+            $region = trim($row['CountryRegion'] ?? '');
             $labelParts = [];
             if ($city !== '') $labelParts[] = $city;
             if ($name !== '' && stripos($name, $city) === false) $labelParts[] = $name;
             $label = $labelParts ? implode(' — ', $labelParts) : $iata;
-            // Option HTML (kept for fallback if needed)
-            $opt = '<option value="' . htmlspecialchars($iata) . '" data-city="' . htmlspecialchars(strtoupper($city ?: $name ?: '')) . '">' . htmlspecialchars($iata . ' — ' . $label) . '</option>';
+
+            $opt = '<option value="' . htmlspecialchars($iata) . '" data-city="' . htmlspecialchars(strtoupper($city ?: $name ?: '')) . '">' 
+                   . htmlspecialchars($iata . ' — ' . $label) . '</option>';
             $airportOptionsHtml .= $opt;
 
-            // Add to JS-friendly list
             $airportList[] = [
-                'iata' => $iata,
-                'city' => strtoupper($city ?: $name ?: ''),
-                'label' => $iata . ' — ' . $label,
-                'name' => $name
+                'iata'   => $iata,
+                'city'   => strtoupper($city ?: $name ?: ''),
+                'region' => strtoupper($region ?: ''),
+                'label'  => $iata . ' — ' . $label,
+                'name'   => $name
             ];
         }
         $res->free();
     } else {
-        // fallback
+        // query failed: log the error and use fallback
+        error_log("airport query failed: " . $conn->error);
         $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
         $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
         $airportList = [
-            ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','name'=>'Manila Airport'],
-            ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','name'=>'Los Angeles Intl']
+            ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','region'=>'PHILIPPINES','name'=>'Manila Airport'],
+            ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','region'=>'USA','name'=>'Los Angeles Intl']
         ];
     }
-} else {
-    // connection error fallback
-    $airportOptionsHtml = '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
-    $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
-    $airportList = [
-        ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','name'=>'Manila Airport'],
-        ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','name'=>'Los Angeles Intl']
-    ];
 }
+
 
 // Provide the options string to JS (safe JSON) and airport list JSON
 $airportOptionsJson = json_encode($airportOptionsHtml);
@@ -70,6 +75,8 @@ $airportListJson = json_encode($airportList);
   <title>Quiz Maker - Admin</title>
   <!-- Materialize CSS -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+  <!-- Material icons (needed for your remove icon) -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
     :root{ --primary-blue:#0d6efd; --accent-blue:#0b5ed7; --soft-blue:#e9f2ff; }
     body{background:linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%); font-family: Roboto, Arial, sans-serif}
@@ -138,27 +145,80 @@ $airportListJson = json_encode($airportList);
   <div style="margin-top:18px" class="card booking">
     <div class="card-content">
       <h5 style="margin-top:0">Create New Quiz</h5>
+      <div class="col">
+        <!-- RIGHT: Boarding pass / stats -->
+        <div>
+          <div class="card-section">
+            <div class="section-title">Boarding Pass Preview</div>
+            <div class="boarding-pass" id="boardingPass">
+              <div class="bp-row">
+                <div>
+                  <div class="bp-airport" id="bpFrom">MNL</div>
+                  <div class="bp-meta" id="bpFromName">Origin</div>
+                </div>
 
-      <div class="two-col" style="margin-top:12px;">
+                <div style="text-align:center">
+                  <div style="font-weight:900; font-size:14px" id="bpTitle">QUIZ/EXAM</div>
+                  <div class="bp-meta" id="bpCode">REF: XXXX</div>
+                </div>
+
+                <div style="text-align:right">
+                  <div class="bp-airport" id="bpTo">LAX</div>
+                  <div class="bp-meta" id="bpToName">Destination</div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center">
+                <div>
+                  <div class="small-note">Departure(s)</div>
+                  <div id="bpDeadline" style="font-weight:700"></div>
+                </div>
+                <div>
+                  <div class="small-note">Items • Duration • Class</div>
+                  <div id="bpMeta" style="font-weight:700"></div>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;">
+                <div class="muted">Student prompt (description):</div>
+                <div id="bpDescriptionRight" style="font-weight:700; margin-top:6px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-section">
+            <div class="section-title">Quick Info</div>
+            <div class="muted">Number of items affects the description. Auto-create student prompt will generate a single text question summarizing all items (expected answer = first item's city).</div>
+            <div style="margin-top:8px;">
+              <div class="input-field">
+                <input id="numQuestions" type="number" min="0" value="0" readonly>
+                <label for="numQuestions">Number of Questions (auto)</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div> <!-- two-col -->
+      </div>
+      <div class="col" style="margin-top:12px;">
         <!-- LEFT: Main form -->
         <div>
           <!-- GENERAL INFO -->
           <div class="card-section">
             <div class="section-title">General Info</div>
             <div class="input-field">
-              <input id="quizTitle" type="text" required>
+              <input id="quizTitle" type="text" required autocomplete="off">
               <label for="quizTitle">Quiz / Exam Title</label>
               <span class="helper-text">e.g. Midterm Exam — Physics</span>
             </div>
 
             <div class="input-field">
-              <input id="sectionField" type="text">
+              <input id="sectionField" type="text"  autocomplete="off">
               <label for="sectionField">Section / Course</label>
               <span class="helper-text">e.g. PHY101 or Section A</span>
             </div>
 
             <div class="input-field">
-              <input id="audienceField" type="text">
+              <input id="audienceField" type="text"  autocomplete="off">
               <label for="audienceField">Target Audience</label>
               <span class="helper-text">e.g. All Students, Section B</span>
             </div>
@@ -166,19 +226,29 @@ $airportListJson = json_encode($airportList);
             <!-- Duration and Booking Ref moved here -->
             <div class="flight-row" style="margin-top:8px">
               <div class="flight-field input-field">
-                <input id="duration" type="number" min="1" value="60">
+                <input id="duration" type="number" min="1" value="60"  autocomplete="off">
                 <label for="duration">Duration (minutes)</label>
               </div>
 
               <div class="flight-field input-field">
-                <input id="quizCode" type="text">
+                <input id="quizCode" type="text"  autocomplete="off">
                 <label for="quizCode">Booking Ref (Quiz Code)</label>
                 <span class="helper-text">Auto-generated if left empty</span>
               </div>
             </div>
+
+            <!-- auto-create checkbox (was referenced in JS but missing) -->
+            <p>
+              <label>
+                <input type="checkbox" id="autoCreateQuestion" />
+                <span>Auto-create student prompt (summary question)</span>
+              </label>
+            </p>
+
+            <!-- hidden expectedCity input referenced in JS (added so suggestion can populate it) -->
+            <input type="hidden" id="expectedCity" />
           </div>
 
-          <!-- QUIZ DETAILS (flight-like) - REPEATABLE ITEMS -->
           <div class="card-section">
             <div style="display:flex; justify-content:space-between; align-items:center">
               <div class="section-title">Quiz Details (Flight-style items)</div>
@@ -213,60 +283,6 @@ $airportListJson = json_encode($airportList);
             <div id="bpDescription" style="font-weight:700;"></div>
           </div>
         </div>
-
-        <!-- RIGHT: Boarding pass / stats -->
-        <div>
-          <div class="card-section">
-            <div class="section-title">Boarding Pass Preview</div>
-            <div class="boarding-pass" id="boardingPass">
-              <div class="bp-row">
-                <div>
-                  <div class="bp-airport" id="bpFrom">MNL</div>
-                  <div class="bp-meta" id="bpFromName">Section</div>
-                </div>
-
-                <div style="text-align:center">
-                  <div style="font-weight:900; font-size:14px" id="bpTitle">QUIZ/EXAM</div>
-                  <div class="bp-meta" id="bpCode">REF: XXXX</div>
-                </div>
-
-                <div style="text-align:right">
-                  <div class="bp-airport" id="bpTo">LAX</div>
-                  <div class="bp-meta" id="bpToName">Audience</div>
-                </div>
-              </div>
-
-              <div style="margin-top:12px; display:flex; justify-content:space-between; align-items:center">
-                <div>
-                  <div class="small-note">Departure(s)</div>
-                  <div id="bpDeadline" style="font-weight:700"></div>
-                </div>
-                <div>
-                  <div class="small-note">Items • Duration • Class</div>
-                  <div id="bpMeta" style="font-weight:700"></div>
-                </div>
-              </div>
-
-              <div style="margin-top:12px;">
-                <div class="muted">Student prompt (description):</div>
-                <div id="bpDescriptionRight" style="font-weight:700; margin-top:6px;"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="card-section">
-            <div class="section-title">Quick Info</div>
-            <div class="muted">Number of items affects the description. Auto-create student prompt will generate a single text question summarizing all items (expected answer = first item's city).</div>
-            <div style="margin-top:8px;">
-              <div class="input-field">
-                <input id="numQuestions" type="number" min="0" value="0" readonly>
-                <label for="numQuestions">Number of Questions (auto)</label>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div> <!-- two-col -->
-
     </div> <!-- card-content -->
   </div> <!-- card booking -->
 
@@ -293,15 +309,13 @@ function matchAirports(query){
   const results = [];
   for(const a of airportList){
     if(results.length >= 50) break;
-    if(a.iata.startsWith(q) || a.city.startsWith(q) || (a.name && a.name.toUpperCase().startsWith(q))) {
-      results.push(a);
-      continue;
-    }
+    if(a.iata && a.iata.startsWith(q)) { results.push(a); continue; }
+    if(a.city && a.city.startsWith(q)) { results.push(a); continue; }
+    if(a.name && a.name.toUpperCase().startsWith(q)) { results.push(a); continue; }
     // fallback fuzzy includes
-    if(a.iata.includes(q) || (a.city && a.city.includes(q)) || (a.name && a.name.toUpperCase().includes(q))) {
-      results.push(a);
-      continue;
-    }
+    if(a.iata && a.iata.includes(q)) { results.push(a); continue; }
+    if(a.city && a.city.includes(q)) { results.push(a); continue; }
+    if(a.name && a.name.toUpperCase().includes(q)) { results.push(a); continue; }
   }
   return results;
 }
@@ -326,31 +340,78 @@ function createItemBlock(prefill = null){
       </div>
     </div>
 
-    <div class="flight-row" style="margin-bottom:8px">
-      <div class="flight-field input-field iata-autocomplete">
-        <input type="text" class="iatalongInputInner" data-idx="${idx}" placeholder="Type IATA, city or airport name" autocomplete="off" />
-        <label>IATA Code (type to search)</label>
-        <div class="iata-suggestions" style="display:none;"></div>
-      </div>
-
-      <div class="flight-field input-field">
-        <select class="difficultySelectInner">
-          <option value="easy" selected>Easy (Economy)</option>
-          <option value="medium">Medium (Premium)</option>
-          <option value="hard">Hard (Business)</option>
-        </select>
-        <label>Seat Class / Difficulty</label>
-      </div>
-    </div>
+    
 
     <div class="flight-row">
       <div class="flight-field input-field">
-        <input type="datetime-local" class="deadlineInput" />
+        <input type="datetime-local" class="deadlineInput" autocomplete="off" />
         <label>Deadline (optional)</label>
       </div>
 
       <div style="width:120px; display:flex; align-items:center;">
         <span class="muted">Item controls</span>
+      </div>
+    </div>
+
+    <!-- Booking details per item -->
+    <div class="card-section" style="margin-top:10px; padding:10px; background:#fcfeff;">
+      <div style="font-weight:700; margin-bottom:8px">Booking Details (Item ${idx+1})</div>
+
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-bottom:8px;">
+        <div class="input-field"><input type="number" min="0" value="1" class="adultCountInner" data-idx="${idx}" /><label>Adults</label></div>
+        <div class="input-field"><input type="number" min="0" value="0" class="childCountInner" data-idx="${idx}" /><label>Children</label></div>
+        <div class="input-field"><input type="number" min="0" value="0" class="infantCountInner" data-idx="${idx}" /><label>Infants</label></div>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <label style="display:block; margin-bottom:6px">Flight type</label>
+        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="oneway" checked /><span>One-way</span></label>
+        <label><input name="flightTypeInner${idx}" type="radio" value="roundtrip" /><span>Round-trip</span></label>
+      </div>
+
+      <div class="flight-row" style="margin-bottom:8px">
+        <div class="flight-field input-field iata-autocomplete">
+          <input type="text" class="originAirportInner" data-idx="${idx}" placeholder="Origin IATA / city" autocomplete="off" />
+          <label>Origin Airport</label>
+          <div class="iata-suggestions" style="display:none"></div>
+        </div>
+
+        <div class="flight-field input-field iata-autocomplete">
+          <input type="text" class="destinationAirportInner" data-idx="${idx}" placeholder="Dest IATA / city" autocomplete="off" />
+          <label>Destination Airport</label>
+          <div class="iata-suggestions" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="flight-row" style="margin-bottom:8px">
+        <div class="flight-field input-field">
+          <input type="date" class="departureDateInner" data-idx="${idx}" />
+          <label>Departure date</label>
+        </div>
+        <div class="flight-field input-field">
+          <input type="date" class="returnDateInner" data-idx="${idx}" />
+          <label>Return date (if RT)</label>
+        </div>
+      </div>
+
+      <div class="flight-row" style="margin-bottom:8px">
+        <div class="flight-field input-field">
+          <input type="text" class="flightNumberInner" data-idx="${idx}" readonly />
+          <label>Flight number (autogenerated)</label>
+        </div>
+        <div class="flight-field input-field">
+          <input type="text" class="seatNumbersInner" data-idx="${idx}" placeholder="e.g., 14A, 14B" />
+          <label>Seat numbers</label>
+        </div>
+      </div>
+
+      <div class="input-field" style="margin-top:6px;">
+        <select class="travelClassInner" data-idx="${idx}">
+          <option value="economy" selected>Economy</option>
+          <option value="business">Business</option>
+          <option value="premium">Premium</option>
+        </select>
+        <label>Class</label>
       </div>
     </div>
   `;
@@ -362,69 +423,59 @@ function createItemBlock(prefill = null){
     refreshItemLabels();
   });
 
-  // hookup autocomplete handlers
-  const input = wrapper.querySelector('.iatalongInputInner');
-  const suggBox = wrapper.querySelector('.iata-suggestions');
+  // helper to attach autocomplete to any input inside the wrapper
+  function attachAutocompleteTo(inputEl){
+    if(!inputEl) return;
+    const container = inputEl.closest('.iata-autocomplete');
+    const localSugg = container ? container.querySelector('.iata-suggestions') : null;
 
-  // helper to render suggestions
-  function renderSuggestions(list){
-    if(!suggBox) return;
-    if(!list || list.length === 0){
-      suggBox.style.display = 'none';
-      suggBox.innerHTML = '';
-      return;
-    }
-    suggBox.innerHTML = list.map(a => {
-      // include label and city/name in small tag
-      const small = a.city ? `<small>${a.city}</small>` : `<small>${a.name || ''}</small>`;
-      return `<div class="iata-suggestion" data-iata="${a.iata}" data-city="${a.city || ''}">${a.label}${small}</div>`;
-    }).join('');
-    suggBox.style.display = 'block';
+    inputEl.addEventListener('input', function(){
+      const q = this.value || '';
+      if(q.trim().length === 0){
+        if(localSugg) { localSugg.style.display='none'; localSugg.innerHTML=''; }
+        return;
+      }
+      const matches = matchAirports(q);
+      if(!localSugg) return;
+      localSugg.innerHTML = matches.map(a=>{
+        const small = a.city ? `<small>${a.city}</small>` : `<small>${(a.name||'').toUpperCase()}</small>`;
+        return `<div class="iata-suggestion" data-iata="${a.iata}" data-city="${a.city||''}">${a.label}${small}</div>`;
+      }).join('');
+      localSugg.style.display = 'block';
 
-    // attach click handlers to suggestions
-    suggBox.querySelectorAll('.iata-suggestion').forEach(node => {
-      node.addEventListener('click', (ev)=>{
-        const iata = node.dataset.iata || '';
-        const city = node.dataset.city || '';
-        input.value = iata;
-        input.dataset.city = city;
-        // hide
-        suggBox.style.display = 'none';
-        // if this is first item and expectedCity is empty, set it
-        const allItems = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
-        const indexOfBlock = allItems.indexOf(wrapper);
-        if(indexOfBlock === 0 && city){
-          const expectedCityEl = document.getElementById('expectedCity');
-          if(expectedCityEl && !expectedCityEl.value.trim()){
-            expectedCityEl.value = city;
-            M.updateTextFields();
+      // attach click handlers
+      localSugg.querySelectorAll('.iata-suggestion').forEach(node=>{
+        node.addEventListener('click', ()=>{
+          const iata = node.dataset.iata || '';
+          const city = node.dataset.city || '';
+          inputEl.value = iata;
+          inputEl.dataset.city = (city||'').toUpperCase();
+          localSugg.style.display='none';
+
+          // if this is main item iatalong and first item, set expectedCity
+          const allItems = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
+          const indexOfBlock = allItems.indexOf(wrapper);
+          if(indexOfBlock === 0 && inputEl.classList.contains('iatalongInputInner') && city){
+            const expectedCityEl = document.getElementById('expectedCity');
+            if(expectedCityEl && !expectedCityEl.value.trim()){
+              expectedCityEl.value = city.toUpperCase();
+              if (M && M.updateTextFields) M.updateTextFields();
+            }
           }
-        }
+        });
       });
     });
+
+    inputEl.addEventListener('blur', function(){ setTimeout(()=>{ if(localSugg) localSugg.style.display='none'; },120); });
   }
 
-  // typed input -> filter suggestions
-  input.addEventListener('input', function(e){
-    const q = this.value || '';
-    if(q.trim().length === 0) {
-      renderSuggestions([]);
-      return;
-    }
-    const matches = matchAirports(q);
-    renderSuggestions(matches);
-  });
+  // attach to origin/destination per-item
+  attachAutocompleteTo(wrapper.querySelector('.originAirportInner'));
+  attachAutocompleteTo(wrapper.querySelector('.destinationAirportInner'));
 
-  // close suggestions on outside click
-  document.addEventListener('click', function(ev){
-    if(!wrapper.contains(ev.target)){
-      const b = wrapper.querySelector('.iata-suggestions');
-      if(b) b.style.display = 'none';
-    }
-  });
-
-  // when focus lost, hide suggestions after tiny delay (allow click)
-  input.addEventListener('blur', function(){ setTimeout(()=>{ if(suggBox) suggBox.style.display='none'; }, 120); });
+  // autogenerate flight number for this item
+  const flightNumEl = wrapper.querySelector('.flightNumberInner');
+  if(flightNumEl && !flightNumEl.value){ flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase(); }
 
   return wrapper;
 }
@@ -457,12 +508,49 @@ function collectItems(){
   const items = [];
   const blocks = document.querySelectorAll('#itemsContainer .item-row');
   for(const b of blocks){
-    const iataInput = b.querySelector('.iatalongInputInner');
-    const iata = iataInput ? iataInput.value : '';
-    const city = iataInput ? (iataInput.dataset && iataInput.dataset.city ? iataInput.dataset.city : '') : '';
-    const difficulty = b.querySelector('.difficultySelectInner') ? b.querySelector('.difficultySelectInner').value : 'easy';
     const deadline = b.querySelector('.deadlineInput') ? b.querySelector('.deadlineInput').value : null;
-    items.push({ iata: uc(iata), city: uc(city), difficulty, deadline });
+
+    // per-item booking fields
+    const adultsEl = b.querySelector('.adultCountInner');
+    const childrenEl = b.querySelector('.childCountInner');
+    const infantsEl = b.querySelector('.infantCountInner');
+    const originEl = b.querySelector('.originAirportInner');
+    const destEl = b.querySelector('.destinationAirportInner');
+    const departureEl = b.querySelector('.departureDateInner');
+    const returnEl = b.querySelector('.returnDateInner');
+    const flightNumEl = b.querySelector('.flightNumberInner');
+    const seatsEl = b.querySelector('.seatNumbersInner');
+    const travelClassEl = b.querySelector('.travelClassInner');
+    const flightTypeEl = b.querySelector(`input[name=flightTypeInner${b.dataset.idx}]:checked`);
+
+    const adults = adultsEl ? parseInt(adultsEl.value || 0, 10) : 0;
+    const children = childrenEl ? parseInt(childrenEl.value || 0, 10) : 0;
+    const infants = infantsEl ? parseInt(infantsEl.value || 0, 10) : 0;
+    const origin = originEl ? (originEl.value || '') : '';
+    const destination = destEl ? (destEl.value || '') : '';
+    const departure = departureEl ? (departureEl.value || null) : null;
+    const ret = returnEl ? (returnEl.value || null) : null;
+    const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
+    const seats = seatsEl ? (seatsEl.value || '') : '';
+    const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
+    const flightType = flightTypeEl ? (flightTypeEl.value || 'oneway') : 'oneway';
+
+    items.push({
+      iata: uc(origin),
+      city: uc(destination),
+      difficulty: travelClass || 'economy',
+      deadline,
+      booking: {
+        adults, children, infants,
+        flight_type: flightType,
+        origin: uc(origin),
+        destination: uc(destination),
+        departure, return: ret,
+        flight_number: flightNumber,
+        seats,
+        travel_class: travelClass
+      }
+    });
   }
   return items;
 }
@@ -472,19 +560,52 @@ function buildDescription(){
   const section = document.getElementById('sectionField').value || '';
   const audience = document.getElementById('audienceField').value || '';
   const duration = document.getElementById('duration').value || '';
+
   let parts = [];
   for(const it of items){
-    if(it.city){
-      parts.push(`to ${it.city} (${it.iata}) seat class ${it.difficulty}${it.deadline ? ' by '+(new Date(it.deadline).toLocaleString()) : ''}`);
-    } else {
-      parts.push(`to destination ${it.iata} seat class ${it.difficulty}${it.deadline ? ' by '+(new Date(it.deadline).toLocaleString()) : ''}`);
-    }
+    const b = it.booking || {};
+
+    // PERSON COUNT SENTENCES — remove zeros
+    let personParts = [];
+    if(b.adults && b.adults > 0) personParts.push(b.adults + (b.adults === 1 ? ' adult' : ' adults'));
+    if(b.children && b.children > 0) personParts.push(b.children + (b.children === 1 ? ' child' : ' children'));
+    if(b.infants && b.infants > 0) personParts.push(b.infants + (b.infants === 1 ? ' infant' : ' infants'));
+    const personStr = personParts.length ? personParts.join(', ') : '';
+
+    // ORIGIN / DESTINATION
+    const orgA = airportList.find(a=>a.iata===b.origin) || {};
+    const dstA = airportList.find(a=>a.iata===b.destination) || {};
+    const origin = orgA.city ? `${orgA.city}, ${orgA.region}` : b.origin || it.iata || '---';
+    const destination = dstA.city ? `${dstA.city}, ${dstA.region}` : b.destination || it.city || '---';
+
+    // FLIGHT TYPE
+    const typeLabel = b.flight_type === 'roundtrip' ? 'round-trip' : 'one-way';
+
+    // CLASS
+    const classLabel = (b.travel_class || 'economy');
+
+    // Build readable sentence per item
+    let sentence = '';
+    if(personStr) sentence += personStr + ' '; // adds only if persons exist
+    sentence += `flying from ${origin} to ${destination} on a ${typeLabel} flight in ${classLabel} class`;
+
+    parts.push(sentence);
   }
-  let desc = 'Book ' + (parts.length ? parts.join('; ') : 'the indicated destinations') + '.';
+
+  let desc = '';
+  if(parts.length === 1) desc = 'Book ' + parts[0] + '.';
+  else if(parts.length > 1) desc = 'Book the following flights: ' + parts.map(p => p + '.').join(' ');
+  else desc = 'Book the indicated destinations.';
+
   if(section) desc += ` Course/Section: ${section}.`;
   if(audience) desc += ` Audience: ${audience}.`;
   if(duration) desc += ` Duration: ${duration} minutes.`;
-  return { description: desc, expected_answer: (items[0] && items[0].city) ? items[0].city : null, itemsCount: items.length, firstDeadline: (items[0] && items[0].deadline) ? new Date(items[0].deadline).toLocaleString() : '' };
+
+  const first = items[0] || null;
+  const expected = first && first.booking && first.booking.destination ? first.booking.destination : null;
+  const firstDeadline = (first && first.deadline) ? new Date(first.deadline).toLocaleString() : '';
+
+  return { description: desc, expected_answer: expected, itemsCount: items.length, firstDeadline };
 }
 
 /* SAVE function - declared in global scope so event listeners can call it */
@@ -587,22 +708,36 @@ document.addEventListener('DOMContentLoaded', function(){
       let code = document.getElementById('quizCode').value;
       if(!code) { code = genRef(); document.getElementById('quizCode').value = code; }
 
-      const {description, expected_answer, itemsCount, firstDeadline} = buildDescription();
+      // build description from items (this now includes per-item booking fields)
+      const {description, expected_answer, itemsCount, firstDeadline: bdFirstDeadline} = buildDescription();
 
-      // Show summary info: use first item's IATA as representative in BP header (if any)
-      const firstItem = collectItems()[0];
-      const repIata = firstItem ? firstItem.iata : '---';
-      document.getElementById('bpFrom').textContent = repIata;
+      // Use the first item's booking origin/destination if available
+      const firstItem = collectItems()[0] || null;
+      let repFrom = '---', repTo = '---', firstDeadline = bdFirstDeadline || '';
+      if(firstItem){
+        repFrom = (firstItem.booking && firstItem.booking.origin) ? firstItem.booking.origin : (firstItem.iata || '---');
+        repTo = (firstItem.booking && firstItem.booking.destination) ? firstItem.booking.destination : (firstItem.city || '---');
+        firstDeadline = firstItem.deadline || firstDeadline;
+      }
+
+      document.getElementById('bpFrom').textContent = repFrom;
       document.getElementById('bpFromName').textContent = section;
-      document.getElementById('bpTo').textContent = repIata;
+      document.getElementById('bpTo').textContent = repTo;
       document.getElementById('bpToName').textContent = audience;
       document.getElementById('bpTitle').textContent = title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
       document.getElementById('bpDeadline').textContent = firstDeadline || 'Multiple / see description';
+
+      // Meta: items count, duration and class from first item (if available)
+      let metaClass = '';
+      if(firstItem && firstItem.difficulty) metaClass = firstItem.difficulty;
       document.getElementById('numQuestions').value = document.getElementById('autoCreateQuestion') && document.getElementById('autoCreateQuestion').checked ? 1 : 0;
-      document.getElementById('bpMeta').textContent = itemsCount + ' Items • ' + duration + ' min';
-      document.getElementById('bpDescription').textContent = description;
-      document.getElementById('bpDescriptionRight').textContent = description;
+      document.getElementById('bpMeta').textContent = itemsCount + ' Items • ' + duration + ' min' + (metaClass ? ' • ' + metaClass : '');
+
+      // Ensure description is readable even when items are empty
+      const finalDesc = description || 'Book the indicated destinations.';
+      document.getElementById('bpDescription').textContent = finalDesc;
+      document.getElementById('bpDescriptionRight').textContent = finalDesc;
 
       document.getElementById('boardingPass').style.display = 'block';
       document.getElementById('previewDescriptionWrap').style.display = 'block';
