@@ -95,19 +95,13 @@
 
   <!-- Booking Form Card -->
   <div class="bg-container container center">
-    <?php $logged_in = !empty($_SESSION['acc_id']); ?>
-    <?php if (!$logged_in): ?>
-    <div class="yellow-text center" style="margin-bottom: 10px;">
-        Please log in to book a flight.
-    </div>
-    <?php endif; ?>
 
     <form id="flightForm" action="index.php" method="POST" autocomplete="off" class="card">
       <div class="row">
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_takeoff</i>
-            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin); ?>"<?php echo !$logged_in ? 'disabled' : ''; ?>>
+            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin); ?>">
             <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
             <label for="origin">ORIGIN</label>
           </div>
@@ -116,7 +110,7 @@
         <div class="col s3 md3">
           <div class="input-field">
             <i class="material-icons prefix">flight_land</i>
-            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination); ?>"<?php echo !$logged_in ? 'disabled' : ''; ?>>
+            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination); ?>">
             <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
             <label for="destination">DESTINATION</label>
           </div>
@@ -126,7 +120,7 @@
           <div class="center">
             <div class="input-field">
               <i class="material-icons prefix">calendar_today</i>
-              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly <?php echo !$logged_in ? 'disabled' : ''; ?>>
+              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly >
               <label for="flight-date">DEPARTURE</label>
               <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
             </div>
@@ -135,7 +129,7 @@
 
         <div class="col s3 md3 submitbtn">
             <div class="center">
-              <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0" <?php echo !$logged_in ? 'disabled' : ''; ?>>
+              <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0" >
             </div>
           </div>
         </div>

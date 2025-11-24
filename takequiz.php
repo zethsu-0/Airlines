@@ -1,15 +1,65 @@
 <?php
-// student_profile.php
-// Student profile page: lists quizzes and whether the current student submitted them.
-// Assumes DB schema from previous SQL (quizzes, submissions, students).
-// Adjust DB creds if needed.
+// takequiz.php
+// Student-facing list of available quizzes and submission status.
+// Requires the user to be logged in (uses $_SESSION['acc_id'] or related keys).
 
 session_start();
 
-// Include site header/footer (uses uploaded files)
-include('/mnt/data/header.php');
+// Include site header (this contains the login button + modal you provided)
+include('templates/header.php');
 
-// --- Determine current student ID from session (try common keys, fallback to demo) ---
+// Helper to check login quickly (matches header's logic)
+function is_logged_in() {
+    if (!empty($_SESSION['acc_id'])) return true;
+    if (!empty($_SESSION['student_id'])) return true;
+    if (!empty($_SESSION['user_id'])) return true;
+    if (!empty($_SESSION['user']['id'])) return true;
+    return false;
+}
+
+// If not logged in — show a prompt and open the login modal, then stop further processing.
+// This ensures quizzes are not visible until the student logs in.
+if (!is_logged_in()) {
+    // Render a small page fragment with a message and a script to open the login modal.
+    ?>
+    <div style="max-width:900px;margin:48px auto;padding:24px;background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.06);font-family:Roboto, Arial, sans-serif">
+      <h4>Please log in to view quizzes</h4>
+      <p>If you already have an account, click <strong>Log In</strong> in the header (or use the form that opened). If you don't yet have an account, please register / contact your instructor.</p>
+      <p style="margin-top:18px">
+        <a class="btn" href="index.php">Home</a>
+        <a class="btn blue modal-trigger" href="#loginModal" id="openLoginBtn">Open Login</a>
+      </p>
+    </div>
+
+    <script>
+      // Ensure Materialize modals are initialized and then open the login modal.
+      document.addEventListener('DOMContentLoaded', function(){
+        if (typeof M !== 'undefined' && M.Modal) {
+          var elems = document.querySelectorAll('.modal');
+          M.Modal.init(elems);
+          var loginEl = document.getElementById('loginModal');
+          if (loginEl) {
+            var inst = M.Modal.getInstance(loginEl) || M.Modal.init(loginEl);
+            try { inst.open(); } catch(e) { /* ignore */ }
+          }
+        } else {
+          // fallback for jQuery + older init
+          try { $('.modal').modal(); $('#loginModal').modal('open'); } catch(e) {}
+        }
+      });
+    </script>
+
+    <?php
+    // include footer then exit
+    include('templates/footer.php');
+    exit;
+}
+
+// ---------------------------------------------
+// User is logged in: proceed to load quizzes
+// ---------------------------------------------
+
+// --- Determine current student ID from session (try common keys) ---
 $studentId = null;
 if (!empty($_SESSION['student_id'])) {
     $studentId = intval($_SESSION['student_id']);
@@ -19,12 +69,6 @@ if (!empty($_SESSION['student_id'])) {
     $studentId = intval($_SESSION['user']['id']);
 } elseif (!empty($_SESSION['acc_id'])) {
     $studentId = intval($_SESSION['acc_id']);
-}
-
-// fallback for demo (change or require login in production)
-if (!$studentId) {
-    // In production, you should redirect to login. For convenience we use demo id = 1
-    $studentId = 1;
 }
 
 // DB connection (change creds as needed)
@@ -37,18 +81,31 @@ $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
     die('<div style="padding:20px; color:darkred">DB connection failed: ' . htmlspecialchars($conn->connect_error) . '</div>');
 }
+$conn->set_charset('utf8mb4');
 
-// --- Fetch quizzes and left-join submissions for this student ---
+// --- Fetch quizzes and the submission (if any) for this student ---
+// We left-join quiz_items to get the earliest deadline (MIN) and count of items
 $sql = "
-  SELECT q.id AS quiz_id, q.title, q.iata, q.deadline, q.duration, q.num_questions, q.code,
-         s.submitted_at, s.student_id AS submitted_by
+  SELECT
+    q.id AS quiz_id,
+    q.title,
+    q.quiz_code AS code,
+    COALESCE(MIN(qi.deadline), '') AS deadline,
+    COALESCE(q.duration, 0) AS duration,
+    s.submitted_at,
+    s.student_id AS submitted_by,
+    COUNT(qi.id) AS num_items
   FROM quizzes q
-  LEFT JOIN submissions s
-    ON s.quiz_id = q.id AND s.student_id = ?
+  LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+  LEFT JOIN submissions s ON s.quiz_id = q.id AND s.student_id = ?
+  GROUP BY q.id
   ORDER BY q.created_at DESC
 ";
 
 $stmt = $conn->prepare($sql);
+if (!$stmt) {
+    die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
+}
 $stmt->bind_param('i', $studentId);
 $stmt->execute();
 $res = $stmt->get_result();
@@ -76,7 +133,7 @@ function h($s){ return htmlspecialchars((string)$s); }
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Student Profile — Quizzes</title>
+  <title>Available Quizzes</title>
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
   <style>
     body { background: #f6fbff; font-family: Roboto, Arial, sans-serif; padding-bottom:40px; }
@@ -84,10 +141,10 @@ function h($s){ return htmlspecialchars((string)$s); }
     .card { border-radius:12px; }
     .stat { text-align:center; padding:12px; border-radius:8px; background:#fff; }
     .quiz-row { display:flex; gap:12px; align-items:center; padding:12px; border-radius:8px; background:#fff; margin-bottom:10px; }
-    .quiz-iata { font-weight:800; font-size:18px; width:78px; text-align:center; }
+    .quiz-code { font-weight:800; font-size:18px; width:78px; text-align:center; }
     .quiz-title { font-weight:700; }
     .small-note { color:#6b7280; font-size:13px }
-    @media(max-width:800px){ .quiz-row{ flex-direction:column; align-items:flex-start } .quiz-iata{ width:100%; text-align:left } }
+    @media(max-width:800px){ .quiz-row{ flex-direction:column; align-items:flex-start } .quiz-code{ width:100%; text-align:left } }
   </style>
 </head>
 <body>
@@ -97,27 +154,31 @@ function h($s){ return htmlspecialchars((string)$s); }
     <div class="col s12 m8">
       <div class="card">
         <div class="card-content">
-          <span class="card-title">Hello, Student</span>
+          <span class="card-title">Hello, <?php echo h(!empty($_SESSION['acc_name']) ? $_SESSION['acc_name'] : 'Student'); ?></span>
           <p class="small-note">Below are the quizzes available. Click <strong>Take Quiz</strong> to start (if you haven't submitted).</p>
 
           <div style="margin-top:14px;">
             <?php if (empty($quizzes)): ?>
               <div class="center" style="padding:28px;color:#555">No quizzes available yet.</div>
             <?php else: ?>
-              <?php foreach ($quizzes as $q): 
+              <?php foreach ($quizzes as $q):
                   $isSubmitted = !empty($q['submitted_at']);
                   $deadlineText = $q['deadline'] ? date('M j, Y \@ H:i', strtotime($q['deadline'])) : 'No deadline';
+                  // num_questions might not exist in schema — default to 0
+                  $numQuestions = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
+                  $duration = isset($q['duration']) ? (int)$q['duration'] : 0;
+                  $numItems = isset($q['num_items']) ? (int)$q['num_items'] : 0;
               ?>
               <div class="quiz-row">
-                <div class="quiz-iata">
-                  <div><?php echo h(strtoupper($q['iata'] ?: '---')); ?></div>
-                  <div class="small-note"><?php echo h($q['code']); ?></div>
+                <div class="quiz-code">
+                  <div><?php echo h(strtoupper($q['code'] ?: 'REF')); ?></div>
+                  <div class="small-note"><?php echo h($numItems); ?> item<?php echo ($numItems == 1) ? '' : 's'; ?></div>
                 </div>
 
                 <div style="flex:1">
                   <div class="quiz-title"><?php echo h($q['title']); ?></div>
                   <div class="small-note">
-                    <?php echo h($q['num_questions']); ?> question<?php echo $q['num_questions'] == 1 ? '' : 's'; ?> • <?php echo h($q['duration']); ?> min • Deadline: <?php echo h($deadlineText); ?>
+                    <?php echo h($numQuestions); ?> question<?php echo $numQuestions == 1 ? '' : 's'; ?> • <?php echo h($duration); ?> min • Deadline: <?php echo h($deadlineText); ?>
                   </div>
                 </div>
 
@@ -126,13 +187,13 @@ function h($s){ return htmlspecialchars((string)$s); }
                     <div style="color:green; font-weight:700">Submitted</div>
                     <div class="small-note">on <?php echo h(date('M j, Y H:i', strtotime($q['submitted_at']))); ?></div>
                     <div style="margin-top:8px">
-                      <a class="btn-flat" href="Exam.php?id=<?php echo urlencode($q['quiz_id']); ?>">View</a>
+                      <a class="btn-flat" href="ticket.php?id=<?php echo urlencode($q['quiz_id']); ?>">View</a>
                     </div>
                   <?php else: ?>
                     <div style="color:#d32f2f; font-weight:700">Not submitted</div>
                     <div class="small-note">&nbsp;</div>
                     <div style="margin-top:8px">
-                      <a class="btn" href="Exam.php?id=<?php echo urlencode($q['quiz_id']); ?>">Take Quiz</a>
+                      <a class="btn" href="ticket.php?id=<?php echo urlencode($q['quiz_id']); ?>">Take Quiz</a>
                     </div>
                   <?php endif; ?>
                 </div>
@@ -184,7 +245,7 @@ function h($s){ return htmlspecialchars((string)$s); }
 </div>
 
 <!-- footer include -->
-<?php include('/mnt/data/footer.php'); ?>
+<?php include('templates/footer.php'); ?>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 </body>
