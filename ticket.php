@@ -1,3 +1,4 @@
+
 <?php
 // DEV: show errors while debugging (turn off in production)
 ini_set('display_errors', 1);
