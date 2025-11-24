@@ -6,11 +6,6 @@ ini_set('display_errors', 0); // keep JSON clean
 
 include('config/db_connect.php'); // must provide $acc_conn (mysqli)
 
-// simple logger
-function dbg($msg) {
-    $fn = __DIR__ . '/login_debug.log';
-    file_put_contents($fn, date('[Y-m-d H:i:s] ') . $msg . PHP_EOL, FILE_APPEND);
-}
 
 $response = ['success' => false, 'errors' => []];
 
