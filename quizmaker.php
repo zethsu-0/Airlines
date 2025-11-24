@@ -1,13 +1,14 @@
 <?php
-// admin_quiz_maker.php (improved)
+// admin_quiz_maker.php (improved, with edit support)
 include('templates/header.php');
 
-// Fetch airports for the IATA select and create a JSON list for JS
+// DB config
 $host = 'localhost';
 $user = 'root';
 $pass = '';
 $db   = 'airlines';
 
+// Prepare airport option HTML and list for JS
 $airportOptionsHtml = '<option value="" disabled selected>Choose IATA code</option>';
 $airportList = []; // array of objects for JS autocomplete
 
@@ -22,6 +23,7 @@ if ($conn->connect_errno) {
         ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','region'=>'USA','name'=>'Los Angeles Intl']
     ];
 } else {
+    $conn->set_charset('utf8mb4');
     // Proper SQL: fetch IATA, City, CountryRegion, AirportName
     $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(CountryRegion,'') AS CountryRegion, COALESCE(AirportName,'') AS AirportName FROM airports ORDER BY IATACode ASC";
     if ($res = $conn->query($sql)) {
@@ -50,7 +52,6 @@ if ($conn->connect_errno) {
         }
         $res->free();
     } else {
-        // query failed: log the error and use fallback
         error_log("airport query failed: " . $conn->error);
         $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
         $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
@@ -61,10 +62,68 @@ if ($conn->connect_errno) {
     }
 }
 
-
 // Provide the options string to JS (safe JSON) and airport list JSON
 $airportOptionsJson = json_encode($airportOptionsHtml);
 $airportListJson = json_encode($airportList);
+
+// Prepare to expose saved quiz/items if editing
+$savedQuiz = null;
+$savedItems = [];
+
+if (isset($_GET['id']) && is_numeric($_GET['id'])) {
+    $quiz_id = intval($_GET['id']);
+
+    // Use $conn (not $mysqli)
+    $stmt = $conn->prepare("SELECT id, title, section, audience, duration, quiz_code AS code, created_at FROM quizzes WHERE id = ?");
+    if ($stmt) {
+        $stmt->bind_param("i", $quiz_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $savedQuiz = $res->fetch_assoc() ?: null;
+        $stmt->close();
+    } else {
+        error_log("prepare quiz select failed: " . $conn->error);
+    }
+
+    // Load quiz items
+    $stmt = $conn->prepare("SELECT id, quiz_id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class FROM quiz_items WHERE quiz_id = ? ORDER BY id ASC");
+    if ($stmt) {
+        $stmt->bind_param("i", $quiz_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($row = $res->fetch_assoc()) {
+            // normalize column names to shape expected by client JS
+            $savedItems[] = [
+                'id' => $row['id'],
+                'quiz_id' => $row['quiz_id'],
+                'deadline' => $row['deadline'] !== null ? $row['deadline'] : '',
+                'booking' => [
+                    'adults' => intval($row['adults']),
+                    'children' => intval($row['children']),
+                    'infants' => intval($row['infants']),
+                    'flight_type' => $row['flight_type'],
+                    'origin' => $row['origin'],
+                    'destination' => $row['destination'],
+                    'departure' => $row['departure'],
+                    'return' => $row['return_date'],
+                    'flight_number' => $row['flight_number'],
+                    'seats' => $row['seats'],
+                    'travel_class' => $row['travel_class']
+                ]
+            ];
+        }
+        $stmt->close();
+    } else {
+        error_log("prepare items select failed: " . $conn->error);
+    }
+}
+
+// close DB connection
+$conn->close();
+
+// JSON for client
+$savedQuizJson = json_encode($savedQuiz);
+$savedItemsJson = json_encode($savedItems);
 ?>
 
 <!doctype html>
@@ -126,8 +185,6 @@ $airportListJson = json_encode($airportList);
     .iata-suggestion small { display:block; font-weight:400; color:#666; }
     .iata-suggestion:hover { background:#f1f5ff; }
 
-
-
   </style>
 </head>
 <body>
@@ -147,7 +204,7 @@ $airportListJson = json_encode($airportList);
 
   <div style="margin-top:18px" class="card booking">
     <div class="card-content">
-      <h5 style="margin-top:0">Create New Quiz</h5>
+      <h5 style="margin-top:0" id="pageHeading">Create New Quiz</h5>
       <div class="col">
         <!-- RIGHT: Boarding pass / stats -->
         <div>
@@ -268,15 +325,22 @@ $airportListJson = json_encode($airportList);
             </div>
           </div>
 
-          <!-- Save / Preview row -->
-          <div style="display:flex; gap:10px; align-items:center; margin-top:12px">
-            <a id="previewBtn" class="btn btn-primary">Preview Boarding Pass</a>
+            <!-- Save / Preview row -->
+            <div style="display:flex; gap:10px; align-items:center; margin-top:12px">
+              <a id="previewBtn" class="btn btn-primary">Preview Boarding Pass</a>
 
-            <!-- Save buttons required by the JS listeners -->
-            <a id="saveQuizBtn" class="btn btn-primary lighten-1">Save Quiz</a>
-            <a id="saveAndOpenBtn" class="btn btn-primary">Save & Open</a>
+              <!-- Save buttons required by the JS listeners -->
+              <a id="saveQuizBtn" class="btn btn-primary lighten-1">Save Quiz</a>
+              <a id="saveAndOpenBtn" class="btn btn-primary">Save & Open</a>
 
-            <div style="margin-left:auto" class="small-note">Admin: make sure to save to persist to DB</div>
+              <!-- Delete button only shown when editing (server-side) -->
+              <?php if (!empty($savedQuiz)): ?>
+                <a id="deleteQuizBtn" class="btn" style="background:#dc3545; color:white; margin-left:8px;">Delete Quiz</a>
+              <?php endif; ?>
+
+              <div style="margin-left:auto" class="small-note">Admin: make sure to save to persist to DB</div>
+            </div>
+            
           </div>
 
           <!-- Student prompt preview -->
@@ -304,6 +368,10 @@ const airportOptionsHtml = <?php echo $airportOptionsJson; ?>; // string of <opt
 
 // structured airport list for JS autocomplete
 const airportList = <?php echo $airportListJson; ?>; // [{iata,city,label,name}, ...]
+
+// saved quiz / items if editing
+window.SAVED_QUIZ = <?php echo $savedQuizJson === 'null' ? 'null' : $savedQuizJson; ?>;
+window.SAVED_ITEMS = <?php echo json_encode($savedItems); ?>;
 
 /* Simple matching function:
    returns list of airports where query matches iata, city or name (startsWith or includes).
@@ -345,8 +413,6 @@ function createItemBlock(prefill = null){
         <a class="btn-flat remove-item" title="Remove item"><i class="material-icons">delete</i></a>
       </div>
     </div>
-
-    
 
     <div class="flight-row">
       <div class="flight-field input-field">
@@ -457,17 +523,6 @@ function createItemBlock(prefill = null){
           inputEl.value = iata;
           inputEl.dataset.city = (city||'').toUpperCase();
           localSugg.style.display='none';
-
-          // if this is main item iatalong and first item, set expectedCity
-          const allItems = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
-          const indexOfBlock = allItems.indexOf(wrapper);
-          if(indexOfBlock === 0 && inputEl.classList.contains('iatalongInputInner') && city){
-            const expectedCityEl = document.getElementById('expectedCity');
-            if(expectedCityEl && !expectedCityEl.value.trim()){
-              expectedCityEl.value = city.toUpperCase();
-              if (M && M.updateTextFields) M.updateTextFields();
-            }
-          }
         });
       });
     });
@@ -479,9 +534,48 @@ function createItemBlock(prefill = null){
   attachAutocompleteTo(wrapper.querySelector('.originAirportInner'));
   attachAutocompleteTo(wrapper.querySelector('.destinationAirportInner'));
 
-  // autogenerate flight number for this item
+  // autogenerate flight number for this item (unless prefilled)
   const flightNumEl = wrapper.querySelector('.flightNumberInner');
   if(flightNumEl && !flightNumEl.value){ flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase(); }
+
+  // init select
+  const selects = wrapper.querySelectorAll('select');
+  // Will be initialized by M.FormSelect.init later after appended
+
+  // If prefill provided, populate fields
+  if(prefill && typeof prefill === 'object') {
+    try {
+      // deadline may come in various formats; if it's ISO-like, set directly
+      if(prefill.deadline) {
+        const d = prefill.deadline;
+        // if time portion missing, try to normalize; assume stored as 'YYYY-MM-DD HH:MM:SS' maybe
+        // convert to datetime-local acceptable format: 'YYYY-MM-DDTHH:MM'
+        let dt = d;
+        if(dt.indexOf(' ') !== -1) dt = dt.replace(' ', 'T');
+        // cut seconds if present
+        if(dt.length === 19) dt = dt.slice(0,16);
+        wrapper.querySelector('.deadlineInput').value = dt;
+      }
+      const b = prefill.booking || {};
+      if(typeof b.adults !== 'undefined') wrapper.querySelector('.adultCountInner').value = b.adults;
+      if(typeof b.children !== 'undefined') wrapper.querySelector('.childCountInner').value = b.children;
+      if(typeof b.infants !== 'undefined') wrapper.querySelector('.infantCountInner').value = b.infants;
+      if(typeof b.flight_type !== 'undefined') {
+        const name = `flightTypeInner${idx}`;
+        const radios = wrapper.querySelectorAll(`input[name="${name}"]`);
+        radios.forEach(r => { if(r.value === b.flight_type) r.checked = true; });
+      }
+      if(b.origin) wrapper.querySelector('.originAirportInner').value = b.origin;
+      if(b.destination) wrapper.querySelector('.destinationAirportInner').value = b.destination;
+      if(b.departure) wrapper.querySelector('.departureDateInner').value = b.departure;
+      if(b.return) wrapper.querySelector('.returnDateInner').value = b.return;
+      if(b.flight_number) wrapper.querySelector('.flightNumberInner').value = b.flight_number;
+      if(b.seats) wrapper.querySelector('.seatNumbersInner').value = b.seats;
+      if(b.travel_class) wrapper.querySelector('.travelClassInner').value = b.travel_class;
+    } catch(e){
+      console.warn('prefill error', e);
+    }
+  }
 
   return wrapper;
 }
@@ -505,8 +599,14 @@ function refreshItemLabels(){
     const strong = it.querySelector('strong');
     if(strong) strong.textContent = `Item ${i+1}`;
     it.dataset.idx = i;
-    const innerInput = it.querySelector('.iatalongInputInner');
-    if(innerInput) innerInput.dataset.idx = i;
+    // rename radio groups so they don't collide
+    const radios = it.querySelectorAll('input[type=radio]');
+    radios.forEach(r => {
+      const name = r.name;
+      if(name && name.indexOf('flightTypeInner') === 0) {
+        r.name = `flightTypeInner${i}`;
+      }
+    });
   });
 }
 
@@ -592,7 +692,7 @@ function buildDescription(){
 
     // Build readable sentence per item
     let sentence = '';
-    if(personStr) sentence += personStr + ' '; // adds only if persons exist
+    if(personStr) sentence += personStr + ' ';
     sentence += `flying from ${origin} to ${destination} on a ${typeLabel} flight in ${classLabel} class`;
 
     parts.push(sentence);
@@ -603,8 +703,6 @@ function buildDescription(){
   else if(parts.length > 1) desc = 'Book the following flights: ' + parts.map(p => p + '.').join(' ');
   else desc = 'Book the indicated destinations.';
 
-  if(section) desc += ` Course/Section: ${section}.`;
-  if(audience) desc += ` Audience: ${audience}.`;
   if(duration) desc += ` Duration: ${duration} minutes.`;
 
   const first = items[0] || null;
@@ -618,6 +716,9 @@ function buildDescription(){
 async function saveQuiz(redirect=false){
   const items = collectItems();
   const payload = {
+    // include quiz_id when editing (window.SAVED_QUIZ provided by server)
+    quiz_id: (window.SAVED_QUIZ && window.SAVED_QUIZ.id) ? Number(window.SAVED_QUIZ.id) : null,
+
     title: document.getElementById('quizTitle').value || 'Untitled Quiz',
     items: items,
     from: document.getElementById('sectionField').value || '',
@@ -629,6 +730,7 @@ async function saveQuiz(redirect=false){
     code: document.getElementById('quizCode').value || genRef(),
     questions: []
   };
+
 
   // auto-create summary question if checked
   const autoCreate = document.getElementById('autoCreateQuestion');
@@ -672,7 +774,8 @@ async function saveQuiz(redirect=false){
     if (data && data.success) {
       M.toast({html: 'Quiz saved (ID: '+data.id+')'});
       if (redirect) window.location.href = 'Exam.php?id='+data.id;
-      else window.location.href = 'Admin.php';
+      
+      //else window.location.href = 'Admin.php';
       return;
     }
 
@@ -684,14 +787,98 @@ async function saveQuiz(redirect=false){
   }
 }
 
-/* All DOM lookups & event bindings inside DOMContentLoaded to avoid "null" errors */
+/* When editing, populate fields from server-sent JSON */
+/* When editing, populate fields from server-sent JSON */
+function populateFromSaved() {
+  if(!window.SAVED_QUIZ) return;
+  const q = window.SAVED_QUIZ;
+
+  // heading + basic fields
+  document.getElementById('pageHeading').textContent = 'Edit Quiz — ID: ' + (q.id || '');
+  if(q.title) { document.getElementById('quizTitle').value = q.title; }
+  if(q.section) { document.getElementById('sectionField').value = q.section; }
+  if(q.audience) { document.getElementById('audienceField').value = q.audience; }
+  if(q.duration) { document.getElementById('duration').value = q.duration; }
+  if(q.code) { document.getElementById('quizCode').value = q.code; }
+
+  // ensure labels move above filled inputs (Materialize)
+  if (typeof M !== 'undefined' && M.updateTextFields) M.updateTextFields();
+
+  // populate items
+  const items = window.SAVED_ITEMS || [];
+  const container = document.getElementById('itemsContainer');
+  if (!container) return;
+
+  // clear existing items and reset index
+  container.innerHTML = '';
+  itemIndex = 0;
+
+  // add saved items (they are shaped like {deadline, booking:{...}} from server)
+  for (const it of items) {
+    addItem(it);
+  }
+
+  // if no saved items, at least add one blank item
+  if (items.length === 0) addItem();
+
+  // re-initialize any Materialize selects in items (travel class etc)
+  const selects = container.querySelectorAll('select');
+  if (selects && selects.length && typeof M !== 'undefined' && M.FormSelect) {
+    M.FormSelect.init(selects);
+  }
+
+  // Now update the boarding-pass preview fields using the first item (if available)
+  const collected = collectItems();
+  const first = collected[0] || null;
+
+  // title/code/section/audience
+  document.getElementById('bpTitle').textContent = document.getElementById('quizTitle').value || 'QUIZ/EXAM';
+  const code = document.getElementById('quizCode').value || genRef();
+  document.getElementById('bpCode').textContent = 'REF: ' + code;
+  document.getElementById('bpFromName').textContent = document.getElementById('sectionField').value || 'Origin';
+  document.getElementById('bpToName').textContent = document.getElementById('audienceField').value || 'Destination';
+
+  // from / to airport codes
+  let repFrom = 'MNL';
+  let repTo = 'LAX';
+  let firstDeadline = '';
+
+  if (first && first.booking) {
+    if (first.booking.origin && first.booking.origin.trim() !== '') repFrom = first.booking.origin;
+    else if (first.iata) repFrom = first.iata;
+
+    if (first.booking.destination && first.booking.destination.trim() !== '') repTo = first.booking.destination;
+    else if (first.city) repTo = first.city;
+
+    if (first.deadline) firstDeadline = first.deadline;
+  }
+
+  // apply to DOM
+  document.getElementById('bpFrom').textContent = repFrom || 'MNL';
+  document.getElementById('bpTo').textContent = repTo || 'LAX';
+  document.getElementById('bpDeadline').textContent = firstDeadline || 'Multiple / see description';
+
+  // update description and metadata
+  const descObj = buildDescription();
+  document.getElementById('bpDescription').textContent = descObj.description;
+  document.getElementById('bpDescriptionRight').textContent = descObj.description;
+  document.getElementById('bpMeta').textContent = (descObj.itemsCount || 0) + ' Items • ' + (document.getElementById('duration').value || q.duration || '60') + ' min';
+  document.getElementById('numQuestions').value = 0;
+}
+
+
 document.addEventListener('DOMContentLoaded', function(){
   // init global selects (only difficulties)
   var elems = document.querySelectorAll('select');
   M.FormSelect.init(elems);
 
-  // Insert initial item
-  addItem();
+  // If editing: populate from server
+  if(window.SAVED_QUIZ) {
+    populateFromSaved();
+  } else {
+    // Insert initial item for new quiz
+    addItem();
+  }
 
   // Add item button
   const addBtn = document.getElementById('addItemBtn');
@@ -727,9 +914,7 @@ document.addEventListener('DOMContentLoaded', function(){
       }
 
       document.getElementById('bpFrom').textContent = repFrom;
-      document.getElementById('bpFromName').textContent = section;
       document.getElementById('bpTo').textContent = repTo;
-      document.getElementById('bpToName').textContent = audience;
       document.getElementById('bpTitle').textContent = title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
       document.getElementById('bpDeadline').textContent = firstDeadline || 'Multiple / see description';
@@ -759,6 +944,58 @@ document.addEventListener('DOMContentLoaded', function(){
   if(saveAndOpenBtn){
     saveAndOpenBtn.addEventListener('click', (e)=>{ e.preventDefault(); saveQuiz(true); });
   }
+  // Delete quiz handler (only present on page when editing)
+const deleteBtn = document.getElementById('deleteQuizBtn');
+if (deleteBtn) {
+  deleteBtn.addEventListener('click', async function(e){
+    e.preventDefault();
+
+    // basic confirmation
+    const ok = confirm('Delete this quiz and all its items? This action cannot be undone.');
+    if (!ok) return;
+
+    // get id from window.SAVED_QUIZ (server already exposes this when editing)
+    const id = (window.SAVED_QUIZ && window.SAVED_QUIZ.id) ? Number(window.SAVED_QUIZ.id) : null;
+    if (!id) {
+      M.toast({html: 'Cannot determine quiz ID to delete.'});
+      return;
+    }
+
+    // show busy
+    M.toast({html: 'Deleting quiz...'});
+    try {
+      const res = await fetch('delete_quiz.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ quiz_id: id })
+      });
+
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch(e) { /* ignore parse errors */ }
+
+      if (!res.ok) {
+        const err = data && data.error ? data.error : ('HTTP ' + res.status);
+        M.toast({html: 'Delete failed: ' + err});
+        return;
+      }
+
+      if (data && data.success) {
+        M.toast({html: 'Quiz deleted (ID: ' + data.id + ')'});
+        // redirect back to dashboard after short delay so user sees toast
+        setTimeout(()=> { window.location.href = 'Admin.php'; }, 600);
+        return;
+      }
+
+      M.toast({html: 'Delete failed: Unexpected server response'});
+    } catch (err) {
+      console.error('Delete error', err);
+      M.toast({html: 'Delete failed: ' + (err.message || err)});
+    }
+  });
+}
+
+
 
 }); // end DOMContentLoaded
 

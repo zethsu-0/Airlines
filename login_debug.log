@@ -310,3 +310,25 @@
 [2025-11-18 18:38:29] password_get_info algo=NULL, is_hash=0
 [2025-11-18 18:38:29] plain compare result: 1 (len input=6, len stored=6)
 [2025-11-18 18:38:29] Login success for acc_id=AC2024-00827
+[2025-11-24 09:27:29] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:38] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:39] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:39] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:39] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:40] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:40] Received login attempt for acc_id= (debug=0)
+[2025-11-24 09:27:40] Received login attempt for acc_id= (debug=0)
+[2025-11-24 11:13:34] Received login attempt for acc_id=acca (debug=0)
+[2025-11-24 11:13:34] Statement executed. num_rows=1
+[2025-11-24 11:13:34] mysqli_stmt_fetch returned: true
+[2025-11-24 11:13:34] Found account: acc_id=acca, acc_name=burat, password_length=3
+[2025-11-24 11:13:34] password_get_info algo=NULL, is_hash=0
+[2025-11-24 11:13:34] plain compare result: 0 (len input=5, len stored=3)
+[2025-11-24 11:13:34] Login failed: incorrect password for acc_id=acca
+[2025-11-24 11:13:36] Received login attempt for acc_id=acca (debug=0)
+[2025-11-24 11:13:36] Statement executed. num_rows=1
+[2025-11-24 11:13:36] mysqli_stmt_fetch returned: true
+[2025-11-24 11:13:36] Found account: acc_id=acca, acc_name=burat, password_length=3
+[2025-11-24 11:13:36] password_get_info algo=NULL, is_hash=0
+[2025-11-24 11:13:36] plain compare result: 1 (len input=3, len stored=3)
+[2025-11-24 11:13:36] Login success for acc_id=acca

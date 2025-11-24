@@ -11,146 +11,147 @@ $DB_NAME = 'airlines';
 $mysqli = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);
 if ($mysqli->connect_errno) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'DB connection failed: ' . $mysqli->connect_error]);
+    echo json_encode(['success' => false, 'error' => 'DB connect failed: ' . $mysqli->connect_error]);
     exit;
 }
+$mysqli->set_charset('utf8mb4');
 
-// read JSON body
 $raw = file_get_contents('php://input');
 if (!$raw) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Empty request body']);
+    echo json_encode(['success' => false, 'error' => 'No request body']);
+    $mysqli->close();
     exit;
 }
+
 $data = json_decode($raw, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
+if ($data === null) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Invalid JSON payload: ' . json_last_error_msg()]);
+    echo json_encode(['success' => false, 'error' => 'Invalid JSON']);
+    $mysqli->close();
     exit;
 }
 
-// basic validation & sanitizing helpers
-function get_val($arr, $k, $default = null) {
-    return isset($arr[$k]) ? $arr[$k] : $default;
+// Helper to normalize date-like fields (empty -> null)
+function norm_date($v) {
+    if ($v === null) return null;
+    $v = trim((string)$v);
+    if ($v === '') return null;
+    return $v;
 }
-$title = trim((string)get_val($data, 'title', 'Untitled Quiz'));
-$code  = trim((string)get_val($data, 'code', ''));
-$from  = trim((string)get_val($data, 'from', ''));
-$to    = trim((string)get_val($data, 'to', ''));
-$duration = intval(get_val($data, 'duration', 0));
-$num_questions = intval(get_val($data, 'num_questions', 0));
-$items = is_array(get_val($data, 'items', [])) ? $data['items'] : [];
-$questions = is_array(get_val($data, 'questions', [])) ? $data['questions'] : [];
-
-// make code if empty
-if ($code === '') {
-    $code = 'QZ-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
-}
-
-// create minimal tables if they don't exist (safe to run repeatedly)
-$createQuizzes = <<<SQL
-CREATE TABLE IF NOT EXISTS `quizzes` (
-  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `title` VARCHAR(255) NOT NULL,
-  `code` VARCHAR(64) DEFAULT NULL,
-  `from_field` VARCHAR(128) DEFAULT NULL,
-  `to_field` VARCHAR(128) DEFAULT NULL,
-  `duration` INT DEFAULT NULL,
-  `num_questions` INT DEFAULT 0,
-  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
-
-$createItems = <<<SQL
-CREATE TABLE IF NOT EXISTS `quiz_items` (
-  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `quiz_id` INT UNSIGNED NOT NULL,
-  `iata` CHAR(3) DEFAULT NULL,
-  `city` VARCHAR(128) DEFAULT NULL,
-  `difficulty` VARCHAR(32) DEFAULT NULL,
-  `deadline` DATETIME DEFAULT NULL,
-  FOREIGN KEY (`quiz_id`) REFERENCES `quizzes`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
-
-$createQuestions = <<<SQL
-CREATE TABLE IF NOT EXISTS `questions` (
-  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  `quiz_id` INT UNSIGNED NOT NULL,
-  `text` TEXT,
-  `type` VARCHAR(32) DEFAULT 'text',
-  `points` INT DEFAULT 1,
-  `expected_answer` VARCHAR(255) DEFAULT NULL,
-  FOREIGN KEY (`quiz_id`) REFERENCES `quizzes`(`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-SQL;
-
-// run table creation
-if (!$mysqli->query($createQuizzes) || !$mysqli->query($createItems) || !$mysqli->query($createQuestions)) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Failed ensuring DB tables exist: ' . $mysqli->error]);
-    exit;
-}
-
-// Begin transaction
-$mysqli->begin_transaction();
 
 try {
-    // insert into quizzes
-    $stmt = $mysqli->prepare("INSERT INTO quizzes (title, code, from_field, to_field, duration, num_questions) VALUES (?, ?, ?, ?, ?, ?)");
-    if (!$stmt) throw new Exception('Prepare failed (quizzes): ' . $mysqli->error);
-    $stmt->bind_param('ssssii', $title, $code, $from, $to, $duration, $num_questions);
-    if (!$stmt->execute()) throw new Exception('Insert failed (quizzes): ' . $stmt->error);
-    $quiz_id = $stmt->insert_id;
-    $stmt->close();
+    // Begin transaction
+    $mysqli->begin_transaction();
 
-    // insert items
-    if (!empty($items) && is_array($items)) {
-        $stmtItem = $mysqli->prepare("INSERT INTO quiz_items (quiz_id, iata, city, difficulty, deadline) VALUES (?, ?, ?, ?, ?)");
-        if (!$stmtItem) throw new Exception('Prepare failed (quiz_items): ' . $mysqli->error);
+    // Extract quiz fields from payload
+    $quiz_id = (isset($data['quiz_id']) && intval($data['quiz_id']) > 0) ? intval($data['quiz_id']) : null;
+    $title = isset($data['title']) ? $data['title'] : 'Untitled Quiz';
+    $section = isset($data['from']) ? $data['from'] : '';    // mapping: payload.from -> quizzes.section
+    $audience = isset($data['to']) ? $data['to'] : '';       // payload.to -> quizzes.audience
+    $duration = isset($data['duration']) ? intval($data['duration']) : 0;
+    $code = isset($data['code']) ? $data['code'] : ( 'QZ-' . strtoupper(substr(bin2hex(random_bytes(3)),0,6)) );
+
+    if ($quiz_id) {
+        // Update existing quiz
+        $sqlUpdate = "UPDATE quizzes SET title = ?, section = ?, audience = ?, duration = ?, quiz_code = ? WHERE id = ?";
+        $stmt = $mysqli->prepare($sqlUpdate);
+        if (!$stmt) throw new Exception('Prepare update quiz failed: ' . $mysqli->error);
+
+        if (!$stmt->bind_param('sssisi', $title, $section, $audience, $duration, $code, $quiz_id)) {
+            throw new Exception('Bind update params failed: ' . $stmt->error);
+        }
+        if (!$stmt->execute()) throw new Exception('Execute update quiz failed: ' . $stmt->error);
+        $stmt->close();
+
+        // Remove previous items for this quiz (simple sync strategy)
+        $del = $mysqli->prepare("DELETE FROM quiz_items WHERE quiz_id = ?");
+        if (!$del) throw new Exception('Prepare delete items failed: ' . $mysqli->error);
+        if (!$del->bind_param('i', $quiz_id)) throw new Exception('Bind delete items failed: ' . $del->error);
+        if (!$del->execute()) throw new Exception('Execute delete items failed: ' . $del->error);
+        $del->close();
+
+    } else {
+        // Insert new quiz
+        $sqlQuiz = "INSERT INTO quizzes (title, section, audience, duration, quiz_code, created_at) VALUES (?, ?, ?, ?, ?, NOW())";
+        $stmtQuiz = $mysqli->prepare($sqlQuiz);
+        if (!$stmtQuiz) throw new Exception('Prepare quiz failed: ' . $mysqli->error);
+
+        if (!$stmtQuiz->bind_param('sssis', $title, $section, $audience, $duration, $code)) {
+            throw new Exception('Bind quiz params failed: ' . $stmtQuiz->error);
+        }
+        if (!$stmtQuiz->execute()) throw new Exception('Execute quiz failed: ' . $stmtQuiz->error);
+
+        $quiz_id = $stmtQuiz->insert_id;
+        $stmtQuiz->close();
+    }
+
+    // If there are items, insert them
+    $items = isset($data['items']) && is_array($data['items']) ? $data['items'] : [];
+    if (count($items) > 0) {
+        $sqlItem = "INSERT INTO quiz_items
+            (quiz_id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $stmtItem = $mysqli->prepare($sqlItem);
+        if (!$stmtItem) throw new Exception('Prepare item failed: ' . $mysqli->error);
+
+        // types: i (quiz_id), s (deadline), i,i,i, s,s,s,s,s,s,s,s  => 13 params
+        $types = 'isiiissssssss';
+
         foreach ($items as $it) {
-            $iata = isset($it['iata']) ? substr(trim((string)$it['iata']), 0, 3) : null;
-            $city = isset($it['city']) ? trim((string)$it['city']) : null;
-            $difficulty = isset($it['difficulty']) ? trim((string)$it['difficulty']) : null;
-            $deadlineRaw = isset($it['deadline']) && $it['deadline'] ? trim((string)$it['deadline']) : null;
-            // normalize datetime or set null
-            $deadline = null;
-            if ($deadlineRaw) {
-                // try to convert to MySQL DATETIME
-                $d = new DateTime($deadlineRaw);
-                if ($d) $deadline = $d->format('Y-m-d H:i:s');
+            $deadline = norm_date($it['deadline'] ?? null);
+            $b = $it['booking'] ?? [];
+
+            $adults = isset($b['adults']) ? intval($b['adults']) : 0;
+            $children = isset($b['children']) ? intval($b['children']) : 0;
+            $infants = isset($b['infants']) ? intval($b['infants']) : 0;
+            $flight_type = isset($b['flight_type']) ? $b['flight_type'] : '';
+            $origin = isset($b['origin']) ? $b['origin'] : '';
+            $destination = isset($b['destination']) ? $b['destination'] : '';
+            $departure = norm_date($b['departure'] ?? null);
+            $return_date = norm_date($b['return'] ?? ($b['return_date'] ?? null));
+            $flight_number = isset($b['flight_number']) ? $b['flight_number'] : '';
+            $seats = isset($b['seats']) ? $b['seats'] : '';
+            $travel_class = isset($b['travel_class']) ? $b['travel_class'] : '';
+
+            // bind params and execute
+            if (!$stmtItem->bind_param(
+                $types,
+                $quiz_id,
+                $deadline,
+                $adults,
+                $children,
+                $infants,
+                $flight_type,
+                $origin,
+                $destination,
+                $departure,
+                $return_date,
+                $flight_number,
+                $seats,
+                $travel_class
+            )) {
+                throw new Exception('Bind params failed: ' . $stmtItem->error);
             }
-            $stmtItem->bind_param('issss', $quiz_id, $iata, $city, $difficulty, $deadline);
-            if (!$stmtItem->execute()) throw new Exception('Insert failed (quiz_items): ' . $stmtItem->error);
+
+            if (!$stmtItem->execute()) {
+                throw new Exception('Execute item failed: ' . $stmtItem->error);
+            }
         }
         $stmtItem->close();
     }
 
-    // insert questions (if any)
-    if (!empty($questions) && is_array($questions)) {
-        $stmtQ = $mysqli->prepare("INSERT INTO questions (quiz_id, text, type, points, expected_answer) VALUES (?, ?, ?, ?, ?)");
-        if (!$stmtQ) throw new Exception('Prepare failed (questions): ' . $mysqli->error);
-        foreach ($questions as $q) {
-            $qtext = isset($q['text']) ? trim((string)$q['text']) : null;
-            $qtype = isset($q['type']) ? trim((string)$q['type']) : 'text';
-            $qpoints = isset($q['points']) ? intval($q['points']) : 1;
-            $qexp = isset($q['expected_answer']) && $q['expected_answer'] !== '' ? trim((string)$q['expected_answer']) : null;
-            $stmtQ->bind_param('issis', $quiz_id, $qtext, $qtype, $qpoints, $qexp);
-            if (!$stmtQ->execute()) throw new Exception('Insert failed (questions): ' . $stmtQ->error);
-        }
-        $stmtQ->close();
-    }
+    // Optional: handle questions array if you store them (not covered here). You may insert/update questions similarly.
 
-    // commit
     $mysqli->commit();
 
     echo json_encode(['success' => true, 'id' => $quiz_id]);
-    exit;
 
-} catch (Exception $ex) {
+} catch (Exception $e) {
     $mysqli->rollback();
+    error_log('save_quiz error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $ex->getMessage()]);
-    exit;
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} finally {
+    $mysqli->close();
 }

@@ -1,44 +1,76 @@
 <?php
 // Admin.php (Quizzes list — reads from DB)
 // uses header/footer you uploaded at /mnt/data/header.php and /mnt/data/footer.php
-include('templates/header_admin.php');
+include('templates/header.php');
 
 // DB connection (adjust credentials if needed)
 $host = 'localhost';
 $user = 'root';
 $pass = '';
 $db   = 'airlines';
+
 $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {
-  // We'll still render the page; JS will show fallback content.
-  $dbError = $conn->connect_error;
+    // We'll still render the page; JS will show fallback content.
+    $dbError = $conn->connect_error;
+    $quizzes = [];
+    $totalStudents = 0;
+    $totalSubmitted = 0;
 } else {
-  $dbError = null;
-  // fetch quizzes
-  $quizzes = [];
-  $sql = "SELECT id, title, code, COALESCE(deadline, '') AS deadline, COALESCE(num_questions,0) AS num_questions FROM quizzes ORDER BY id DESC";
-  if ($res = $conn->query($sql)) {
-    while ($r = $res->fetch_assoc()) $quizzes[] = $r;
-    $res->free();
-  }
+    $dbError = null;
+    // set proper charset to avoid surprises with utf8 data
+    $conn->set_charset('utf8mb4');
 
-  // fetch submission summary: total students & total submitted (global)
-  $totalStudents = 0;
-  $totalSubmitted = 0;
-  // try students table
-  $r = $conn->query("SELECT COUNT(*) AS c FROM students");
-  if ($r) {
-    $row = $r->fetch_assoc();
-    $totalStudents = intval($row['c']);
-    $r->free();
-  }
-  // submissions count (distinct student+quiz submissions)
-  $r = $conn->query("SELECT COUNT(*) AS c FROM submissions");
-  if ($r) {
-    $row = $r->fetch_assoc();
-    $totalSubmitted = intval($row['c']);
-    $r->free();
-  }
+    // Fetch quizzes along with item count and earliest deadline (if any)
+    // Assumes quizzes table has `id`, `title`, `quiz_code`, `created_at`
+    // and quiz_items has `quiz_id` and `deadline`.
+    $quizzes = [];
+    $sql = "
+      SELECT
+        q.id,
+        q.title,
+        q.quiz_code AS code,
+        q.created_at,
+        COALESCE(MIN(qi.deadline), '') AS deadline,
+        COUNT(qi.id) AS num_items
+      FROM quizzes q
+      LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+      GROUP BY q.id
+      ORDER BY q.id DESC
+    ";
+    if ($res = $conn->query($sql)) {
+        while ($r = $res->fetch_assoc()) $quizzes[] = $r;
+        $res->free();
+    } else {
+        error_log('Quizzes query failed: ' . $conn->error);
+    }
+
+    // fetch submission summary: total students & total submitted (global)
+    $totalStudents = 0;
+    $totalSubmitted = 0;
+
+    // try students table
+    $r = $conn->query("SELECT COUNT(*) AS c FROM students");
+    if ($r) {
+        $row = $r->fetch_assoc();
+        $totalStudents = intval($row['c']);
+        $r->free();
+    } else {
+        error_log('Students count query failed: ' . $conn->error);
+    }
+
+    // submissions count (distinct student+quiz submissions)
+    $r = $conn->query("SELECT COUNT(*) AS c FROM submissions");
+    if ($r) {
+        $row = $r->fetch_assoc();
+        $totalSubmitted = intval($row['c']);
+        $r->free();
+    } else {
+        error_log('Submissions count query failed: ' . $conn->error);
+    }
+
+    // close connection (we're done with DB reads on this page)
+    $conn->close();
 }
 ?>
 <!doctype html>
@@ -56,6 +88,7 @@ if ($conn->connect_error) {
     .quiz-dead{color:#666; font-size:13px}
     .left-create{display:inline-block; padding:8px 12px; background:#0d6efd; color:#fff; border-radius:8px; text-decoration:none}
     .edit-circle{cursor:pointer; padding:8px}
+    .meta-small { color:#777; font-size:12px; margin-top:6px; }
   </style>
 </head>
 <body>
@@ -71,27 +104,30 @@ if ($conn->connect_error) {
     <div>
       <div class="quiz-list">
         <div id="quizzesContainer">
-          <?php if(isset($dbError)): ?>
+          <?php if ($dbError): ?>
             <div class="frame-card">DB error: <?php echo htmlspecialchars($dbError); ?> — falling back to demo list</div>
             <div class="frame-card"><div class="quiz-title">EXAM/QUIZ NAME:</div><div class="quiz-dead">DEADLINE: —</div></div>
             <div class="frame-card"><div class="quiz-title">EXAM/QUIZ NAME:</div><div class="quiz-dead">DEADLINE: —</div></div>
           <?php else: ?>
-            <?php if(count($quizzes) === 0): ?>
+            <?php if (count($quizzes) === 0): ?>
               <div class="frame-card">No quizzes found. Click CREATE QUIZ to add one.</div>
             <?php else: ?>
-              <?php foreach($quizzes as $q): ?>
+              <?php foreach ($quizzes as $q): ?>
                 <div class="frame-card" data-id="<?php echo (int)$q['id']; ?>">
                   <div class="inner" style="flex:1; display:flex; gap:12px; align-items:center;">
                     <div style="width:48px; height:48px; border-radius:6px; background:#eef6ff; display:flex; align-items:center; justify-content:center; font-weight:800; color:#0b5ed7;"><?php echo htmlspecialchars($q['code'] ?: 'Q'); ?></div>
                     <div style="flex:1">
                       <div class="quiz-title"><?php echo htmlspecialchars($q['title']); ?></div>
                       <div class="quiz-dead">DEADLINE: <?php echo $q['deadline'] ? htmlspecialchars($q['deadline']) : '—'; ?></div>
+                      <div class="meta-small">Items: <?php echo (int)$q['num_items']; ?> • Created: <?php echo htmlspecialchars($q['created_at']); ?></div>
                     </div>
                   </div>
 
                   <div style="display:flex; gap:8px; align-items:center; margin-left:12px;">
                     <a class="btn-flat" href="Exam.php?id=<?php echo (int)$q['id']; ?>">Open</a>
-                    <a class="edit-circle" href="quizmaker.php"?id=<?php echo (int)$q['id']; ?>" title="Edit"><i class="material-icons">edit</i></a>
+                    <a class="edit-circle" href="quizmaker.php?id=<?php echo (int)$q['id']; ?>" title="Edit">
+                        <i class="material-icons">edit</i>
+                    </a>
                   </div>
                 </div>
               <?php endforeach; ?>
