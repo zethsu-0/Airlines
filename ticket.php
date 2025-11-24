@@ -1,5 +1,5 @@
-
 <?php
+// ticket.php (ready-to-paste)
 // DEV: show errors while debugging (turn off in production)
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -18,40 +18,149 @@ $iataData = [];
 $sql = "SELECT IATACode, AirportName, City, CountryRegion FROM airports ORDER BY IATACode ASC";
 if ($result = $conn->query($sql)) {
   while ($row = $result->fetch_assoc()) {
-    // Normalize fields and skip empty codes
     $code = isset($row['IATACode']) ? trim($row['IATACode']) : '';
-    if ($code === '') {
-      continue;
-    }
-
+    if ($code === '') continue;
     $iataData[] = [
       'code'    => $code,
       'name'    => $row['AirportName'] ?? '',
       'city'    => $row['City'] ?? '',
-      'country' => $row['CountryRegion'] ?? '' // using CountryRegion column name as requested
+      'country' => $row['CountryRegion'] ?? ''
     ];
   }
   $result->free();
 } else {
-  // for dev: log error as HTML comment
   echo "<!-- IATA load error: " . htmlspecialchars($conn->error) . " -->";
 }
 
-// Build an associative lookup by IATA code for quick validation/labels
-$iataList = [];
+// Build lookup map for server-side validation and for description rendering
+$iataList = [];   // code => name (used by your validation UI)
+$iataMap  = [];   // code => ['name','city','country']
 foreach ($iataData as $it) {
   if (!empty($it['code'])) {
     $iataList[$it['code']] = $it['name'];
+    $iataMap[$it['code']]  = ['name' => $it['name'], 'city' => $it['city'], 'country' => $it['country']];
   }
 }
 
-// Now process POST (validation + insert). Keep this after loading $iataList so you can validate against it.
+// === If ticket.php is requested with ?id=NN, load quiz + items and build description object ===
+$quizId = isset($_GET['id']) ? intval($_GET['id']) : 0;
+$descObj = null;
+$quiz = null;
+if ($quizId > 0) {
+  // fetch quiz row
+  $qStmt = $conn->prepare("SELECT id, title, section, audience, duration, quiz_code AS code FROM quizzes WHERE id = ?");
+  if ($qStmt) {
+    $qStmt->bind_param('i', $quizId);
+    $qStmt->execute();
+    $qres = $qStmt->get_result();
+    $quiz = $qres->fetch_assoc();
+    $qStmt->close();
+  }
+
+  if ($quiz) {
+    // fetch items for the quiz
+    $items = [];
+    $itemSql = "SELECT id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class
+                FROM quiz_items WHERE quiz_id = ? ORDER BY id ASC";
+    $stmt = $conn->prepare($itemSql);
+    if ($stmt) {
+      $stmt->bind_param('i', $quizId);
+      $stmt->execute();
+      $res = $stmt->get_result();
+      while ($r = $res->fetch_assoc()) {
+        // normalize numbers
+        $r['adults'] = isset($r['adults']) ? intval($r['adults']) : 0;
+        $r['children'] = isset($r['children']) ? intval($r['children']) : 0;
+        $r['infants'] = isset($r['infants']) ? intval($r['infants']) : 0;
+        $items[] = $r;
+      }
+      $stmt->close();
+    }
+
+    // build description (mirror of your JS buildDescription but server-side)
+    $parts = [];
+    $firstDeadlineRaw = '';
+    $firstDestination = null;
+
+    foreach ($items as $idx => $it) {
+      $personParts = [];
+      if (!empty($it['adults'])) $personParts[] = $it['adults'] . ($it['adults'] === 1 ? ' adult' : ' adults');
+      if (!empty($it['children'])) $personParts[] = $it['children'] . ($it['children'] === 1 ? ' child' : ' children');
+      if (!empty($it['infants'])) $personParts[] = $it['infants'] . ($it['infants'] === 1 ? ' infant' : ' infants');
+      $personStr = count($personParts) ? implode(', ', $personParts) : '';
+
+      // origin/destination readable fallback using airports table
+      $orgCode = strtoupper(trim($it['origin'] ?? ''));
+      $dstCode = strtoupper(trim($it['destination'] ?? ''));
+      $orgReadable = '---';
+      $dstReadable = '---';
+
+      if ($orgCode && isset($iataMap[$orgCode]) && !empty($iataMap[$orgCode]['city'])) {
+        $orgReadable = trim($iataMap[$orgCode]['city'] . ($iataMap[$orgCode]['country'] ? ', ' . $iataMap[$orgCode]['country'] : ''));
+      } elseif ($orgCode) {
+        $orgReadable = $orgCode;
+      }
+
+      if ($dstCode && isset($iataMap[$dstCode]) && !empty($iataMap[$dstCode]['city'])) {
+        $dstReadable = trim($iataMap[$dstCode]['city'] . ($iataMap[$dstCode]['country'] ? ', ' . $iataMap[$dstCode]['country'] : ''));
+      } elseif ($dstCode) {
+        $dstReadable = $dstCode;
+      }
+
+      $typeLabel = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
+      $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
+
+      $sentence = '';
+      if ($personStr) $sentence .= $personStr . ' ';
+      $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
+
+      $parts[] = $sentence;
+
+      if ($idx === 0) {
+        $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
+      }
+
+      if (empty($firstDeadlineRaw) && !empty($it['deadline'])) {
+        $firstDeadlineRaw = $it['deadline'];
+      }
+    } // end foreach items
+
+    if (count($parts) === 1) {
+      $desc = 'Book ' . $parts[0] . '.';
+    } elseif (count($parts) > 1) {
+      $sentences = array_map(function($p){ return $p . '.'; }, $parts);
+      $desc = 'Book the following flights: ' . implode(' ', $sentences);
+    } else {
+      $desc = 'Book the indicated destinations.';
+    }
+
+    if (!empty($quiz['duration'])) {
+      $desc .= ' Duration: ' . intval($quiz['duration']) . ' minutes.';
+    }
+
+    // format first deadline nicely if possible
+    $firstDeadlineFmt = '';
+    if (!empty($firstDeadlineRaw)) {
+      $ts = strtotime($firstDeadlineRaw);
+      if ($ts !== false) $firstDeadlineFmt = date('M j, Y \@ H:i', $ts);
+      else $firstDeadlineFmt = $firstDeadlineRaw;
+    }
+
+    $descObj = [
+      'description'     => $desc,
+    ];
+  } // end if $quiz
+}
+// === END QUIZ LOADING / DESCRIPTION BUILDING ===
+
+// POST values (existing validation code)
 $origin      = strtoupper(trim($_POST['origin'] ?? ''));
 $destination = strtoupper(trim($_POST['destination'] ?? ''));
 $flight_date = trim($_POST['flight_date'] ?? '');
 $errors      = [];
 
-if (isset($_POST['form_submit'])) {
+// Validation (ticket.php is validation-only; save/insert happens in save_booking.php)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if (!isset($_SESSION['acc_id'])) {
     $errors['login'] = 'You must be logged in to submit a flight.';
   }
@@ -80,100 +189,96 @@ if (isset($_POST['form_submit'])) {
     $errors['flight_date'] = 'Departure date is required.';
   } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
     $errors['flight_date'] = 'Invalid date format.';
-  }
-
-  if (empty($errors)) {
-    $origin_airline      = $iataList[$origin] ?? "Invalid code ($origin)";
-    $destination_airline = $iataList[$destination] ?? "Invalid code ($destination)";
-
-    $insert = $conn->prepare(
-      "INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)"
-    );
-
-    if ($insert) {
-      $insert->bind_param("sssss", $origin, $origin_airline, $destination, $destination_airline, $flight_date);
-      $insert->execute();
-      $last_id = $conn->insert_id;
-      $_SESSION['flight_id'] = $last_id;
-      $insert->close();
-
-      header("Location: ticket.php?id=" . urlencode($last_id));
-      exit;
-    } else {
-      $errors['db'] = 'Failed to prepare insert statement: ' . $conn->error;
+  } else {
+    $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+    if (!$d || $d->format('Y-m-d') !== $flight_date) {
+      $errors['flight_date'] = 'Invalid date.';
     }
   }
+
+  // AJAX validation response path
+  if (!empty($_POST['ajax_validate'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+      'ok'     => empty($errors),
+      'errors' => $errors,
+      'flight' => [
+        'origin'      => $origin,
+        'destination' => $destination,
+        'flight_date' => $flight_date
+      ]
+    ]);
+    exit;
+  }
+
+  // Non-AJAX POST: simply render page with errors (we do not insert here)
 }
 
-// Prepare $flight for later display
+// Prepare $flight for display in UI
 $flight = [
   'origin_code'      => htmlspecialchars($origin),
   'destination_code' => htmlspecialchars($destination),
   'flight_date'      => htmlspecialchars($flight_date)
 ];
-
-// Keep connection open until after page renders (or close at very end).
-// $conn->close(); // DO NOT close here if you still need $conn later
 ?>
-
-
 <!DOCTYPE html>
 <html lang="en">
 <?php include('templates/header.php'); ?>
 
-<!-- Page-specific stylesheet (header already includes global styles) -->
 <link rel="stylesheet" href="css/ticket.css">
 
 <body>
   <h4 class="center-align">🎫 Plane Ticket Booking</h4>
+  <div class="container">
+    <div class="card center">
+      <h4>PROMPT</h4>
 
+      <?php if ($descObj): ?>
+        <div style="padding:14px; max-width:980px; margin:10px auto; text-align:left;">
+          <div style="font-weight:700; margin-bottom:8px;">Student prompt (description)</div>
+          <div style="margin-bottom:8px; font-size:15px;"><?php echo htmlspecialchars($descObj['description']); ?></div>
+
+          <?php if (!empty($quiz['title'])): ?>
+            <div style="margin-top:10px; font-size:0.95em;" class="muted">Quiz: <?php echo htmlspecialchars($quiz['title']); ?> (Code: <?php echo htmlspecialchars($quiz['code'] ?? '—'); ?>)</div>
+          <?php endif; ?>
+        </div>
+      <?php else: ?>
+        <div style="padding:12px; color:#666;">No quiz prompt available. Open this page with <code>?id=&lt;quiz_id&gt;</code> to see the prompt.</div>
+      <?php endif; ?>
+
+    </div>
+  </div>
   <div class="bg-container container center">
-    <!-- FIX: make the submit actually send POST by using type="submit" and name=form_submit -->
-    <form id="flightForm" action="ticket.php" method="POST" autocomplete="off" class="card">
+    <form id="flightForm" action="ticket.php" method="POST" name="form_submit" autocomplete="off" class="card">
       <div class="row">
 
-        <!-- ORIGIN -->
+        <!-- ORIGIN (simple 3-letter IATA input, no autocomplete) -->
         <div class="col s3 md3">
           <div class="input-field" style="position:relative;">
             <i class="material-icons prefix">flight_takeoff</i>
-
-            <!-- visible, typable input -->
-            <input
-              type="text"
-              id="origin_autocomplete"
-              class="center"
-              autocomplete="off"
+            <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
+              placeholder="e.g. MNL"
               value="<?php echo htmlspecialchars($origin ? ($origin . ' — ' . ($iataList[$origin] ?? '')) : ''); ?>">
             <label for="origin_autocomplete">ORIGIN</label>
             <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
 
-            <!-- actual code submitted -->
+            <!-- actual code submitted (hidden field inside flightForm for validation only) -->
             <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
-
-            <!-- suggestions dropdown container -->
-            <ul id="origin_suggestions" class="custom-autocomplete-list" style="display:none; position:absolute; z-index:999; left:0; right:0; background:#fff; max-height:280px; overflow:auto; border:1px solid rgba(0,0,0,0.12); padding:0; margin-top:4px;">
-            </ul>
           </div>
         </div>
 
-        <!-- DESTINATION -->
+        <!-- DESTINATION (simple 3-letter IATA input, no autocomplete) -->
         <div class="col s3 md3">
           <div class="input-field" style="position:relative;">
             <i class="material-icons prefix">flight_land</i>
 
-            <input
-              type="text"
-              id="destination_autocomplete"
-              class="center"
-              autocomplete="off"
+            <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
+              placeholder="e.g. LAX"
               value="<?php echo htmlspecialchars($destination ? ($destination . ' — ' . ($iataList[$destination] ?? '')) : ''); ?>">
             <label for="destination_autocomplete">DESTINATION</label>
             <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
 
             <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
-
-            <ul id="destination_suggestions" class="custom-autocomplete-list" style="display:none; position:absolute; z-index:999; left:0; right:0; background:#fff; max-height:280px; overflow:auto; border:1px solid rgba(0,0,0,0.12); padding:0; margin-top:4px;">
-            </ul>
           </div>
         </div>
 
@@ -187,6 +292,7 @@ $flight = [
             </div>
           </div>
         </div>
+
       </div>
     </form>
   </div>
@@ -199,6 +305,13 @@ $flight = [
     </form>
 
     <form id="bookingForm" method="POST" action="save_booking.php">
+      <!-- Hidden flight inputs that will be filled before final submit -->
+      <input type="hidden" name="origin" id="booking_origin" value="">
+      <input type="hidden" name="destination" id="booking_destination" value="">
+      <input type="hidden" name="flight_date" id="booking_flight_date" value="">
+      <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
+      <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
+
       <div id="ticketContainer">
         <div class="ticket-card">
           <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
@@ -215,7 +328,8 @@ $flight = [
               <label>Age</label>
             </div>
             <div class="input-field col s2">
-              <input type="text" name="special[]" readonly disabled placeholder="Adult/Minor/Senior">
+              <!-- readonly but not disabled so it will submit -->
+              <input type="text" name="special[]" readonly placeholder="Adult/Minor/Senior">
               <label>Passenger Type</label>
             </div>
           </div>
@@ -249,8 +363,9 @@ $flight = [
 
           <div class="row">
             <div class="input-field col s6">
-              <input type="text" name="seat[]" id="seatInput" class="dropdown-trigger" data-target="dropdown_1" readonly required>
-              <label for="seatInput">Seat Type</label>
+              <!-- seat[] carries seat class (Economy/Business/etc.) -->
+              <input type="text" name="seat[]" class="dropdown-trigger seat-input" data-target="dropdown_1" readonly required>
+              <label>Seat Type</label>
 
               <ul id="dropdown_1" class="dropdown-content seat-options">
                 <li><a data-value="Economy">Economy</a></li>
@@ -259,8 +374,11 @@ $flight = [
                 <li><a data-value="First Class">First Class</a></li>
               </ul>
             </div>
+            <div class="input-field col s6">
+              <label for="">SEAT NUMBER</label>
+              <input type="text" name="seat_number[]" placeholder="Seat (e.g., 12A)" required>
+            </div>
           </div>
-
         </div>
       </div>
 
@@ -269,275 +387,148 @@ $flight = [
       </div>
 
       <div class="form-actions">
-        <button type="submit" class="btn waves-effect waves-light">Confirm Booking</button>
+        <button type="button" id="openSummary" class="btn waves-effect waves-light">
+          Confirm Booking
+        </button>
       </div>
     </form>
   </div>
 
+  <!-- SUMMARY MODAL (outside forms) -->
+  <div id="summaryModal" class="modal">
+    <div class="modal-content">
+      <h4>Booking Summary</h4>
+      <div id="summaryContent"></div>
+      <div id="summaryError" style="color:#c62828; display:none; margin-top:10px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button id="modalConfirmBtn" type="button" class="btn green">Confirm Booking</button>
+      <button id="modalCancelBtn" type="button" class="btn red">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Expose IATA data for client -->
+  <script>const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;</script>
+
   <script>
-    const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;
-  </script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // small helper lookup map
+    window.IATA_LOOKUP = {};
+    IATA_DATA.forEach(it => window.IATA_LOOKUP[it.code] = it.name);
 
-<script>
-    // Initialize materialize components (datepicker)
-    document.addEventListener('DOMContentLoaded', function () {
-      // Datepickers
-      const elemsDate = document.querySelectorAll('.datepicker');
-      M.Datepicker.init(elemsDate, {
-        format: 'yyyy-mm-dd',
-        minDate: new Date()
+    // Materialize initialization
+    const elemsDate = document.querySelectorAll('.datepicker');
+    M.Datepicker.init(elemsDate, { format: 'yyyy-mm-dd', minDate: new Date() });
+
+    const dropdowns = document.querySelectorAll('.dropdown-trigger');
+    M.Dropdown.init(dropdowns);
+
+    // Modal
+    const modalElem = document.getElementById('summaryModal');
+    const summaryModal = M.Modal.init(modalElem, {dismissible: true});
+    const openBtn = document.getElementById('openSummary');
+    const confirmBtn = document.getElementById('modalConfirmBtn');
+    const cancelBtn = document.getElementById('modalCancelBtn');
+    const summaryContent = document.getElementById('summaryContent');
+    const summaryError = document.getElementById('summaryError');
+    const bookingForm = document.getElementById('bookingForm');
+    const flightForm = document.getElementById('flightForm');
+
+    // --- Simple IATA-only behavior: uppercase, letters-only, max 3 chars, sync hidden input ---
+    function initPlainIataInput(displayId, hiddenId) {
+      const display = document.getElementById(displayId);
+      const hidden  = document.getElementById(hiddenId);
+      if (!display || !hidden) return;
+
+      // keep display + hidden in sync, and normalize input
+      display.addEventListener('input', function () {
+        // uppercase letters only, max 3 chars
+        let v = (this.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+        this.value = v;
+        hidden.value = v;
       });
 
-      // Initialize dropdowns for seat selection
-      const dropdowns = document.querySelectorAll('.dropdown-trigger');
-      M.Dropdown.init(dropdowns);
-
-      // Make clicking a seat option put the text in the input box
-      document.querySelectorAll('.seat-options a').forEach(item => {
-        item.addEventListener('click', function (e) {
-          e.preventDefault();
-          const value = this.getAttribute('data-value');
-          const dropdown = this.closest('.dropdown-content');
-          const targetId = dropdown.getAttribute('id');
-          const input = document.querySelector(`[data-target="${targetId}"]`);
-          input.value = value;
-          M.updateTextFields(); // update label animation
-        });
+      // on blur, ensure hidden value mirrors display and/or trim spaces
+      display.addEventListener('blur', function () {
+        let v = (this.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
+        this.value = v;
+        hidden.value = v;
       });
 
-      // Build display label from item
-      function buildLabel(item) {
-        const cityCountry = [item.city, item.country].filter(Boolean).join(', ');
-        return item.code + ' — ' + item.name + (cityCountry ? ' (' + cityCountry + ')' : '');
+      // set initial hidden value from server-rendered display text:
+      if (display.value) {
+        const m = display.value.match(/^([A-Za-z]{3})/);
+        if (m) hidden.value = m[1].toUpperCase();
       }
+    }
 
-      // Escape helper
-      function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, function (m) {
-          return ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[m]);
-        });
-      }
+    // init plain IATA fields
+    initPlainIataInput('origin_autocomplete', 'origin');
+    initPlainIataInput('destination_autocomplete', 'destination');
 
-      // Substring filter over code, name, city, country (case-insensitive)
-      function filterIata(query, limit = 12) {
-        const q = query.trim().toLowerCase();
-        if (!q) return [];
-        const out = [];
-        for (let i = 0; i < IATA_DATA.length; i++) {
-          const it = IATA_DATA[i];
-          if (
-            (it.code && it.code.toLowerCase().indexOf(q) !== -1) ||
-            (it.name && it.name.toLowerCase().indexOf(q) !== -1) ||
-            (it.city && it.city.toLowerCase().indexOf(q) !== -1) ||
-            (it.country && it.country.toLowerCase().indexOf(q) !== -1)
-          ) {
-            out.push(it);
-            if (out.length >= limit) break;
-          }
-        }
-        return out;
-      }
-
-      // Build an autocomplete bound to display input + hidden input + suggestion box
-      function makeAutocomplete(displayId, hiddenId, suggestionsId) {
-        const display = document.getElementById(displayId);
-        const hidden = document.getElementById(hiddenId);
-        const sugBox = document.getElementById(suggestionsId);
-
-        let current = [];
-        let active = -1;
-
-        function render(items) {
-          current = items;
-          active = -1;
-          if (!items.length) {
-            sugBox.style.display = 'none';
-            sugBox.innerHTML = '';
-            return;
-          }
-          sugBox.innerHTML = items.map((it, idx) => {
-            const label = buildLabel(it);
-            return `\n              <li data-idx="${idx}" style="list-style:none; padding:10px; cursor:pointer; border-bottom:1px solid rgba(0,0,0,0.04);">\n                <div style="font-weight:600; margin-bottom:3px;">${escapeHtml(it.code)} — ${escapeHtml(it.name)}</div>\n                <div style="font-size:0.85em; color:#666;">${escapeHtml([it.city, it.country].filter(Boolean).join(', '))}</div>\n              </li>`;
-          }).join('');
-          sugBox.style.display = 'block';
-        }
-
-        function choose(idx) {
-          if (idx < 0 || idx >= current.length) return;
-          const it = current[idx];
-          display.value = buildLabel(it);
-          hidden.value = it.code;
-          // If using Materialize floating labels
-          if (window.M && M.updateTextFields) M.updateTextFields();
-          close();
-        }
-
-        function close() {
-          sugBox.style.display = 'none';
-          sugBox.innerHTML = '';
-          current = [];
-          active = -1;
-        }
-
-        display.addEventListener('input', function () {
-          const q = display.value;
-          if (!q.trim()) {
-            hidden.value = '';
-            render([]);
-            return;
-          }
-          const items = filterIata(q);
-          render(items);
-        });
-
-        display.addEventListener('keydown', function (e) {
-          if (sugBox.style.display === 'none') return;
-          const max = current.length - 1;
-          if (e.key === 'ArrowDown') {
-            active = Math.min(max, active + 1);
-            highlight();
-            e.preventDefault();
-          } else if (e.key === 'ArrowUp') {
-            active = Math.max(0, active - 1);
-            highlight();
-            e.preventDefault();
-          } else if (e.key === 'Enter') {
-            if (active >= 0) {
-              choose(active);
-              e.preventDefault();
-            } else {
-              // try to interpret typed 3-letter code
-              tryExtract(display, hidden);
-            }
-          } else if (e.key === 'Escape') {
-            close();
-          }
-        });
-
-        function highlight() {
-          const lis = Array.from(sugBox.querySelectorAll('li'));
-          lis.forEach((li, i) => li.style.background = (i === active ? 'rgba(0,0,0,0.04)' : ''));
-          const el = lis[active];
-          if (el) el.scrollIntoView({ block: 'nearest' });
-        }
-
-        sugBox.addEventListener('click', function (ev) {
-          const li = ev.target.closest('li[data-idx]');
-          if (!li) return;
-          const idx = parseInt(li.getAttribute('data-idx'), 10);
-          choose(idx);
-        });
-
-        display.addEventListener('blur', function () {
-          setTimeout(() => { // allow click to register
-            tryExtract(display, hidden);
-            close();
-          }, 160);
-        });
-      }
-
-      // Try to parse a typed value: accept 3-letter code or exact label
-      function tryExtract(display, hidden) {
-        const val = display.value.trim();
-        if (!val) { hidden.value = ''; return; }
-
-        // 1) If starts with 3-letter code
-        const m = val.match(/^([A-Za-z]{3})\b/);
-        if (m) {
-          hidden.value = m[1].toUpperCase();
-          return;
-        }
-
-        // 2) If matches exactly one label, set it
-        const lower = val.toLowerCase();
-        for (let i = 0; i < IATA_DATA.length; i++) {
-          const it = IATA_DATA[i];
-          const label = buildLabel(it).toLowerCase();
-          if (label === lower) {
-            hidden.value = it.code;
-            return;
-          }
-        }
-
-        // no match found
-        hidden.value = '';
-      }
-
-      // Initialize both autocompletes
-      makeAutocomplete('origin_autocomplete', 'origin', 'origin_suggestions');
-      makeAutocomplete('destination_autocomplete', 'destination', 'destination_suggestions');
-
+    // Seat option click handler for existing dropdowns (scoped)
+    document.querySelectorAll('.seat-options a').forEach(item => {
+      item.addEventListener('click', function (e) {
+        e.preventDefault();
+        const value = this.getAttribute('data-value');
+        const dropdown = this.closest('.dropdown-content');
+        const targetId = dropdown && dropdown.getAttribute('id');
+        const input = document.querySelector(`[data-target="${targetId}"]`);
+        if (input) { input.value = value; M.updateTextFields(); }
+      });
     });
 
+    // Ticket add/remove logic
     let ticketCount = 1;
     const maxTickets = 9;
-
     document.getElementById('addTicketBtn').addEventListener('click', () => {
-      if (ticketCount >= maxTickets) {
-        M.toast({ html: 'Maximum of 9 passengers per booking!' });
-        return;
-      }
-
+      if (ticketCount >= maxTickets) { M.toast({ html: 'Maximum of 9 passengers per booking!' }); return; }
       const container = document.getElementById('ticketContainer');
       const firstTicket = container.querySelector('.ticket-card');
       const newTicket = firstTicket.cloneNode(true);
       ticketCount++;
-
-      // Generate unique ID for the new dropdown
       const newDropdownId = 'dropdown_' + ticketCount;
-      
-      // Update dropdown trigger and target
+
+      // Update seat input & dropdown id inside cloned card
       const seatInput = newTicket.querySelector('input[name="seat[]"]');
       const dropdownContent = newTicket.querySelector('.dropdown-content');
-      
-      seatInput.setAttribute('data-target', newDropdownId);
-      dropdownContent.setAttribute('id', newDropdownId);
+      if (seatInput) seatInput.setAttribute('data-target', newDropdownId);
+      if (dropdownContent) dropdownContent.setAttribute('id', newDropdownId);
 
-      // Clear inputs and reset radios/checkboxes
+      // Reset fields
       newTicket.querySelectorAll('input').forEach(input => {
         if (['checkbox', 'radio'].includes(input.type)) input.checked = false;
-        else {
-          input.value = '';
-          if (input.name === 'special[]') { input.readOnly = false; input.disabled = true; input.placeholder = 'Adult/Minor/Senior'; }
-        }
+        else { input.value = ''; if (input.name === 'special[]') input.readOnly = true; }
       });
 
-      // Update radio names to keep them unique per passenger
-      const index = ticketCount - 1; // Define index here
-      newTicket.querySelectorAll('input[type="radio"]').forEach(r => {
-        r.name = `gender[${index}]`;
-      });
-
-      // Update impairment field name and reset
+      const index = ticketCount - 1;
+      // update radio names
+      newTicket.querySelectorAll('input[type="radio"]').forEach(r => r.name = `gender[${index}]`);
+      // impairment
       const impairmentField = newTicket.querySelector('.impairment-field');
-      impairmentField.name = `impairment[${index}]`; // Now index is defined
-      impairmentField.style.display = 'none';
-      impairmentField.disabled = true;
-
-      // Update PWD checkbox name
+      if (impairmentField) { impairmentField.name = `impairment[${index}]`; impairmentField.style.display = 'none'; impairmentField.disabled = true; }
+      // pwd checkbox
       const pwdCheckbox = newTicket.querySelector('input[type="checkbox"]');
-      pwdCheckbox.name = `pwd[${index}]`; // Now index is defined
+      if (pwdCheckbox) pwdCheckbox.name = `pwd[${index}]`;
 
       newTicket.querySelector('.counter').textContent = `Passenger ${ticketCount}`;
-      newTicket.querySelector('.remove-btn').style.display = 'block';
-
+      const rem = newTicket.querySelector('.remove-btn'); if (rem) rem.style.display = 'block';
       container.appendChild(newTicket);
       M.updateTextFields();
-      
-      // Reinitialize dropdown for new ticket with unique ID
+
+      // init dropdown for new ticket
       const newDropdownTrigger = newTicket.querySelector('.dropdown-trigger');
-      M.Dropdown.init(newDropdownTrigger);
-      
-      // Add click event for the new dropdown options
+      if (newDropdownTrigger) M.Dropdown.init(newDropdownTrigger);
+
+      // attach click handlers for seat options scoped to new ticket
       newTicket.querySelectorAll('.seat-options a').forEach(item => {
         item.addEventListener('click', function(e) {
           e.preventDefault();
           const value = this.getAttribute('data-value');
           const dropdown = this.closest('.dropdown-content');
-          const targetId = dropdown.getAttribute('id');
-          const input = document.querySelector(`[data-target="${targetId}"]`);
-          input.value = value;
-          M.updateTextFields();
+          const targetId = dropdown && dropdown.getAttribute('id');
+          const input = newTicket.querySelector(`[data-target="${targetId}"]`);
+          if (input) { input.value = value; M.updateTextFields(); }
         });
       });
     });
@@ -547,38 +538,24 @@ $flight = [
       if (!card || ticketCount <= 1) return;
       card.remove();
       ticketCount--;
-      
-      // Renumber remaining tickets and update IDs
       document.querySelectorAll('.ticket-card').forEach((card, index) => {
         const newIndex = index + 1;
         card.querySelector('.counter').textContent = `Passenger ${newIndex}`;
-        
-        // Update dropdown IDs
         const seatInput = card.querySelector('input[name="seat[]"]');
         const dropdownContent = card.querySelector('.dropdown-content');
         const newDropdownId = 'dropdown_' + newIndex;
-        
-        seatInput.setAttribute('data-target', newDropdownId);
-        dropdownContent.setAttribute('id', newDropdownId);
-        
-        // Update radio names
-        card.querySelectorAll('input[type="radio"]').forEach(r => {
-          r.name = `gender[${index}]`;
-        });
-        
-        // Update impairment field names
+        if (seatInput) seatInput.setAttribute('data-target', newDropdownId);
+        if (dropdownContent) dropdownContent.setAttribute('id', newDropdownId);
+        card.querySelectorAll('input[type="radio"]').forEach(r => r.name = `gender[${index}]`);
         const impairmentField = card.querySelector('.impairment-field');
-        impairmentField.name = `impairment[${index}]`;
-        
-        // Update PWD checkbox names
+        if (impairmentField) impairmentField.name = `impairment[${index}]`;
         const pwdCheckbox = card.querySelector('input[type="checkbox"]');
-        pwdCheckbox.name = `pwd[${index}]`;
-        
-        if (index === 0) {
-          card.querySelector('.remove-btn').style.display = 'none';
-        }
+        if (pwdCheckbox) pwdCheckbox.name = `pwd[${index}]`;
+        if (index === 0) { const rem = card.querySelector('.remove-btn'); if (rem) rem.style.display = 'none'; }
       });
     }
+
+    window.removeTicket = removeTicket; // expose for inline onclick
 
     function checkAge(input) {
       let age = parseInt(input.value);
@@ -591,14 +568,146 @@ $flight = [
         else typeField.value = 'Regular';
       } else { typeField.value = ''; }
     }
+    window.checkAge = checkAge;
 
     function toggleImpairment(checkbox) {
       const field = checkbox.closest('.pwd-group').querySelector('.impairment-field');
       if (checkbox.checked) { field.style.display = 'inline-block'; field.disabled = false; }
       else { field.style.display = 'none'; field.disabled = true; field.value = ''; }
     }
+    window.toggleImpairment = toggleImpairment;
+
+    // show server-side errors inline
+    function showServerErrors(errors) {
+      document.querySelectorAll('.red-text').forEach(el => el.textContent = '');
+      if (!errors) return;
+      if (errors.origin) {
+        const originErr = document.querySelector('#origin_autocomplete').closest('.input-field').querySelector('.red-text');
+        if (originErr) originErr.textContent = errors.origin;
+      }
+      if (errors.destination) {
+        const destErr = document.querySelector('#destination_autocomplete').closest('.input-field').querySelector('.red-text');
+        if (destErr) destErr.textContent = errors.destination;
+      }
+      if (errors.flight_date) {
+        const dateErr = document.querySelector('#flight-date').closest('.input-field').querySelector('.red-text');
+        if (dateErr) dateErr.textContent = errors.flight_date;
+      }
+      if (errors.login) M.toast({ html: errors.login });
+      if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
+    }
+
+    // fill booking hidden inputs
+    function fillBookingHiddenFlightFields(flight) {
+      const bOrigin = document.getElementById('booking_origin');
+      const bDestination = document.getElementById('booking_destination');
+      const bDate = document.getElementById('booking_flight_date');
+      const bOriginAir = document.getElementById('booking_origin_airline');
+      const bDestAir = document.getElementById('booking_destination_airline');
+
+      if (bOrigin) bOrigin.value = flight.origin || document.getElementById('origin').value || '';
+      if (bDestination) bDestination.value = flight.destination || document.getElementById('destination').value || '';
+      if (bDate) bDate.value = flight.flight_date || document.getElementById('flight-date').value || '';
+      if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[ flight.origin ]) || '';
+      if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[ flight.destination ]) || '';
+    }
+
+    // build modal content + open
+    function buildSummaryAndOpen(flight) {
+      // copy flight to hidden fields
+      fillBookingHiddenFlightFields(flight);
+
+      const tickets = document.querySelectorAll('.ticket-card');
+      const passengerCount = tickets.length;
+      let html = `<p><strong>Origin:</strong> ${escapeHtml(flight.origin)}</p>
+                  <p><strong>Destination:</strong> ${escapeHtml(flight.destination)}</p>
+                  <p><strong>Date:</strong> ${escapeHtml(flight.flight_date)}</p>
+                  <p><strong>Passengers:</strong> ${passengerCount}</p><hr><h5>Passenger Details:</h5>`;
+      tickets.forEach((card, idx) => {
+        const name = (card.querySelector('input[name="name[]"]') || {}).value || '';
+        const age = (card.querySelector('input[name="age[]"]') || {}).value || '';
+        const type = (card.querySelector('input[name="special[]"]') || {}).value || '';
+        const seat = (card.querySelector('input[name="seat[]"]') || {}).value || '';
+        const seatNumber = (card.querySelector('input[name="seat_number[]"]') || {}).value || '';
+        const genderRadio = card.querySelector('input[type="radio"]:checked');
+        const gender = genderRadio ? genderRadio.value : 'Not set';
+        const pwdCheckbox = card.querySelector('input[type="checkbox"]');
+        const pwd = (pwdCheckbox && pwdCheckbox.checked) ? (card.querySelector('.impairment-field').value || 'PWD') : 'None';
+
+        html += `<div style="margin-bottom:10px;">
+                  <strong>Passenger ${idx + 1}</strong><br>
+                  Name: ${escapeHtml(name)}<br>
+                  Age: ${escapeHtml(age)} (${escapeHtml(type)})<br>
+                  Gender: ${escapeHtml(gender)}<br>
+                  Seat Class: ${escapeHtml(seat)}<br>
+                  Seat Number: ${escapeHtml(seatNumber)}<br>
+                  Disability: ${escapeHtml(pwd)}<br>
+                 </div><hr>`;
+      });
+
+      summaryContent.innerHTML = html;
+      summaryModal.open();
+    }
+
+    // open summary: AJAX validate -> buildSummaryAndOpen
+    openBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      showServerErrors(null);
+      summaryError.style.display = 'none';
+
+      const fd = new FormData(flightForm || document.createElement('form'));
+      fd.set('form_submit', '1');
+      fd.set('ajax_validate', '1');
+
+      fetch('ticket.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+        .then(resp => resp.json())
+        .then(json => {
+          if (!json) { M.toast({ html: 'Invalid server response' }); return; }
+          if (!json.ok) {
+            showServerErrors(json.errors || {});
+            if (json.errors && Object.keys(json.errors).length) {
+              summaryError.style.display = 'block';
+              summaryError.textContent = 'Please fix the highlighted errors before continuing.';
+              summaryError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            return;
+          }
+          // success: fill hidden fields + show modal summary
+          buildSummaryAndOpen(json.flight);
+        })
+        .catch(err => { console.error('Validation error', err); M.toast({ html: 'Network or server error while validating. Try again.' }); });
+    });
+
+    // cancel
+    cancelBtn.addEventListener('click', function (e) { e.preventDefault(); summaryModal.close(); });
+
+    // confirm final booking -> ensure hidden fields are up to date and submit bookingForm
+    confirmBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      // defensive sync
+      const flight = {
+        origin: document.getElementById('origin').value.trim(),
+        destination: document.getElementById('destination').value.trim(),
+        flight_date: document.getElementById('flight-date').value.trim()
+      };
+      fillBookingHiddenFlightFields(flight);
+
+      confirmBtn.disabled = true;
+      summaryModal.close();
+      setTimeout(() => bookingForm.submit(), 120);
+    });
+
+    // small helper functions used above
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (m) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
+      });
+    }
+
+  }); // end DOMContentLoaded
   </script>
 
-  <?php include('templates/footer.php'); ?>
+<?php include('templates/footer.php'); ?>
 </body>
 </html>
+s
