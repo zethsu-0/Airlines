@@ -113,7 +113,7 @@ if ($conn->connect_error) {
     background: linear-gradient(180deg,#fbfdff,#f2f6ff);
     padding: 18px;
   }
-  #adminApp .page-wrap{ max-width:1200px; margin:0 auto; }
+  #adminApp .page-wrap{ max-width:1400px; margin:0 auto; }
   .layout { display:grid; grid-template-columns:200px 1fr 360px; gap:18px; align-items:start; }
   @media (max-width:980px) { .layout{ grid-template-columns: 1fr; } }
   .left-col { padding:6px 0; }
