@@ -681,8 +681,8 @@ function buildDescription(){
     // ORIGIN / DESTINATION
     const orgA = airportList.find(a=>a.iata===b.origin) || {};
     const dstA = airportList.find(a=>a.iata===b.destination) || {};
-    const origin = orgA.city ? `${orgA.city}, ${orgA.region}` : b.origin || it.iata || '---';
-    const destination = dstA.city ? `${dstA.city}, ${dstA.region}` : b.destination || it.city || '---';
+    const origin = orgA.city ? `${orgA.city}, ${orgA.region}, ${orgA.name}` : b.origin || it.iata || '---';
+    const destination = dstA.city ? `${dstA.city}, ${dstA.region}, ${orgA.name}` : b.destination || it.city || '---';
 
     // FLIGHT TYPE
     const typeLabel = b.flight_type === 'roundtrip' ? 'round-trip' : 'one-way';
