@@ -40,6 +40,17 @@
     }
   }
 
+  function format_airport_display($code, $iataMap) {
+  $code = trim(strtoupper((string)$code));
+  if ($code === '') return '';
+  $parts = [];
+  if (!empty($iataMap[$code]['city'])) $parts[] = trim($iataMap[$code]['city']);
+  if (!empty($iataMap[$code]['country'])) $parts[] = trim($iataMap[$code]['country']);
+  if (!empty($iataMap[$code]['name'])) $parts[] = trim($iataMap[$code]['name']);
+  if (count($parts) > 0) return implode(', ', $parts);
+  return $code;
+}
+
   $quizId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
   $descObj = null;
   $quiz = null;
@@ -83,20 +94,8 @@
 
         $orgCode = strtoupper(trim($it['origin'] ?? ''));
         $dstCode = strtoupper(trim($it['destination'] ?? ''));
-        $orgReadable = '---';
-        $dstReadable = '---';
-
-        if ($orgCode && isset($iataMap[$orgCode]) && !empty($iataMap[$orgCode]['city'])) {
-          $orgReadable = trim($iataMap[$orgCode]['city'] . ($iataMap[$orgCode]['country'] ? ', ' . $iataMap[$orgCode]['country'] : ''));
-        } elseif ($orgCode) {
-          $orgReadable = $orgCode;
-        }
-
-        if ($dstCode && isset($iataMap[$dstCode]) && !empty($iataMap[$dstCode]['city'])) {
-          $dstReadable = trim($iataMap[$dstCode]['city'] . ($iataMap[$dstCode]['country'] ? ', ' . $iataMap[$dstCode]['country'] : ''));
-        } elseif ($dstCode) {
-          $dstReadable = $dstCode;
-        }
+        $orgReadable = $orgCode ? format_airport_display($orgCode, $iataMap) : '---';
+        $dstReadable = $dstCode ? format_airport_display($dstCode, $iataMap) : '---';
 
         $typeLabel = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
         $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
@@ -138,6 +137,9 @@
 
       $descObj = [
         'description'     => $desc,
+        'expected_answer' => $firstDestination ?: null,
+        'itemsCount'      => count($items),
+        'firstDeadline'   => $firstDeadlineFmt
       ];
     } else {
       http_response_code(404);
@@ -252,7 +254,6 @@
           <div style="margin-bottom:8px; font-size:15px;"><?php echo htmlspecialchars($descObj['description']); ?></div>
 
           <div style="color:#555;">
-            <strong>Expected answer:</strong> <?php echo htmlspecialchars($descObj['expected_answer'] ?? '—'); ?> &nbsp;•&nbsp;
             <strong>Items:</strong> <?php echo intval($descObj['itemsCount']); ?> &nbsp;•&nbsp;
             <strong>First deadline:</strong> <?php echo htmlspecialchars($descObj['firstDeadline'] ?: '—'); ?>
           </div>
@@ -498,6 +499,14 @@
     initPlainIataInput('origin_autocomplete', 'origin');
     initPlainIataInput('destination_autocomplete', 'destination');
 
+<<<<<<< HEAD
+=======
+    // The rest of your JS is unchanged (ticket clone, seat selection, summary modal, AJAX validation)
+    // For brevity I include the remaining JS functions as in your previous file but kept intact.
+    // Seat option click handler
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
+
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     document.querySelectorAll('.seat-options a').forEach(item => {
       item.addEventListener('click', function (e) {
         e.preventDefault();
@@ -640,6 +649,10 @@
       if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
     }
 
+<<<<<<< HEAD
+=======
+    // fill booking hidden inputs (origin_airline/destination_airline set to City, Country, AirportName)
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     function fillBookingHiddenFlightFields(flight) {
       const bOrigin = document.getElementById('booking_origin');
       const bDestination = document.getElementById('booking_destination');
@@ -753,6 +766,7 @@
       setTimeout(() => bookingForm.submit(), 120);
     });
 
+<<<<<<< HEAD
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
@@ -760,11 +774,15 @@
     }
 
   });
+=======
+  }); // end DOMContentLoaded
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
   </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
 </html>
+<<<<<<< HEAD
 <style>
 .datepicker-date-display{
   display: none !important;
@@ -776,3 +794,5 @@ input.select-dropdown{
   width: 100% !important ;
 }
 </style>
+=======
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
