@@ -1,23 +1,13 @@
 <?php
-  // ---------- PHP INDEX ----------
-  session_start();
-  if (!empty($_SESSION['flight_id'])) {
-      unset($_SESSION['flight_id']); // clear last booking
-  } 
-  $conn = mysqli_connect('localhost', 'root', '', 'airlines');
-  if (!$conn) {
-      die('Connection error: ' . mysqli_connect_error());
-  }
+  include('templates/header.php');
+  include('config/db_connect.php'); // provides $conn (mysqli)
   $origin = strtoupper(trim($_POST['origin'] ?? ''));
   $destination = strtoupper(trim($_POST['destination'] ?? ''));
   $flight_date = trim($_POST['flight_date'] ?? '');
   $errors = [];
 
   if (isset($_POST['form_submit'])) {
-
-  // ---------- VALIDATION ----------
-
-
+  // ---------- VALIDATION ---------
   // Must be logged in to submit flights
   if (!isset($_SESSION['acc_id'])) {
     $errors['login'] = 'You must be logged in to submit a flight.';
@@ -85,8 +75,6 @@
 
 <!DOCTYPE html>
 <html>
-<?php include('templates/header.php'); ?>
-
 <body>
   <!-- Hero Section -->
   <section class="center-align">

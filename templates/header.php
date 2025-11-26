@@ -1,3 +1,17 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// If the page says $require_login = true before including this file,
+// then redirect users who are not logged in.
+if (!empty($require_login) && empty($_SESSION['acc_id'])) {
+    // Redirect to a page that shows the login modal (e.g. index.php)
+    header('Location: index.php');
+    exit;
+}
+?>
+
 <head>
   <title>TOURS</title>
   <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
@@ -198,8 +212,6 @@
       <a href="index.php"><i class="modal-close material-icons left">arrow_back</i></a>
       Log In
     </h4>
-
-
     <form id="loginForm" method="POST" action="login.php" autocomplete="off" novalidate>
       <div class="input-field">
         <i class="material-icons prefix">person</i>
@@ -227,7 +239,45 @@
   $(document).ready(function(){
     $('.sidenav').sidenav();
     $('.modal').modal();  
-  });
 
+    $('#loginForm').on('submit', function(e) {
+      e.preventDefault(); // stop normal form submit
+
+      // clear old errors
+      $('#err-acc_id').text('');
+      $('#err-password').text('');
+      $('#err-general').text('');
+
+      $.ajax({
+        url: 'login.php',
+        method: 'POST',
+        data: $(this).serialize(), // acc_id + password
+        dataType: 'json',
+        success: function(res) {
+          if (res.success) {
+            // Reload page so header sees session + updates nav
+            location.reload();
+          } else {
+            if (res.errors) {
+              if (res.errors.acc_id) {
+                $('#err-acc_id').text(res.errors.acc_id);
+              }
+              if (res.errors.password) {
+                $('#err-password').text(res.errors.password);
+              }
+              if (res.errors.general) {
+                $('#err-general').text(res.errors.general);
+              }
+            } else {
+              $('#err-general').text('Login failed. Please try again.');
+            }
+          }
+        },
+        error: function() {
+          $('#err-general').text('Server error. Please try again.');
+        }
+      });
+    });
+  });
 </script>
 

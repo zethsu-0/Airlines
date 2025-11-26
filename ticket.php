@@ -1,232 +1,245 @@
 <?php
-// ticket.php (ready-to-paste)
-// DEV: show errors while debugging (turn off in production)
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+  // ticket.php (ready-to-paste)
+  session_start();
 
-session_start();
-
-// DB connection
-$conn = mysqli_connect('localhost', 'root', '', 'airlines');
-if (!$conn) {
-  die('Connection error: ' . mysqli_connect_error());
-}
-
-// Load airports into $iataData (IATACode, AirportName, City, CountryRegion)
-$iataData = [];
-
-$sql = "SELECT IATACode, AirportName, City, CountryRegion FROM airports ORDER BY IATACode ASC";
-if ($result = $conn->query($sql)) {
-  while ($row = $result->fetch_assoc()) {
-    $code = isset($row['IATACode']) ? trim($row['IATACode']) : '';
-    if ($code === '') continue;
-    $iataData[] = [
-      'code'    => $code,
-      'name'    => $row['AirportName'] ?? '',
-      'city'    => $row['City'] ?? '',
-      'country' => $row['CountryRegion'] ?? ''
-    ];
-  }
-  $result->free();
-} else {
-  echo "<!-- IATA load error: " . htmlspecialchars($conn->error) . " -->";
-}
-
-// Build lookup map for server-side validation and for description rendering
-$iataList = [];   // code => name (used by your validation UI)
-$iataMap  = [];   // code => ['name','city','country']
-foreach ($iataData as $it) {
-  if (!empty($it['code'])) {
-    $iataList[$it['code']] = $it['name'];
-    $iataMap[$it['code']]  = ['name' => $it['name'], 'city' => $it['city'], 'country' => $it['country']];
-  }
-}
-
-// === If ticket.php is requested with ?id=NN, load quiz + items and build description object ===
-$quizId = isset($_GET['id']) ? intval($_GET['id']) : 0;
-$descObj = null;
-$quiz = null;
-if ($quizId > 0) {
-  // fetch quiz row
-  $qStmt = $conn->prepare("SELECT id, title, section, audience, duration, quiz_code AS code FROM quizzes WHERE id = ?");
-  if ($qStmt) {
-    $qStmt->bind_param('i', $quizId);
-    $qStmt->execute();
-    $qres = $qStmt->get_result();
-    $quiz = $qres->fetch_assoc();
-    $qStmt->close();
+  if (empty($_SESSION['acc_id'])) {
+      header('Location: index.php');
+      exit;
   }
 
-  if ($quiz) {
-    // fetch items for the quiz
-    $items = [];
-    $itemSql = "SELECT id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class
-                FROM quiz_items WHERE quiz_id = ? ORDER BY id ASC";
-    $stmt = $conn->prepare($itemSql);
-    if ($stmt) {
-      $stmt->bind_param('i', $quizId);
-      $stmt->execute();
-      $res = $stmt->get_result();
-      while ($r = $res->fetch_assoc()) {
-        // normalize numbers
-        $r['adults'] = isset($r['adults']) ? intval($r['adults']) : 0;
-        $r['children'] = isset($r['children']) ? intval($r['children']) : 0;
-        $r['infants'] = isset($r['infants']) ? intval($r['infants']) : 0;
-        $items[] = $r;
-      }
-      $stmt->close();
+  $require_login = true;
+  include('config/db_connect.php');
+
+  $studentId = (int) ($_SESSION['student_id'] ?? $_SESSION['acc_id']);
+
+  $iataData = [];
+
+  $sql = "SELECT IATACode, AirportName, City, CountryRegion FROM airports ORDER BY IATACode ASC";
+  if ($result = $conn->query($sql)) {
+    while ($row = $result->fetch_assoc()) {
+      $code = isset($row['IATACode']) ? trim($row['IATACode']) : '';
+      if ($code === '') continue;
+      $iataData[] = [
+        'code'    => $code,
+        'name'    => $row['AirportName'] ?? '',
+        'city'    => $row['City'] ?? '',
+        'country' => $row['CountryRegion'] ?? ''
+      ];
     }
-
-    // build description (mirror of your JS buildDescription but server-side)
-    $parts = [];
-    $firstDeadlineRaw = '';
-    $firstDestination = null;
-
-    foreach ($items as $idx => $it) {
-      $personParts = [];
-      if (!empty($it['adults'])) $personParts[] = $it['adults'] . ($it['adults'] === 1 ? ' adult' : ' adults');
-      if (!empty($it['children'])) $personParts[] = $it['children'] . ($it['children'] === 1 ? ' child' : ' children');
-      if (!empty($it['infants'])) $personParts[] = $it['infants'] . ($it['infants'] === 1 ? ' infant' : ' infants');
-      $personStr = count($personParts) ? implode(', ', $personParts) : '';
-
-      // origin/destination readable fallback using airports table
-      $orgCode = strtoupper(trim($it['origin'] ?? ''));
-      $dstCode = strtoupper(trim($it['destination'] ?? ''));
-      $orgReadable = '---';
-      $dstReadable = '---';
-
-      if ($orgCode && isset($iataMap[$orgCode]) && !empty($iataMap[$orgCode]['city'])) {
-        $orgReadable = trim($iataMap[$orgCode]['city'] . ($iataMap[$orgCode]['country'] ? ', ' . $iataMap[$orgCode]['country'] : ''));
-      } elseif ($orgCode) {
-        $orgReadable = $orgCode;
-      }
-
-      if ($dstCode && isset($iataMap[$dstCode]) && !empty($iataMap[$dstCode]['city'])) {
-        $dstReadable = trim($iataMap[$dstCode]['city'] . ($iataMap[$dstCode]['country'] ? ', ' . $iataMap[$dstCode]['country'] : ''));
-      } elseif ($dstCode) {
-        $dstReadable = $dstCode;
-      }
-
-      $typeLabel = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
-      $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
-
-      $sentence = '';
-      if ($personStr) $sentence .= $personStr . ' ';
-      $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
-
-      $parts[] = $sentence;
-
-      if ($idx === 0) {
-        $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
-      }
-
-      if (empty($firstDeadlineRaw) && !empty($it['deadline'])) {
-        $firstDeadlineRaw = $it['deadline'];
-      }
-    } // end foreach items
-
-    if (count($parts) === 1) {
-      $desc = 'Book ' . $parts[0] . '.';
-    } elseif (count($parts) > 1) {
-      $sentences = array_map(function($p){ return $p . '.'; }, $parts);
-      $desc = 'Book the following flights: ' . implode(' ', $sentences);
-    } else {
-      $desc = 'Book the indicated destinations.';
-    }
-
-    if (!empty($quiz['duration'])) {
-      $desc .= ' Duration: ' . intval($quiz['duration']) . ' minutes.';
-    }
-
-    // format first deadline nicely if possible
-    $firstDeadlineFmt = '';
-    if (!empty($firstDeadlineRaw)) {
-      $ts = strtotime($firstDeadlineRaw);
-      if ($ts !== false) $firstDeadlineFmt = date('M j, Y \@ H:i', $ts);
-      else $firstDeadlineFmt = $firstDeadlineRaw;
-    }
-
-    $descObj = [
-      'description'     => $desc,
-    ];
-  } // end if $quiz
-}
-// === END QUIZ LOADING / DESCRIPTION BUILDING ===
-
-// POST values (existing validation code)
-$origin      = strtoupper(trim($_POST['origin'] ?? ''));
-$destination = strtoupper(trim($_POST['destination'] ?? ''));
-$flight_date = trim($_POST['flight_date'] ?? '');
-$errors      = [];
-
-// Validation (ticket.php is validation-only; save/insert happens in save_booking.php)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  if (!isset($_SESSION['acc_id'])) {
-    $errors['login'] = 'You must be logged in to submit a flight.';
-  }
-
-  if (empty($origin)) {
-    $errors['origin'] = 'Origin code is required.';
-  } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
-    $errors['origin'] = 'Origin must be 3 uppercase letters.';
-  } elseif (!array_key_exists($origin, $iataList)) {
-    $errors['origin'] = 'Unknown origin IATA code.';
-  }
-
-  if (empty($destination)) {
-    $errors['destination'] = 'Destination code is required.';
-  } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
-    $errors['destination'] = 'Destination must be 3 uppercase letters.';
-  } elseif (!array_key_exists($destination, $iataList)) {
-    $errors['destination'] = 'Unknown destination IATA code.';
-  }
-
-  if ($origin === $destination && !empty($origin)) {
-    $errors['destination'] = 'Destination code cannot be the same as origin.';
-  }
-
-  if (empty($flight_date)) {
-    $errors['flight_date'] = 'Departure date is required.';
-  } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-    $errors['flight_date'] = 'Invalid date format.';
+    $result->free();
   } else {
-    $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-    if (!$d || $d->format('Y-m-d') !== $flight_date) {
-      $errors['flight_date'] = 'Invalid date.';
+    echo "<!-- IATA load error: " . htmlspecialchars($conn->error) . " -->";
+  }
+
+  $iataList = [];
+  $iataMap  = [];
+  foreach ($iataData as $it) {
+    if (!empty($it['code'])) {
+      $iataList[$it['code']] = $it['name'];
+      $iataMap[$it['code']]  = ['name' => $it['name'], 'city' => $it['city'], 'country' => $it['country']];
     }
   }
 
-  // AJAX validation response path
-  if (!empty($_POST['ajax_validate'])) {
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode([
-      'ok'     => empty($errors),
-      'errors' => $errors,
-      'flight' => [
-        'origin'      => $origin,
-        'destination' => $destination,
-        'flight_date' => $flight_date
-      ]
-    ]);
-    exit;
+  $quizId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+  $descObj = null;
+  $quiz = null;
+  if ($quizId > 0) {
+    $qStmt = $conn->prepare("SELECT id, title, section, audience, duration, quiz_code AS code FROM quizzes WHERE id = ?");
+    if ($qStmt) {
+      $qStmt->bind_param('i', $quizId);
+      $qStmt->execute();
+      $qres = $qStmt->get_result();
+      $quiz = $qres->fetch_assoc();
+      $qStmt->close();
+    }
+    if ($quiz) {
+      $items = [];
+      $itemSql = "SELECT id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class
+                  FROM quiz_items WHERE quiz_id = ? ORDER BY id ASC";
+      $stmt = $conn->prepare($itemSql);
+      if ($stmt) {
+        $stmt->bind_param('i', $quizId);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+          $r['adults'] = isset($r['adults']) ? intval($r['adults']) : 0;
+          $r['children'] = isset($r['children']) ? intval($r['children']) : 0;
+          $r['infants'] = isset($r['infants']) ? intval($r['infants']) : 0;
+          $items[] = $r;
+        }
+        $stmt->close();
+      }
+
+      $parts = [];
+      $firstDeadlineRaw = '';
+      $firstDestination = null;
+
+      foreach ($items as $idx => $it) {
+        $personParts = [];
+        if (!empty($it['adults'])) $personParts[] = $it['adults'] . ($it['adults'] === 1 ? ' adult' : ' adults');
+        if (!empty($it['children'])) $personParts[] = $it['children'] . ($it['children'] === 1 ? ' child' : ' children');
+        if (!empty($it['infants'])) $personParts[] = $it['infants'] . ($it['infants'] === 1 ? ' infant' : ' infants');
+        $personStr = count($personParts) ? implode(', ', $personParts) : '';
+
+        $orgCode = strtoupper(trim($it['origin'] ?? ''));
+        $dstCode = strtoupper(trim($it['destination'] ?? ''));
+        $orgReadable = '---';
+        $dstReadable = '---';
+
+        if ($orgCode && isset($iataMap[$orgCode]) && !empty($iataMap[$orgCode]['city'])) {
+          $orgReadable = trim($iataMap[$orgCode]['city'] . ($iataMap[$orgCode]['country'] ? ', ' . $iataMap[$orgCode]['country'] : ''));
+        } elseif ($orgCode) {
+          $orgReadable = $orgCode;
+        }
+
+        if ($dstCode && isset($iataMap[$dstCode]) && !empty($iataMap[$dstCode]['city'])) {
+          $dstReadable = trim($iataMap[$dstCode]['city'] . ($iataMap[$dstCode]['country'] ? ', ' . $iataMap[$dstCode]['country'] : ''));
+        } elseif ($dstCode) {
+          $dstReadable = $dstCode;
+        }
+
+        $typeLabel = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
+        $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
+
+        $sentence = '';
+        if ($personStr) $sentence .= $personStr . ' ';
+        $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
+
+        $parts[] = $sentence;
+
+        if ($idx === 0) {
+          $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
+        }
+
+        if (empty($firstDeadlineRaw) && !empty($it['deadline'])) {
+          $firstDeadlineRaw = $it['deadline'];
+        }
+      }
+
+      if (count($parts) === 1) {
+        $desc = 'Book ' . $parts[0] . '.';
+      } elseif (count($parts) > 1) {
+        $sentences = array_map(function($p){ return $p . '.'; }, $parts);
+        $desc = 'Book the following flights: ' . implode(' ', $sentences);
+      } else {
+        $desc = 'Book the indicated destinations.';
+      }
+
+      if (!empty($quiz['duration'])) {
+        $desc .= ' Duration: ' . intval($quiz['duration']) . ' minutes.';
+      }
+
+      $firstDeadlineFmt = '';
+      if (!empty($firstDeadlineRaw)) {
+        $ts = strtotime($firstDeadlineRaw);
+        if ($ts !== false) $firstDeadlineFmt = date('M j, Y \@ H:i', $ts);
+        else $firstDeadlineFmt = $firstDeadlineRaw;
+      }
+
+      $descObj = [
+        'description'     => $desc,
+      ];
+    } else {
+      http_response_code(404);
+      echo "Quiz not found or you do not have access to it.";
+      exit;
+    }
   }
 
-  // Non-AJAX POST: simply render page with errors (we do not insert here)
-}
+  // POST values
+  $origin       = strtoupper(trim($_POST['origin'] ?? ''));
+  $destination  = strtoupper(trim($_POST['destination'] ?? ''));
+  $flight_date  = trim($_POST['flight_date'] ?? '');
+  $flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';   // ONE-WAY / TWO-WAY
+  $return_date  = trim($_POST['return_date'] ?? '');
+  $errors       = [];
 
-// Prepare $flight for display in UI
-$flight = [
-  'origin_code'      => htmlspecialchars($origin),
-  'destination_code' => htmlspecialchars($destination),
-  'flight_date'      => htmlspecialchars($flight_date)
-];
+  if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!isset($_SESSION['acc_id'])) {
+      $errors['login'] = 'You must be logged in to submit a flight.';
+    }
+
+    if (empty($origin)) {
+      $errors['origin'] = 'Origin code is required.';
+    } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
+      $errors['origin'] = 'Origin must be 3 uppercase letters.';
+    } elseif (!array_key_exists($origin, $iataList)) {
+      $errors['origin'] = 'Unknown origin IATA code.';
+    }
+
+    if (empty($destination)) {
+      $errors['destination'] = 'Destination code is required.';
+    } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
+      $errors['destination'] = 'Destination must be 3 uppercase letters.';
+    } elseif (!array_key_exists($destination, $iataList)) {
+      $errors['destination'] = 'Unknown destination IATA code.';
+    }
+
+    if ($origin === $destination && !empty($origin)) {
+      $errors['destination'] = 'Destination code cannot be the same as origin.';
+    }
+
+    if (empty($flight_date)) {
+      $errors['flight_date'] = 'Departure date is required.';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+      $errors['flight_date'] = 'Invalid date format.';
+    } else {
+      $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+      if (!$d || $d->format('Y-m-d') !== $flight_date) {
+        $errors['flight_date'] = 'Invalid date.';
+      }
+    }
+
+    // If not two-way, ignore any return date sent
+    if ($flight_type !== 'TWO-WAY') {
+      $return_date = '';
+    } else {
+      if (empty($return_date)) {
+        $errors['return_date'] = 'Return date is required for two-way flights.';
+      } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
+        $errors['return_date'] = 'Invalid return date format.';
+      } else {
+        $r = DateTime::createFromFormat('Y-m-d', $return_date);
+        if (!$r || $r->format('Y-m-d') !== $return_date) {
+          $errors['return_date'] = 'Invalid return date.';
+        } else {
+          $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+          if ($d && $r < $d) {
+            $errors['return_date'] = 'Return date cannot be before departure date.';
+          }
+        }
+      }
+    }
+
+    if (!empty($_POST['ajax_validate'])) {
+      header('Content-Type: application/json; charset=utf-8');
+      echo json_encode([
+        'ok'     => empty($errors),
+        'errors' => $errors,
+        'flight' => [
+          'origin'       => $origin,
+          'destination'  => $destination,
+          'flight_date'  => $flight_date,
+          'return_date'  => $return_date,
+          'flight_type'  => $flight_type
+        ]
+      ]);
+      exit;
+    }
+  }
+
+  $flight = [
+    'origin_code'      => htmlspecialchars($origin),
+    'destination_code' => htmlspecialchars($destination),
+    'flight_date'      => htmlspecialchars($flight_date),
+    'return_date'      => htmlspecialchars($return_date),
+    'flight_type'      => htmlspecialchars($flight_type)
+  ];
 ?>
 <!DOCTYPE html>
 <html lang="en">
-<?php include('templates/header.php'); ?>
-
+  <?php include('templates/header.php'); ?>
 <link rel="stylesheet" href="css/ticket.css">
-
 <body>
   <h4 class="center-align">🎫 Plane Ticket Booking</h4>
   <div class="container">
@@ -250,10 +263,19 @@ $flight = [
   </div>
   <div class="bg-container container center">
     <form id="flightForm" action="ticket.php" method="POST" name="form_submit" autocomplete="off" class="card">
+      <p>
+        <label>
+        <input name="flight_type" type="radio" value="ONE-WAY" <?php echo ($flight_type !== 'TWO-WAY') ? 'checked' : ''; ?> />
+        <span>ONE-WAY</span>
+        </label>
+        <label>
+        <input name="flight_type" type="radio" value="TWO-WAY" <?php echo ($flight_type === 'TWO-WAY') ? 'checked' : ''; ?> />
+        <span>TWO-WAY</span>
+        </label>
+      </p>
       <div class="row">
-
-        <!-- ORIGIN (simple 3-letter IATA input, no autocomplete) -->
-        <div class="col s3 md3">
+        <!-- ORIGIN -->
+        <div class="col s4 md3">
           <div class="input-field" style="position:relative;">
             <i class="material-icons prefix">flight_takeoff</i>
             <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
@@ -261,54 +283,59 @@ $flight = [
               value="<?php echo htmlspecialchars($origin ? ($origin . ' — ' . ($iataList[$origin] ?? '')) : ''); ?>">
             <label for="origin_autocomplete">ORIGIN</label>
             <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
-
-            <!-- actual code submitted (hidden field inside flightForm for validation only) -->
             <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
           </div>
         </div>
 
-        <!-- DESTINATION (simple 3-letter IATA input, no autocomplete) -->
-        <div class="col s3 md3">
+        <!-- DESTINATION -->
+        <div class="col s4 md3">
           <div class="input-field" style="position:relative;">
             <i class="material-icons prefix">flight_land</i>
-
             <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
               placeholder="e.g. LAX"
               value="<?php echo htmlspecialchars($destination ? ($destination . ' — ' . ($iataList[$destination] ?? '')) : ''); ?>">
             <label for="destination_autocomplete">DESTINATION</label>
             <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
-
             <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
           </div>
         </div>
 
-        <div class="col s3 md3">
+        <!-- DATES -->
+        <div class="col s4 md3">
           <div class="center">
-            <div class="input-field">
-              <i class="material-icons prefix">calendar_today</i>
-              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
-              <label for="flight-date">DEPARTURE</label>
-              <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+            <div class="row">
+              <div class="input-field col s6">
+                <i class="material-icons prefix">calendar_today</i>
+                <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
+                <label for="flight-date">DEPARTURE</label>
+                <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+              </div>
+              <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'TWO-WAY') ? '' : 'display:none;'; ?>">
+                <i class="material-icons prefix">calendar_today</i>
+                <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
+                <label for="return-date">RETURN</label>
+                <div class="red-text"><?php echo $errors['return_date'] ?? ''; ?></div>
+              </div>              
             </div>
           </div>
         </div>
 
+        <!-- TYPE -->
+        <div class="col s3 md3">
+
+        </div>
       </div>
     </form>
   </div>
 
   <div class="container">
-    <form action="ticket.php" method="POST">
-      <button type="submit" class="btn waves-effect waves-light blue darken-2" name="new_booking">
-        Book Another Flight
-      </button>
-    </form>
-
     <form id="bookingForm" method="POST" action="save_booking.php">
-      <!-- Hidden flight inputs that will be filled before final submit -->
+      <!-- Hidden flight inputs -->
       <input type="hidden" name="origin" id="booking_origin" value="">
       <input type="hidden" name="destination" id="booking_destination" value="">
       <input type="hidden" name="flight_date" id="booking_flight_date" value="">
+      <input type="hidden" name="return_date" id="booking_return_date" value="">
+      <input type="hidden" name="flight_type" id="booking_flight_type" value="">
       <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
       <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
 
@@ -328,8 +355,7 @@ $flight = [
               <label>Age</label>
             </div>
             <div class="input-field col s2">
-              <!-- readonly but not disabled so it will submit -->
-              <input type="text" name="special[]" readonly placeholder="Adult/Minor/Senior">
+              <input type="text" name="special[]" readonly placeholder="Adult/Child/Infant">
               <label>Passenger Type</label>
             </div>
           </div>
@@ -363,7 +389,6 @@ $flight = [
 
           <div class="row">
             <div class="input-field col s6">
-              <!-- seat[] carries seat class (Economy/Business/etc.) -->
               <input type="text" name="seat[]" class="dropdown-trigger seat-input" data-target="dropdown_1" readonly required>
               <label>Seat Type</label>
 
@@ -379,6 +404,7 @@ $flight = [
               <input type="text" name="seat_number[]" placeholder="Seat (e.g., 12A)" required>
             </div>
           </div>
+
         </div>
       </div>
 
@@ -394,7 +420,6 @@ $flight = [
     </form>
   </div>
 
-  <!-- SUMMARY MODAL (outside forms) -->
   <div id="summaryModal" class="modal">
     <div class="modal-content">
       <h4>Booking Summary</h4>
@@ -407,23 +432,19 @@ $flight = [
     </div>
   </div>
 
-  <!-- Expose IATA data for client -->
   <script>const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;</script>
 
   <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // small helper lookup map
     window.IATA_LOOKUP = {};
     IATA_DATA.forEach(it => window.IATA_LOOKUP[it.code] = it.name);
 
-    // Materialize initialization
     const elemsDate = document.querySelectorAll('.datepicker');
-    M.Datepicker.init(elemsDate, { format: 'yyyy-mm-dd', minDate: new Date() });
+    M.Datepicker.init(elemsDate, { format: 'yyyy-mm-dd', minDate: new Date(), autoClose: true, });
 
     const dropdowns = document.querySelectorAll('.dropdown-trigger');
     M.Dropdown.init(dropdowns);
 
-    // Modal
     const modalElem = document.getElementById('summaryModal');
     const summaryModal = M.Modal.init(modalElem, {dismissible: true});
     const openBtn = document.getElementById('openSummary');
@@ -434,39 +455,32 @@ $flight = [
     const bookingForm = document.getElementById('bookingForm');
     const flightForm = document.getElementById('flightForm');
 
-    // --- Simple IATA-only behavior: uppercase, letters-only, max 3 chars, sync hidden input ---
     function initPlainIataInput(displayId, hiddenId) {
       const display = document.getElementById(displayId);
       const hidden  = document.getElementById(hiddenId);
       if (!display || !hidden) return;
 
-      // keep display + hidden in sync, and normalize input
       display.addEventListener('input', function () {
-        // uppercase letters only, max 3 chars
         let v = (this.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
         this.value = v;
         hidden.value = v;
       });
 
-      // on blur, ensure hidden value mirrors display and/or trim spaces
       display.addEventListener('blur', function () {
         let v = (this.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
         this.value = v;
         hidden.value = v;
       });
 
-      // set initial hidden value from server-rendered display text:
       if (display.value) {
         const m = display.value.match(/^([A-Za-z]{3})/);
         if (m) hidden.value = m[1].toUpperCase();
       }
     }
 
-    // init plain IATA fields
     initPlainIataInput('origin_autocomplete', 'origin');
     initPlainIataInput('destination_autocomplete', 'destination');
 
-    // Seat option click handler for existing dropdowns (scoped)
     document.querySelectorAll('.seat-options a').forEach(item => {
       item.addEventListener('click', function (e) {
         e.preventDefault();
@@ -478,7 +492,6 @@ $flight = [
       });
     });
 
-    // Ticket add/remove logic
     let ticketCount = 1;
     const maxTickets = 9;
     document.getElementById('addTicketBtn').addEventListener('click', () => {
@@ -489,25 +502,20 @@ $flight = [
       ticketCount++;
       const newDropdownId = 'dropdown_' + ticketCount;
 
-      // Update seat input & dropdown id inside cloned card
       const seatInput = newTicket.querySelector('input[name="seat[]"]');
       const dropdownContent = newTicket.querySelector('.dropdown-content');
       if (seatInput) seatInput.setAttribute('data-target', newDropdownId);
       if (dropdownContent) dropdownContent.setAttribute('id', newDropdownId);
 
-      // Reset fields
       newTicket.querySelectorAll('input').forEach(input => {
         if (['checkbox', 'radio'].includes(input.type)) input.checked = false;
         else { input.value = ''; if (input.name === 'special[]') input.readOnly = true; }
       });
 
       const index = ticketCount - 1;
-      // update radio names
       newTicket.querySelectorAll('input[type="radio"]').forEach(r => r.name = `gender[${index}]`);
-      // impairment
       const impairmentField = newTicket.querySelector('.impairment-field');
       if (impairmentField) { impairmentField.name = `impairment[${index}]`; impairmentField.style.display = 'none'; impairmentField.disabled = true; }
-      // pwd checkbox
       const pwdCheckbox = newTicket.querySelector('input[type="checkbox"]');
       if (pwdCheckbox) pwdCheckbox.name = `pwd[${index}]`;
 
@@ -516,11 +524,9 @@ $flight = [
       container.appendChild(newTicket);
       M.updateTextFields();
 
-      // init dropdown for new ticket
       const newDropdownTrigger = newTicket.querySelector('.dropdown-trigger');
       if (newDropdownTrigger) M.Dropdown.init(newDropdownTrigger);
 
-      // attach click handlers for seat options scoped to new ticket
       newTicket.querySelectorAll('.seat-options a').forEach(item => {
         item.addEventListener('click', function(e) {
           e.preventDefault();
@@ -555,7 +561,7 @@ $flight = [
       });
     }
 
-    window.removeTicket = removeTicket; // expose for inline onclick
+    window.removeTicket = removeTicket;
 
     function checkAge(input) {
       let age = parseInt(input.value);
@@ -563,8 +569,8 @@ $flight = [
       const card = input.closest('.ticket-card');
       const typeField = card.querySelector('input[name="special[]"]');
       if (!isNaN(age)) {
-        if (age <= 17) typeField.value = 'Minor';
-        else if (age >= 60) typeField.value = 'Senior';
+        if (age <= 2) typeField.value = 'Infant';
+        else if (age >= 3 && age <= 12) typeField.value = 'Child';
         else typeField.value = 'Regular';
       } else { typeField.value = ''; }
     }
@@ -577,7 +583,20 @@ $flight = [
     }
     window.toggleImpairment = toggleImpairment;
 
-    // show server-side errors inline
+    // Toggle return date visibility when changing type
+    const returnWrapper = document.getElementById('return-date-wrapper');
+    const returnInput = document.getElementById('return-date');
+    document.querySelectorAll('input[name="flight_type"]').forEach(radio => {
+      radio.addEventListener('change', function () {
+        if (this.value === 'TWO-WAY') {
+          if (returnWrapper) returnWrapper.style.display = '';
+        } else {
+          if (returnWrapper) returnWrapper.style.display = 'none';
+          if (returnInput) returnInput.value = '';
+        }
+      });
+    });
+
     function showServerErrors(errors) {
       document.querySelectorAll('.red-text').forEach(el => el.textContent = '');
       if (!errors) return;
@@ -593,36 +612,58 @@ $flight = [
         const dateErr = document.querySelector('#flight-date').closest('.input-field').querySelector('.red-text');
         if (dateErr) dateErr.textContent = errors.flight_date;
       }
+      if (errors.return_date) {
+        const retErrWrapper = document.querySelector('#return-date');
+        if (retErrWrapper) {
+          const retErr = retErrWrapper.closest('.input-field').querySelector('.red-text');
+          if (retErr) retErr.textContent = errors.return_date;
+        }
+      }
       if (errors.login) M.toast({ html: errors.login });
       if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
     }
 
-    // fill booking hidden inputs
     function fillBookingHiddenFlightFields(flight) {
       const bOrigin = document.getElementById('booking_origin');
       const bDestination = document.getElementById('booking_destination');
       const bDate = document.getElementById('booking_flight_date');
+      const bReturn = document.getElementById('booking_return_date');
+      const bType = document.getElementById('booking_flight_type');
       const bOriginAir = document.getElementById('booking_origin_airline');
       const bDestAir = document.getElementById('booking_destination_airline');
 
-      if (bOrigin) bOrigin.value = flight.origin || document.getElementById('origin').value || '';
-      if (bDestination) bDestination.value = flight.destination || document.getElementById('destination').value || '';
-      if (bDate) bDate.value = flight.flight_date || document.getElementById('flight-date').value || '';
-      if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[ flight.origin ]) || '';
-      if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[ flight.destination ]) || '';
+      const originCode = flight.origin || document.getElementById('origin').value || '';
+      const destCode = flight.destination || document.getElementById('destination').value || '';
+      const depDate = flight.flight_date || document.getElementById('flight-date').value || '';
+      const retDate = flight.return_date || (document.getElementById('return-date') ? document.getElementById('return-date').value : '');
+      const typeRadio = document.querySelector('input[name="flight_type"]:checked');
+      const typeVal = flight.flight_type || (typeRadio ? typeRadio.value : 'ONE-WAY');
+
+      if (bOrigin) bOrigin.value = originCode;
+      if (bDestination) bDestination.value = destCode;
+      if (bDate) bDate.value = depDate;
+      if (bReturn) bReturn.value = retDate;
+      if (bType) bType.value = typeVal;
+      if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[originCode]) || '';
+      if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[destCode]) || '';
     }
 
-    // build modal content + open
     function buildSummaryAndOpen(flight) {
-      // copy flight to hidden fields
       fillBookingHiddenFlightFields(flight);
 
       const tickets = document.querySelectorAll('.ticket-card');
       const passengerCount = tickets.length;
+      const typeLabel = (flight.flight_type === 'TWO-WAY') ? 'Two-way (round trip)' : 'One-way';
+
       let html = `<p><strong>Origin:</strong> ${escapeHtml(flight.origin)}</p>
                   <p><strong>Destination:</strong> ${escapeHtml(flight.destination)}</p>
-                  <p><strong>Date:</strong> ${escapeHtml(flight.flight_date)}</p>
-                  <p><strong>Passengers:</strong> ${passengerCount}</p><hr><h5>Passenger Details:</h5>`;
+                  <p><strong>Departure:</strong> ${escapeHtml(flight.flight_date)}</p>`;
+      if (flight.flight_type === 'TWO-WAY') {
+        html += `<p><strong>Return:</strong> ${escapeHtml(flight.return_date)}</p>`;
+      }
+      html += `<p><strong>Type:</strong> ${escapeHtml(typeLabel)}</p>
+               <p><strong>Passengers:</strong> ${passengerCount}</p><hr><h5>Passenger Details:</h5>`;
+
       tickets.forEach((card, idx) => {
         const name = (card.querySelector('input[name="name[]"]') || {}).value || '';
         const age = (card.querySelector('input[name="age[]"]') || {}).value || '';
@@ -649,7 +690,6 @@ $flight = [
       summaryModal.open();
     }
 
-    // open summary: AJAX validate -> buildSummaryAndOpen
     openBtn.addEventListener('click', function (e) {
       e.preventDefault();
       showServerErrors(null);
@@ -672,23 +712,22 @@ $flight = [
             }
             return;
           }
-          // success: fill hidden fields + show modal summary
           buildSummaryAndOpen(json.flight);
         })
         .catch(err => { console.error('Validation error', err); M.toast({ html: 'Network or server error while validating. Try again.' }); });
     });
 
-    // cancel
     cancelBtn.addEventListener('click', function (e) { e.preventDefault(); summaryModal.close(); });
 
-    // confirm final booking -> ensure hidden fields are up to date and submit bookingForm
     confirmBtn.addEventListener('click', function (e) {
       e.preventDefault();
-      // defensive sync
+      const typeRadio = document.querySelector('input[name="flight_type"]:checked');
       const flight = {
         origin: document.getElementById('origin').value.trim(),
         destination: document.getElementById('destination').value.trim(),
-        flight_date: document.getElementById('flight-date').value.trim()
+        flight_date: document.getElementById('flight-date').value.trim(),
+        return_date: document.getElementById('return-date') ? document.getElementById('return-date').value.trim() : '',
+        flight_type: typeRadio ? typeRadio.value : 'ONE-WAY'
       };
       fillBookingHiddenFlightFields(flight);
 
@@ -697,17 +736,26 @@ $flight = [
       setTimeout(() => bookingForm.submit(), 120);
     });
 
-    // small helper functions used above
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
       });
     }
 
-  }); // end DOMContentLoaded
+  });
   </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
 </html>
-s
+<style>
+.datepicker-date-display{
+  display: none !important;
+}
+select.datepicker-select{
+  display: none !important;
+}
+input.select-dropdown{
+  width: 100% !important ;
+}
+</style>

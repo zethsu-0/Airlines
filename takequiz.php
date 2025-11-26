@@ -2,9 +2,6 @@
 // takequiz.php
 // Student-facing list of available quizzes and submission status.
 // Requires the user to be logged in (uses $_SESSION['acc_id'] or related keys).
-
-session_start();
-
 // Include site header (this contains the login button + modal you provided)
 include('templates/header.php');
 
