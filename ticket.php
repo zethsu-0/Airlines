@@ -251,6 +251,12 @@
           <div style="font-weight:700; margin-bottom:8px;">Student prompt (description)</div>
           <div style="margin-bottom:8px; font-size:15px;"><?php echo htmlspecialchars($descObj['description']); ?></div>
 
+          <div style="color:#555;">
+            <strong>Expected answer:</strong> <?php echo htmlspecialchars($descObj['expected_answer'] ?? '—'); ?> &nbsp;•&nbsp;
+            <strong>Items:</strong> <?php echo intval($descObj['itemsCount']); ?> &nbsp;•&nbsp;
+            <strong>First deadline:</strong> <?php echo htmlspecialchars($descObj['firstDeadline'] ?: '—'); ?>
+          </div>
+
           <?php if (!empty($quiz['title'])): ?>
             <div style="margin-top:10px; font-size:0.95em;" class="muted">Quiz: <?php echo htmlspecialchars($quiz['title']); ?> (Code: <?php echo htmlspecialchars($quiz['code'] ?? '—'); ?>)</div>
           <?php endif; ?>
@@ -280,7 +286,14 @@
             <i class="material-icons prefix">flight_takeoff</i>
             <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
               placeholder="e.g. MNL"
-              value="<?php echo htmlspecialchars($origin ? ($origin . ' — ' . ($iataList[$origin] ?? '')) : ''); ?>">
+              value="<?php 
+                // show "City, Country, AirportName" if we have origin set server-side
+                if (!empty($origin)) {
+                  echo htmlspecialchars(format_airport_display($origin, $iataMap));
+                } else {
+                  echo '';
+                }
+              ?>">
             <label for="origin_autocomplete">ORIGIN</label>
             <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
             <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
@@ -292,8 +305,14 @@
           <div class="input-field" style="position:relative;">
             <i class="material-icons prefix">flight_land</i>
             <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
-              placeholder="e.g. LAX"
-              value="<?php echo htmlspecialchars($destination ? ($destination . ' — ' . ($iataList[$destination] ?? '')) : ''); ?>">
+              placeholder="e.g. CEB"
+              value="<?php 
+                if (!empty($destination)) {
+                  echo htmlspecialchars(format_airport_display($destination, $iataMap));
+                } else {
+                  echo '';
+                }
+              ?>">
             <label for="destination_autocomplete">DESTINATION</label>
             <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
             <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
@@ -467,9 +486,7 @@
       });
 
       display.addEventListener('blur', function () {
-        let v = (this.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
-        this.value = v;
-        hidden.value = v;
+        hidden.value = (hidden.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0,3);
       });
 
       if (display.value) {

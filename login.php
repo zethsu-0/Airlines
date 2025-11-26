@@ -1,23 +1,53 @@
 <?php
-// login.php (DEBUG VERSION) -- remove debug features when finished
+// login.php (DEBUG-SAFE VERSION) -- remove/adjust debug features when finished
+
 session_start();
 header('Content-Type: application/json; charset=utf-8');
-ini_set('display_errors', 0); // keep JSON clean
 
-include('config/db_connect.php'); // must provide $acc_conn (mysqli)
+// Keep display_errors off so JSON stays clean in responses; enable only while debugging.
+// ini_set('display_errors', 1);
+// error_reporting(E_ALL);
+ini_set('display_errors', 0);
+error_reporting(0);
 
+// Include DB connector - must set $acc_conn (mysqli)
+@include('config/db_connect.php'); // use @ to avoid immediate warning; we'll check below
+
+// Safe dbg() implementation: logs to server error_log when DEBUG_MODE true.
+// This prevents fatal "undefined function" errors if dbg() wasn't defined elsewhere.
+if (!function_exists('dbg')) {
+    function dbg($msg) {
+        // Only write to error_log when DEBUG_MODE is true to avoid filling logs in production
+        if (!empty($GLOBALS['DEBUG_MODE'])) {
+            error_log('[login.php DEBUG] ' . $msg);
+        }
+    }
+}
 
 $response = ['success' => false, 'errors' => []];
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['success' => false, 'errors' => ['general' => 'Invalid request']]);
+// Ensure acc_conn exists and is a mysqli instance
+if (!isset($acc_conn) || !($acc_conn instanceof mysqli)) {
+    // Include may have failed or config file didn't create $acc_conn
+    $response['errors']['general'] = 'Server configuration error (DB connection not available).';
+    // Write helpful debug message to server log
+    error_log('[login.php] DB connection missing or invalid. Check config/db_connect.php for errors.');
+    echo json_encode($response);
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'errors' => ['general' => 'Invalid request (POST required)']]);
+    exit;
+}
+
+// Determine debug mode early so dbg() will work
+$debug = isset($_POST['debug']) && $_POST['debug'] === '1';
+$GLOBALS['DEBUG_MODE'] = $debug; // make available to dbg()
+
 $acc_id = trim((string)($_POST['acc_id'] ?? ''));
 $password = $_POST['password'] ?? '';
-$debug = isset($_POST['debug']) && $_POST['debug'] === '1';
 
 // log received values (no password)
 
@@ -42,7 +72,9 @@ if ($stmt = mysqli_prepare($acc_conn, $sql)) {
     if (!$exec) {
         $err = mysqli_error($acc_conn);
         $response['errors']['general'] = 'Database error (exec).';
-        echo json_encode($response); exit;
+        echo json_encode($response);
+        mysqli_stmt_close($stmt);
+        exit;
     }
 
     mysqli_stmt_store_result($stmt); 
@@ -55,7 +87,6 @@ if ($stmt = mysqli_prepare($acc_conn, $sql)) {
 
 
     if ($fetched) {
-        // For debugging, record some safe metadata (not the password itself)
         $pw_len = is_string($db_password_hash) ? strlen($db_password_hash) : 0;
 
         $is_valid = false;
@@ -93,6 +124,8 @@ if ($stmt = mysqli_prepare($acc_conn, $sql)) {
 } else {
     $err = mysqli_error($acc_conn);
     $response['errors']['general'] = 'Database error (prepare).';
+    echo json_encode($response);
+    exit;
 }
 
 if ($debug) {
