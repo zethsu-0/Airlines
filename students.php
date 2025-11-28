@@ -5,38 +5,60 @@ session_start();
 $db_host = 'localhost';
 $db_user = 'root';
 $db_pass = '';
-$db_name = 'airlines';   // change if needed
+$db_name = 'airlines';   // students DB
+$acc_db_name = 'account'; // accounts DB (separate database)
 $uploads_dir = __DIR__ . '/uploads';
 if (!is_dir($uploads_dir)) mkdir($uploads_dir, 0755, true);
 
 // ---------- CONNECT ----------
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-if ($conn->connect_error) {
-    die('DB Connection failed: ' . $conn->connect_error);
-}
+if ($conn->connect_error) die('DB Connection failed: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
+
+$acc_conn = new mysqli($db_host, $db_user, $db_pass, $acc_db_name);
+if ($acc_conn->connect_error) die('Accounts DB Connection failed: ' . $acc_conn->connect_error);
+$acc_conn->set_charset('utf8mb4');
 
 // ---------- HELPERS ----------
 function handle_avatar_upload($input_name, $existing = null) {
     global $uploads_dir;
-    if (empty($_FILES[$input_name]) || empty($_FILES[$input_name]['tmp_name'])) {
-        return $existing;
-    }
+    if (empty($_FILES[$input_name]) || empty($_FILES[$input_name]['tmp_name'])) return $existing;
     $f = $_FILES[$input_name];
     if ($f['error'] !== UPLOAD_ERR_OK) return $existing;
     $ext = pathinfo($f['name'], PATHINFO_EXTENSION);
     $safe_ext = preg_replace('/[^a-z0-9]/i', '', $ext);
     $filename = uniqid('avatar_', true) . '.' . ($safe_ext ?: 'jpg');
     $dest = $uploads_dir . '/' . $filename;
-    if (move_uploaded_file($f['tmp_name'], $dest)) {
-        return 'uploads/' . $filename;
-    }
+    if (move_uploaded_file($f['tmp_name'], $dest)) return 'uploads/' . $filename;
     return $existing;
 }
 
-/**
- * Render one table row for a student (uses <img> for avatar)
- */
+function validate_date_not_future($date_str) {
+    if ($date_str === '' || $date_str === null) return true;
+    $d = DateTime::createFromFormat('Y-m-d', $date_str);
+    if (!$d || $d->format('Y-m-d') !== $date_str) return false;
+    $today = new DateTime('today');
+    return $d <= $today;
+}
+
+function ensure_unique_acc_id($dbconn, $desired) {
+    $candidate = $desired;
+    $i = 0;
+    $check = $dbconn->prepare("SELECT COUNT(*) FROM accounts WHERE acc_id = ?");
+    while (true) {
+        $check->bind_param('s', $candidate);
+        $check->execute();
+        $check->bind_result($cnt);
+        $check->fetch();
+        $check->free_result();
+        if ($cnt == 0) break;
+        $i++;
+        $candidate = $desired . '_' . $i;
+    }
+    $check->close();
+    return $candidate;
+}
+
 function render_student_row_html($st) {
     $id = (int)$st['id'];
     $student_id = htmlspecialchars($st['student_id'] ?? '', ENT_QUOTES);
@@ -45,38 +67,28 @@ function render_student_row_html($st) {
     $middle = htmlspecialchars($st['middle_name'] ?? '', ENT_QUOTES);
     $suffix = htmlspecialchars($st['suffix'] ?? '', ENT_QUOTES);
     $section = htmlspecialchars($st['section'] ?? '', ENT_QUOTES);
+    $birthday = $st['birthday'] ? htmlspecialchars($st['birthday'], ENT_QUOTES) : '';
+    $sex = $st['sex'] ? htmlspecialchars($st['sex'], ENT_QUOTES) : '';
 
-    // Normalize avatar path for output
     $avatar = trim((string)($st['avatar'] ?? ''));
-    if ($avatar === '' || strtolower($avatar) === 'null') {
-        $avatar = 'assets/avatar.png';
-    } else {
-        if (strpos($avatar, '/') === 0) $avatar = ltrim($avatar, '/');
-    }
-    // If file missing on disk, fallback to placeholder
-    if (!is_file(__DIR__ . '/' . $avatar)) {
-        $avatar = 'assets/avatar.png';
-    }
+    if ($avatar === '' || strtolower($avatar) === 'null') $avatar = 'assets/avatar.png';
+    else if (strpos($avatar, '/') === 0) $avatar = ltrim($avatar, '/');
+    if (!is_file(__DIR__ . '/' . $avatar)) $avatar = 'assets/avatar.png';
     $avatar_html = htmlspecialchars($avatar, ENT_QUOTES);
 
     ob_start();
     ?>
 <tr data-db-id="<?php echo $id; ?>">
-  <td>
-    <label><input type="checkbox" class="filled-in chk" data-id="<?php echo $id; ?>"><span></span></label>
-  </td>
-
-  <td>
-    <img src="<?php echo $avatar_html; ?>" alt="avatar" class="table-avatar-img"
-         onerror="this.onerror=null;this.src='assets/avatar.png';" />
-  </td>
-
+  <td><label><input type="checkbox" class="filled-in chk" data-id="<?php echo $id; ?>"><span></span></label></td>
+  <td><img src="<?php echo $avatar_html; ?>" alt="avatar" class="table-avatar-img" onerror="this.onerror=null;this.src='assets/avatar.png';" /></td>
   <td class="cell-last"><?php echo $last; ?></td>
   <td class="cell-first"><?php echo $first; ?></td>
   <td class="cell-middle"><?php echo $middle; ?></td>
   <td class="cell-suffix"><?php echo $suffix; ?></td>
   <td class="cell-studentid"><?php echo $student_id; ?></td>
   <td class="cell-section"><?php echo $section; ?></td>
+  <td class="cell-birthday"><?php echo $birthday ?: '&mdash;'; ?></td>
+  <td class="cell-sex"><?php echo $sex ?: '&mdash;'; ?></td>
   <td>
     <a class="btn-flat edit-btn tooltipped modal-trigger"
        href="#editStudentModal"
@@ -88,7 +100,9 @@ function render_student_row_html($st) {
        data-studentid="<?php echo $student_id; ?>"
        data-section="<?php echo $section; ?>"
        data-avatar="<?php echo $avatar_html; ?>"
-       data-position="left"
+       data-birthday="<?php echo $birthday; ?>"
+       data-sex="<?php echo $sex; ?>"
+       data-position="top"
        data-tooltip="Edit">
       <i class="material-icons">edit</i>
     </a>
@@ -98,7 +112,9 @@ function render_student_row_html($st) {
     return ob_get_clean();
 }
 
-// ---------- PROCESS POSTS (must run BEFORE sending any output) ----------
+// ---------- PROCESS POSTS ----------
+$allowed_sex = ['', 'M', 'F', 'Other'];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ADD student
@@ -109,16 +125,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $suffix = trim($_POST['suffix'] ?? '');
         $student_id_val = trim($_POST['student_id_val'] ?? '');
         $section = trim($_POST['section'] ?? '');
+        $birthday = trim($_POST['birthday'] ?? '');
+        $sex = trim($_POST['sex'] ?? '');
 
-        $avatar = handle_avatar_upload('student_photo', null);
+        $errors = [];
+        if ($student_id_val === '') $errors[] = 'Student ID required.';
+        if ($last === '') $errors[] = 'Last name required.';
+        if ($first === '') $errors[] = 'First name required.';
+        if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
+        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Invalid sex selected.';
 
-        $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
-        $stmt->bind_param('sssssss', $student_id_val, $last, $first, $middle, $suffix, $section, $avatar);
-        $stmt->execute();
-        $stmt->close();
+        if (empty($errors)) {
+            $avatar = handle_avatar_upload('student_photo', null);
 
-        header('Location: students.php');
-        exit;
+            // 1) insert student into airlines DB
+            $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+            $stmt->bind_param('sssssssss', $student_id_val, $last, $first, $middle, $suffix, $section, $avatar, $birthday, $sex);
+            $ok = $stmt->execute();
+            if (!$ok) {
+                $stmt->close();
+                $_SESSION['students_errors'] = ['Failed to insert student (DB error).'];
+                header('Location: students.php'); exit;
+            }
+            $student_row_id = $stmt->insert_id;
+            $stmt->close();
+
+            // 2) create account in accounts DB
+            try {
+                $desired_acc_id = $student_id_val;
+                $final_acc_id = ensure_unique_acc_id($acc_conn, $desired_acc_id);
+
+                $acc_name = trim($first . ' ' . $last);
+                $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                $acc_role = 'student';
+
+                $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                $insAcc->bind_param('ssss', $final_acc_id, $acc_name, $password_hash, $acc_role);
+                $insOk = $insAcc->execute();
+                $insAcc->close();
+
+                if (!$insOk) {
+                    // rollback student insert to avoid orphan
+                    $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                    $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student insertion rolled back.'];
+                    header('Location: students.php'); exit;
+                }
+
+                // success — flash one-time account info for admin
+                $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+
+                header('Location: students.php'); exit;
+
+            } catch (Exception $e) {
+                // rollback student
+                $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                $_SESSION['students_errors'] = ['Unexpected error while creating account. Student insertion rolled back.'];
+                header('Location: students.php'); exit;
+            }
+        } else {
+            $_SESSION['students_errors'] = $errors;
+            header('Location: students.php'); exit;
+        }
     }
 
     // EDIT student
@@ -130,25 +198,127 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $suffix = trim($_POST['edit_suffix'] ?? '');
         $student_id_val = trim($_POST['edit_student_id'] ?? '');
         $section = trim($_POST['edit_section'] ?? '');
+        $birthday = trim($_POST['edit_birthday'] ?? '');
+        $sex = trim($_POST['edit_sex'] ?? '');
 
-        // fetch current avatar
-        $cur_avatar = null;
-        $q = $conn->prepare("SELECT avatar FROM students WHERE id = ?");
-        $q->bind_param('i', $db_id);
-        $q->execute();
-        $q->bind_result($cur_avatar);
-        $q->fetch();
-        $q->close();
+        $errors = [];
+        if ($student_id_val === '') $errors[] = 'Student ID required.';
+        if ($last === '') $errors[] = 'Last name required.';
+        if ($first === '') $errors[] = 'First name required.';
+        if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
+        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Invalid sex selected.';
 
-        $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
+        if (empty($errors)) {
+            // get current student row (for possible rollback)
+            $cur_avatar = null;
+            $q = $conn->prepare("SELECT avatar, student_id, last_name, first_name FROM students WHERE id = ?");
+            $q->bind_param('i', $db_id);
+            $q->execute();
+            $q->bind_result($cur_avatar, $old_student_id, $old_last, $old_first);
+            $q->fetch();
+            $q->close();
 
-        $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, updated_at = NOW() WHERE id = ?");
-        $upd->bind_param('sssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $db_id);
-        $upd->execute();
-        $upd->close();
+            $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
 
-        header('Location: students.php');
-        exit;
+            // update student
+            $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, birthday = ?, sex = ?, updated_at = NOW() WHERE id = ?");
+            $upd->bind_param('sssssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $birthday, $sex, $db_id);
+            $ok = $upd->execute();
+            $upd->close();
+
+            if (!$ok) {
+                $_SESSION['students_errors'] = ['Failed to update student (DB error).'];
+                header('Location: students.php'); exit;
+            }
+
+            // sync account in accounts DB
+            try {
+                $check = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+                $check->bind_param('s', $old_student_id);
+                $check->execute();
+                $check->bind_result($found_acc);
+                $exists = $check->fetch() ? true : false;
+                $check->close();
+
+                if ($exists) {
+                    $final_acc_id = $student_id_val;
+                    if ($old_student_id !== $student_id_val) {
+                        $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                    }
+                    if ($birthday !== '') {
+                        $new_hash = password_hash($birthday, PASSWORD_DEFAULT);
+                    } else {
+                        $gethash = $acc_conn->prepare("SELECT password FROM accounts WHERE acc_id = ? LIMIT 1");
+                        $gethash->bind_param('s', $old_student_id);
+                        $gethash->execute();
+                        $gethash->bind_result($existing_hash);
+                        $gethash->fetch();
+                        $gethash->close();
+                        $new_hash = $existing_hash ?? password_hash(bin2hex(random_bytes(4)), PASSWORD_DEFAULT);
+                    }
+
+                    $new_acc_name = trim($first . ' ' . $last);
+                    $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ?, password = ? WHERE acc_id = ?");
+                    $accUpd->bind_param('ssss', $final_acc_id, $new_acc_name, $new_hash, $old_student_id);
+                    $accOk = $accUpd->execute();
+                    $accUpd->close();
+
+                    if (!$accOk) {
+                        // rollback student update (best-effort)
+                        $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                        $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                        $rb->execute();
+                        $rb->close();
+
+                        $_SESSION['students_errors'] = ['Failed to update account in accounts DB. Student update rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+
+                    if ($final_acc_id !== $old_student_id) {
+                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => ($birthday !== '' ? $birthday : '(password unchanged)')];
+                    } elseif ($birthday !== '') {
+                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $birthday];
+                    }
+                } else {
+                    // create account because none existed
+                    $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                    $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                    $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                    $acc_role = 'student';
+                    $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                    $insAcc->bind_param('ssss', $final_acc_id, trim($first . ' ' . $last), $password_hash, $acc_role);
+                    $insOk = $insAcc->execute();
+                    $insAcc->close();
+
+                    if (!$insOk) {
+                        // rollback student update
+                        $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                        $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                        $rb->execute();
+                        $rb->close();
+
+                        $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student update rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+                    $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+                }
+
+                header('Location: students.php'); exit;
+
+            } catch (Exception $e) {
+                // rollback student
+                $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                $rb->execute();
+                $rb->close();
+
+                $_SESSION['students_errors'] = ['Unexpected error while syncing with accounts DB. Student update rolled back.'];
+                header('Location: students.php'); exit;
+            }
+        } else {
+            $_SESSION['students_errors'] = $errors;
+            header('Location: students.php'); exit;
+        }
     }
 
     // DELETE selected (bulk)
@@ -158,34 +328,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $clean = array_map('intval', $ids);
             $in = implode(',', $clean);
 
-            // unlink avatars
-            $res = $conn->query("SELECT avatar FROM students WHERE id IN ($in)");
+            $res = $conn->query("SELECT avatar, student_id FROM students WHERE id IN ($in)");
             if ($res) {
+                $accIdsToDelete = [];
                 while ($r = $res->fetch_assoc()) {
                     if (!empty($r['avatar']) && strpos($r['avatar'], 'uploads/') === 0) {
                         $f = __DIR__ . '/' . $r['avatar'];
                         if (is_file($f)) @unlink($f);
                     }
+                    if (!empty($r['student_id'])) $accIdsToDelete[] = "'" . $acc_conn->real_escape_string($r['student_id']) . "'";
                 }
                 $res->free();
+
+                if (!empty($accIdsToDelete)) {
+                    $accIn = implode(',', $accIdsToDelete);
+                    $acc_conn->query("DELETE FROM accounts WHERE acc_id IN ($accIn)");
+                }
             }
 
             $conn->query("DELETE FROM students WHERE id IN ($in)");
         }
 
-        header('Location: students.php');
-        exit;
+        header('Location: students.php'); exit;
     }
 }
 
 // ---------- FETCH students ----------
 $students = [];
-$sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar
+$sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex
         FROM students
         ORDER BY COALESCE(NULLIF(section,''),'~'), last_name, first_name";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
-$stmt->bind_result($sid_pk, $sid_val, $nlast, $nfirst, $nmiddle, $nsuffix, $ssection, $savatar);
+$stmt->bind_result($sid_pk, $sid_val, $nlast, $nfirst, $nmiddle, $nsuffix, $ssection, $savatar, $sbirthday, $ssex);
 while ($stmt->fetch()) {
     $students[] = [
         'id' => $sid_pk,
@@ -195,24 +370,19 @@ while ($stmt->fetch()) {
         'middle_name' => $nmiddle ?? '',
         'suffix' => $nsuffix ?? '',
         'section' => $ssection ?? '',
-        'avatar' => $savatar ?? ''
+        'avatar' => $savatar ?? '',
+        'birthday' => $sbirthday ?? '',
+        'sex' => $ssex ?? ''
     ];
 }
 $stmt->close();
 
-// ---------- NORMALISE avatars (server-side) ----------
+// normalize avatars
 foreach ($students as &$s) {
     $a = trim((string)($s['avatar'] ?? ''));
-    if ($a === '' || strtolower($a) === 'null') {
-        $a = 'assets/avatar.png';
-    } else {
-        // remove leading slash to make relative paths consistent
-        if (strpos($a, '/') === 0) $a = ltrim($a, '/');
-    }
-    // if file doesn't exist on disk, fallback
-    if (!is_file(__DIR__ . '/' . $a)) {
-        $a = 'assets/avatar.png';
-    }
+    if ($a === '' || strtolower($a) === 'null') $a = 'assets/avatar.png';
+    else if (strpos($a, '/') === 0) $a = ltrim($a, '/');
+    if (!is_file(__DIR__ . '/' . $a)) $a = 'assets/avatar.png';
     $s['avatar'] = $a;
 }
 unset($s);
@@ -226,6 +396,12 @@ foreach ($students as $st) {
     $groups[$sec]['students'][] = $st;
     $groups[$sec]['count']++;
 }
+
+// flash messages
+$errors_flash = $_SESSION['students_errors'] ?? [];
+unset($_SESSION['students_errors']);
+$account_flash = $_SESSION['account_info'] ?? null;
+unset($_SESSION['account_info']);
 ?>
 <!doctype html>
 <html lang="en">
@@ -233,7 +409,6 @@ foreach ($students as $st) {
   <meta charset="utf-8" />
   <title>Students</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <!-- Materialize CSS -->
   <link rel="stylesheet" href="materialize/css/materialize.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
   <style>
@@ -246,7 +421,6 @@ foreach ($students as $st) {
     .table-avatar-img{width:64px;height:64px;border-radius:50%;object-fit:cover;display:block}
     .delete-list-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;margin-right:10px}
     .edit-btn{background:#00d1ff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#fff}
-    nav{background-image:url(assets/Banner.png);background-size:cover;background-position:center;height:80px}
     .section-wrap{margin-bottom:18px}
     .section-header{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 6px 10px;color:#6b6b6b;text-transform:uppercase;font-weight:700;letter-spacing:.6px;font-size:14px;cursor:pointer}
     .section-count{color:#9a9a9a;font-weight:600;font-size:12px;text-transform:none}
@@ -263,10 +437,10 @@ foreach ($students as $st) {
   </style>
 </head>
 <body>
-<nav>
+<nav class="blue">
   <div class="nav-wrapper">
-    <a href="admin.php" class="brand-logo center" style="line-height:80px;color:white;font-weight:800;">
-      <i class="material-icons hide-on-med-and-down" style="vertical-align:middle">flight_takeoff</i>&nbsp;TOURS
+    <a href="admin.php" class="brand-logo center">
+      <i class="material-icons hide-on-med-and-down bold" style="vertical-align:middle">flight_takeoff</i>&nbsp;TOURS
     </a>
   </div>
 </nav>
@@ -281,6 +455,21 @@ foreach ($students as $st) {
       </div>
     </div>
   </div>
+
+  <?php if (!empty($errors_flash)): ?>
+    <div class="card-panel red lighten-4 red-text text-darken-4">
+      <?php foreach ($errors_flash as $err): ?><div><?php echo htmlspecialchars($err, ENT_QUOTES); ?></div><?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($account_flash): ?>
+    <div class="card-panel green lighten-5" style="border-left:4px solid #2e7d32;">
+      <strong>Account created/updated for admin:</strong>
+      <div><strong>Account ID:</strong> <?php echo htmlspecialchars($account_flash['acc_id'], ENT_QUOTES); ?></div>
+      <div><strong>Initial password (show to student):</strong> <code><?php echo htmlspecialchars($account_flash['password'], ENT_QUOTES); ?></code></div>
+      <small class="grey-text">The password is shown only once here — it is stored hashed in the database. Make sure the student changes it after first login.</small>
+    </div>
+  <?php endif; ?>
 
   <form id="deleteForm" method="post" style="display:none;"><input type="hidden" name="action" value="delete_selected"></form>
 
@@ -312,6 +501,8 @@ foreach ($students as $st) {
               <th>Suffix</th>
               <th>Student ID</th>
               <th>Section</th>
+              <th>Birthday</th>
+              <th>Sex</th>
               <th style="width:120px;">Edit</th>
             </tr>
           </thead>
@@ -341,6 +532,21 @@ foreach ($students as $st) {
       <div class="input-field"><input id="studentID" name="student_id_val" type="text" required><label for="studentID">Student ID</label></div>
       <div class="input-field"><input id="sectionInput" name="section" type="text"><label for="sectionInput">Section</label></div>
 
+      <div class="input-field">
+        <input id="birthday" name="birthday" type="date" pattern="\d{4}-\d{2}-\d{2}">
+        <label class="active" for="birthday">Birthday</label>
+      </div>
+
+      <div class="input-field">
+        <select id="sex" name="sex">
+          <option value="" selected>Prefer not to say</option>
+          <option value="M">Male</option>
+          <option value="F">Female</option>
+          <option value="Other">Other</option>
+        </select>
+        <label for="sex">Sex</label>
+      </div>
+
       <div class="right-align"><button class="btn blue" type="submit">Add</button></div>
     </form>
   </div>
@@ -363,6 +569,21 @@ foreach ($students as $st) {
       <div class="input-field"><input id="editStudentID" name="edit_student_id" type="text" required><label for="editStudentID">Student ID</label></div>
       <div class="input-field"><input id="editSectionInput" name="edit_section" type="text"><label for="editSectionInput">Section</label></div>
 
+      <div class="input-field">
+        <input id="editBirthday" name="edit_birthday" type="date" pattern="\d{4}-\d{2}-\d{2}">
+        <label class="active" for="editBirthday">Birthday</label>
+      </div>
+
+      <div class="input-field">
+        <select id="editSex" name="edit_sex">
+          <option value="">Prefer not to say</option>
+          <option value="M">Male</option>
+          <option value="F">Female</option>
+          <option value="Other">Other</option>
+        </select>
+        <label for="editSex">Sex</label>
+      </div>
+
       <div class="confirm-row"><label><input type="checkbox" id="editConfirmCheckbox"><span>I confirm I want to save these changes</span></label></div>
 
       <div class="right-align" style="margin-top:12px;"><button class="btn blue" type="submit" id="saveEditBtn" disabled>Save</button></div>
@@ -384,12 +605,12 @@ foreach ($students as $st) {
   </div>
 </div>
 
-<!-- Materialize JS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="materialize/js/materialize.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   M.AutoInit();
+  document.querySelectorAll('select').forEach(function(s){ if (!M.FormSelect.getInstance(s)) M.FormSelect.init(s); });
   M.Tooltip.init(document.querySelectorAll('.tooltipped'));
 
   document.getElementById('addBtn').addEventListener('click', function(){ M.Modal.getInstance(document.getElementById('addStudentModal')).open(); });
@@ -403,6 +624,18 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('editSuffix').value = btn.getAttribute('data-suffix') || '';
     document.getElementById('editStudentID').value = btn.getAttribute('data-studentid') || '';
     document.getElementById('editSectionInput').value = btn.getAttribute('data-section') || '';
+
+    var b = btn.getAttribute('data-birthday') || '';
+    var s = btn.getAttribute('data-sex') || '';
+    document.getElementById('editBirthday').value = b;
+
+    var editSexEl = document.getElementById('editSex');
+    if (editSexEl) {
+      editSexEl.value = s;
+      try { M.FormSelect.getInstance(editSexEl)?.destroy(); } catch(e){}
+      try { M.FormSelect.init(editSexEl); } catch(e){}
+    }
+
     M.updateTextFields();
     document.getElementById('editConfirmCheckbox').checked = false;
     document.getElementById('saveEditBtn').disabled = true;
@@ -424,7 +657,6 @@ document.addEventListener('DOMContentLoaded', function() {
       var first = row.querySelector('.cell-first') ? row.querySelector('.cell-first').textContent.trim() : '';
       var middle = row.querySelector('.cell-middle') ? row.querySelector('.cell-middle').textContent.trim() : '';
       var suffix = row.querySelector('.cell-suffix') ? row.querySelector('.cell-suffix').textContent.trim() : '';
-      // get src from <img>
       var imgEl = row.querySelector('.table-avatar-img');
       var avatar = (imgEl && imgEl.src) ? imgEl.src : 'assets/avatar.png';
       var displayName = last + (first ? ', ' + first : '') + (middle ? ' ' + middle : '') + (suffix ? ' ' + suffix : '');
@@ -447,7 +679,6 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('deleteConfirmCheckbox').addEventListener('change', function(){ document.getElementById('confirmDeleteBtn').disabled = !this.checked; });
   document.getElementById('deleteConfirmForm').addEventListener('submit', function(e){ if (!document.getElementById('deleteConfirmCheckbox').checked) { e.preventDefault(); M.toast({html:'Please confirm before deleting.'}); return; } });
 
-  // collapse/expand per section + toggle
   var headers = document.querySelectorAll('.section-header');
   var COLL_KEY = 'students_sections_collapsed_v1';
   var collapsedState = {};
@@ -488,3 +719,9 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
+
+<?php
+// close accounts connection when script ends
+$acc_conn->close();
+$conn->close();
+?>
