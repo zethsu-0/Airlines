@@ -680,7 +680,7 @@
         const age = (card.querySelector('input[name="age[]"]') || {}).value || '';
         const type = (card.querySelector('input[name="special[]"]') || {}).value || '';
         const seat = (card.querySelector('input[name="seat[]"]') || {}).value || '';
-        const seatNumber = (card.querySelector('input[name="seat_number[]"]') || {}).value || '';
+        const seatNumber = (card.querySelector('input[name="seat_number[]"]') || {}).value || ''; 
         const genderRadio = card.querySelector('input[type="radio"]:checked');
         const gender = genderRadio ? genderRadio.value : 'Not set';
         const pwdCheckbox = card.querySelector('input[type="checkbox"]');
