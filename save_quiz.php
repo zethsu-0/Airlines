@@ -105,14 +105,14 @@ try {
             $adults = isset($b['adults']) ? intval($b['adults']) : 0;
             $children = isset($b['children']) ? intval($b['children']) : 0;
             $infants = isset($b['infants']) ? intval($b['infants']) : 0;
-            $flight_type = isset($b['flight_type']) ? $b['flight_type'] : '';
+            $flight_type = isset($b['flight_type']) ? strtoupper($b['flight_type']) : '';
             $origin = isset($b['origin']) ? $b['origin'] : '';
             $destination = isset($b['destination']) ? $b['destination'] : '';
             $departure = norm_date($b['departure'] ?? null);
             $return_date = norm_date($b['return'] ?? ($b['return_date'] ?? null));
             $flight_number = isset($b['flight_number']) ? $b['flight_number'] : '';
             $seats = isset($b['seats']) ? $b['seats'] : '';
-            $travel_class = isset($b['travel_class']) ? $b['travel_class'] : '';
+            $travel_class = isset($b['travel_class']) ? strtoupper($b['travel_class']) : '';
 
             // bind params and execute
             if (!$stmtItem->bind_param(

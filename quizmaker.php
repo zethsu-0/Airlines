@@ -437,7 +437,7 @@ function createItemBlock(prefill = null){
 
       <div style="margin-bottom:8px">
         <label style="display:block; margin-bottom:6px">Flight type</label>
-        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="oneway" checked /><span>One-way</span></label>
+        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="one-way" checked /><span>One-way</span></label>
         <label><input name="flightTypeInner${idx}" type="radio" value="roundtrip" /><span>Round-trip</span></label>
       </div>
 
@@ -639,12 +639,12 @@ function collectItems(){
     const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
     const seats = seatsEl ? (seatsEl.value || '') : '';
     const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
-    const flightType = flightTypeEl ? (flightTypeEl.value || 'oneway') : 'oneway';
+    const flightType = flightTypeEl ? (flightTypeEl.value || 'ONE-WAY') : 'TWO-WAY';
 
     items.push({
       iata: uc(origin),
       city: uc(destination),
-      difficulty: travelClass || 'economy',
+      difficulty: travelClass || 'ECONOMY',
       deadline,
       booking: {
         adults, children, infants,
@@ -685,10 +685,10 @@ function buildDescription(){
     const destination = dstA.city ? `${dstA.city}, ${dstA.region}, ${orgA.name}` : b.destination || it.city || '---';
 
     // FLIGHT TYPE
-    const typeLabel = b.flight_type === 'roundtrip' ? 'round-trip' : 'one-way';
+    const typeLabel = b.flight_type === 'roundtrip' ? 'TWO-WAY' : 'ONE-WAY';
 
     // CLASS
-    const classLabel = (b.travel_class || 'economy');
+    const classLabel = (b.travel_class || 'ECONOMY');
 
     // Build readable sentence per item
     let sentence = '';

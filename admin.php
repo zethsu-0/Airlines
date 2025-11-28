@@ -185,7 +185,7 @@ if ($conn->connect_error) {
                       </div>
                     </div>
                     <div class="quiz-actions">
-                      <a class="open btn-animated" href="Exam.php?id=<?php echo (int)$q['id']; ?>">Open</a>
+                      <a class="open btn-animated" href="submissions.php?id=<?php echo (int)$q['id']; ?>">Open</a>
                       <a class="edit btn-animated" href="quizmaker.php?id=<?php echo (int)$q['id']; ?>" title="Edit">✎</a>
                     </div>
                   </div>
@@ -371,7 +371,7 @@ if ($conn->connect_error) {
   openSelected.addEventListener('click', function(e){
     const qid = this.dataset.qid || dropdown.value;
     if(!qid) return;
-    window.location.href = 'Exam.php?id=' + qid + '&section=' + encodeURIComponent(sectionSelect.value || '__all__');
+    window.location.href = 'submissions.php?id=' + qid + '&section=' + encodeURIComponent(sectionSelect.value || '__all__');
   });
 
   document.addEventListener('keydown', function(e){
@@ -394,7 +394,7 @@ if ($conn->connect_error) {
         if(e.target.closest('.quiz-actions')) return;
         // open Exam with section param chosen
         const sec = encodeURIComponent(sectionSelect.value || '__all__');
-        window.location.href = 'Exam.php?id=' + id + '&section=' + sec;
+        window.location.href = 'submissions.php?id=' + id + '&section=' + sec;
       });
     }
   });
