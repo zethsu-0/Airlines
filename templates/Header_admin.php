@@ -1,14 +1,9 @@
 <?php
-// admin-header.php
-// Use this header on pages where you want an admin login popup to appear automatically.
-// Place this file as your header (or include it at the top of admin.php).
-// It will open a non-dismissible admin login modal if the current session is not an admin.
+
 
 session_start();
 
-// Determine whether admin login is required for this page.
-// If you want to force the admin popup on this page, set $force_admin_popup = true;
-// Alternatively, you can control this from the including page by setting $require_admin before including this header.
+
 if (!isset($require_admin)) {
     // default behaviour: force admin popup for this page
     $require_admin = true;
@@ -189,7 +184,7 @@ if (!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['a
   <div class="modal-content">
     <h4 class="center">Admin Login</h4>
 
-    <form id="adminLoginForm" method="POST" action="login.php" autocomplete="off" novalidate>
+    <form id="adminLoginForm" method="POST" action="Ad_log.php" autocomplete="off" novalidate>
       <div class="input-field">
         <i class="material-icons prefix">person</i>
         <input type="text" name="acc_id" id="acc_id" />
@@ -279,7 +274,7 @@ if (!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['a
         require_role: 'admin' // tell server we need admin role
       };
 
-      fetch('login.php', {
+      fetch('Ad_log.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         body: JSON.stringify(payload)
