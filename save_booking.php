@@ -61,12 +61,7 @@ $names        = $_POST['name'] ?? [];
 $ages         = $_POST['age'] ?? [];
 $specials     = $_POST['special'] ?? [];        // "Infant", "Child", "Regular"
 $seats_class  = $_POST['seat_class'] ?? $_POST['seat'] ?? [];  // "Economy", etc.
-$seat_numbers = $_POST['seat_number'] ?? [];
-
-$seat_numbers = array_map('trim', $seat_numbers);
-$seat_numbers = array_filter($seat_numbers); // remove empty values
-
-$seat_number = implode(',', $seat_numbers); // "12A,14B,9C"
+$seats_number = $_POST['seat_number'] ?? [];
 
 $passengerCount = is_array($names) ? count($names) : 0;
 
@@ -165,7 +160,7 @@ if ($passengerCount > 0) {
 $stmt = $mysqli->prepare("
     INSERT INTO submitted_flights
         (quiz_id, acc_id, adults, children, infants, flight_type,
-         origin, destination, departure, return_date, flight_number, seat_number, travel_class)
+         origin, destination, departure, return_date, flight_number, seats, travel_class)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 if (!$stmt) {
@@ -176,7 +171,7 @@ if (!$stmt) {
 //        flight_type(s), origin(s), destination(s), departure(s),
 //        return_date(s), flight_number(s), seats(i), travel_class(s)
 if (!$stmt->bind_param(
-    "isiiissssssss",
+    "isiiissssssis",
     $quiz_id,
     $acc_id,
     $adults,
@@ -188,7 +183,7 @@ if (!$stmt->bind_param(
     $departure,
     $return_date,
     $flight_number,
-    $seat_number,
+    $seats,
     $travel_class
 )) {
     die("Bind failed: " . htmlspecialchars($stmt->error));

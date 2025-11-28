@@ -1,17 +1,3 @@
-<?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-// If the page says $require_login = true before including this file,
-// then redirect users who are not logged in.
-if (!empty($require_login) && empty($_SESSION['acc_id'])) {
-    // Redirect to a page that shows the login modal (e.g. index.php)
-    header('Location: index.php');
-    exit;
-}
-?>
-
 <head>
   <title>TOURS</title>
   <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
@@ -19,7 +5,7 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
 <style type="text/css">
-  html, body { margin: 0; padding: 0; background-color: gray; }
+  html, body { margin: 0; padding: 0; background-color: white; }
 
   /* Form styles */
   .bg-container { padding: 20px; width: 90%; }
@@ -125,14 +111,7 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
     .destination-card img { height: 110px; }
     .country-label { font-size: 0.8rem; bottom: 6px; left: 6px; }
   }
-  nav{
-    background-image: url(assets/Banner.png);
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-position: center center;
-    height: 100px;
-  }
-  a #tours{
+    a #tours{
     left: 50px; 
     size: 100px;
     
@@ -165,9 +144,6 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
     <a href="index.php" class="brand-logo center">
       <i class="material-icons hide-on-med-and-down">flight_takeoff</i>TOURS
     </a>
-    <a href="#" class="sidenav-trigger show-on-large" data-target="mobile-menu">
-      <i class="material-icons">menu</i>
-    </a>
 
     <ul class="right hide-on-med-and-down" id="nav-right">
       <li><a class="btn wave-effect wave-light blue" href="ticket.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
@@ -192,17 +168,7 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
     </ul>
   </div>
 
-  <ul class="sidenav blue-grey lighten-4" id="mobile-menu">
-    <li>
-      <div class="user-view">
-        <img class="circle" src="assets/circle.jpg">
-        <span class="blue-text name"><?php echo !empty($_SESSION['acc_name']) ? htmlspecialchars($_SESSION['acc_name']) : 'Guest'; ?></span>
-      </div>
-    </li>
-    <li><a href="#">Travels</a></li>
-    <li><a href="#">Ticket</a></li>
-    <li><a href="#">Ewan</a></li>
-  </ul>
+
 </nav>
 
 <!-- LOGIN MODAL -->
@@ -212,6 +178,8 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
       <a href="index.php"><i class="modal-close material-icons left">arrow_back</i></a>
       Log In
     </h4>
+
+
     <form id="loginForm" method="POST" action="login.php" autocomplete="off" novalidate>
       <div class="input-field">
         <i class="material-icons prefix">person</i>
@@ -237,47 +205,7 @@ if (!empty($require_login) && empty($_SESSION['acc_id'])) {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
   $(document).ready(function(){
-    $('.sidenav').sidenav();
     $('.modal').modal();  
-
-    $('#loginForm').on('submit', function(e) {
-      e.preventDefault(); // stop normal form submit
-
-      // clear old errors
-      $('#err-acc_id').text('');
-      $('#err-password').text('');
-      $('#err-general').text('');
-
-      $.ajax({
-        url: 'login.php',
-        method: 'POST',
-        data: $(this).serialize(), // acc_id + password
-        dataType: 'json',
-        success: function(res) {
-          if (res.success) {
-            // Reload page so header sees session + updates nav
-            location.reload();
-          } else {
-            if (res.errors) {
-              if (res.errors.acc_id) {
-                $('#err-acc_id').text(res.errors.acc_id);
-              }
-              if (res.errors.password) {
-                $('#err-password').text(res.errors.password);
-              }
-              if (res.errors.general) {
-                $('#err-general').text(res.errors.general);
-              }
-            } else {
-              $('#err-general').text('Login failed. Please try again.');
-            }
-          }
-        },
-        error: function() {
-          $('#err-general').text('Server error. Please try again.');
-        }
-      });
-    });
   });
-</script>
 
+</script>

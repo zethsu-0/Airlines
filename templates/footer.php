@@ -1,3 +1,33 @@
+<footer class="page-footer blue">
+  <div class="footer-main container">
+    <div class="row">
+      <div class="col l6 s12">
+        <h5>Travel More Ewan</h5>
+        <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
+            tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+            quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+            consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+            cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+            proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+      </div>
+      <div class="col l4 offset-l2 s12">
+        <h5>Official Links</h5>
+        <ul class="footer-links">
+          <li>TOURS TRAVELS</li>
+          <li>CURRENCY EXCHANGE</li>
+          <li>HOTELS</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bottom center light-blue bold" style="padding: 5px;">
+    TOURS @ URSAC2025
+  </div>
+</footer>
+
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('loginForm');
