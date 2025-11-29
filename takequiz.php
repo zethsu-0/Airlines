@@ -1,11 +1,11 @@
 <?php
 // takequiz.php
 // Student-facing list of available quizzes and submission status.
-// Requires the user to be logged in (uses $_SESSION['acc_id'] or related keys).
-// Include site header (this contains the login button + modal you provided)
-include('templates/header.php');
 
-// Helper to check login quickly (matches header's logic)
+include('templates/header_admin.php');
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+
+// Helper to check login quickly
 function is_logged_in() {
     if (!empty($_SESSION['acc_id'])) return true;
     if (!empty($_SESSION['student_id'])) return true;
@@ -14,10 +14,8 @@ function is_logged_in() {
     return false;
 }
 
-// If not logged in — show a prompt and open the login modal, then stop further processing.
-// This ensures quizzes are not visible until the student logs in.
+// If not logged in — show login prompt and stop further processing.
 if (!is_logged_in()) {
-    // Render a small page fragment with a message and a script to open the login modal.
     ?>
     <div style="max-width:900px;margin:48px auto;padding:24px;background:#fff;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,0.06);font-family:Roboto, Arial, sans-serif">
       <h4>Please log in to view quizzes</h4>
@@ -29,7 +27,6 @@ if (!is_logged_in()) {
     </div>
 
     <script>
-      // Ensure Materialize modals are initialized and then open the login modal.
       document.addEventListener('DOMContentLoaded', function(){
         if (typeof M !== 'undefined' && M.Modal) {
           var elems = document.querySelectorAll('.modal');
@@ -37,17 +34,15 @@ if (!is_logged_in()) {
           var loginEl = document.getElementById('loginModal');
           if (loginEl) {
             var inst = M.Modal.getInstance(loginEl) || M.Modal.init(loginEl);
-            try { inst.open(); } catch(e) { /* ignore */ }
+            try { inst.open(); } catch(e) {}
           }
         } else {
-          // fallback for jQuery + older init
           try { $('.modal').modal(); $('#loginModal').modal('open'); } catch(e) {}
         }
       });
     </script>
 
     <?php
-    // include footer then exit
     include('templates/footer.php');
     exit;
 }
@@ -56,19 +51,19 @@ if (!is_logged_in()) {
 // User is logged in: proceed to load quizzes
 // ---------------------------------------------
 
-// --- Determine current student ID from session (try common keys) ---
+// Determine current student ID from session (try common keys)
 $studentId = null;
 if (!empty($_SESSION['student_id'])) {
-    $studentId = intval($_SESSION['student_id']);
+    $studentId = (int)$_SESSION['student_id'];
 } elseif (!empty($_SESSION['user_id'])) {
-    $studentId = intval($_SESSION['user_id']);
+    $studentId = (int)$_SESSION['user_id'];
 } elseif (!empty($_SESSION['user']['id'])) {
-    $studentId = intval($_SESSION['user']['id']);
+    $studentId = (int)$_SESSION['user']['id'];
 } elseif (!empty($_SESSION['acc_id'])) {
-    $studentId = intval($_SESSION['acc_id']);
+    $studentId = (int)$_SESSION['acc_id'];
 }
 
-// DB connection (change creds as needed)
+// DB connection
 $host = 'localhost';
 $user = 'root';
 $pass = '';
@@ -80,38 +75,99 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// --- Fetch quizzes and the submission (if any) for this student ---
-// We left-join quiz_items to get the earliest deadline (MIN) and count of items
-$sql = "
-  SELECT
-    q.id AS quiz_id,
-    q.title,
-    q.quiz_code AS code,
-    COALESCE(MIN(qi.deadline), '') AS deadline,
-    COALESCE(q.duration, 0) AS duration,
-    s.submitted_at,
-    s.student_id AS submitted_by,
-    COUNT(qi.id) AS num_items
-  FROM quizzes q
-  LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
-  LEFT JOIN submissions s ON s.quiz_id = q.id AND s.student_id = ?
-  GROUP BY q.id
-  ORDER BY q.created_at DESC
-";
+// ---------------------------------------------
+// Detect columns in submitted_flights (quiz + student)
+// ---------------------------------------------
+$sfQuizCol = null;
+$sfStuCol  = null;
 
-$stmt = $conn->prepare($sql);
-if (!$stmt) {
-    die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
+$sfCols = [];
+$sfRes = $conn->query("SHOW COLUMNS FROM `submitted_flights`");
+if ($sfRes) {
+    while ($sc = $sfRes->fetch_assoc()) {
+        $sfCols[] = $sc['Field'];
+    }
+    $sfRes->free();
 }
-$stmt->bind_param('i', $studentId);
-$stmt->execute();
-$res = $stmt->get_result();
 
+// candidate quiz id columns
+foreach (['quiz_id','quizid','quiz','exam_id','test_id'] as $cand) {
+    if (in_array($cand, $sfCols, true)) { $sfQuizCol = $cand; break; }
+}
+// candidate student/account columns
+foreach (['acc_id','student_id','user_id','account_id','submitted_by','submitted_acc','sid'] as $cand) {
+    if (in_array($cand, $sfCols, true)) { $sfStuCol = $cand; break; }
+}
+
+// ---------------------------------------------
+// Build main query
+// ---------------------------------------------
 $quizzes = [];
-while ($row = $res->fetch_assoc()) {
-    $quizzes[] = $row;
+
+if ($sfQuizCol && $sfStuCol && $studentId) {
+    // Normal path: submitted_flights exists and we know quiz + student columns.
+    $quizColSafe = '`' . str_replace('`','``',$sfQuizCol) . '`';
+    $stuColSafe  = '`' . str_replace('`','``',$sfStuCol) . '`';
+
+    $sql = "
+      SELECT
+        q.id AS quiz_id,
+        q.title,
+        q.quiz_code AS code,
+        '' AS deadline,
+        COALESCE(q.duration, 0) AS duration,
+        CASE WHEN COUNT(sf.$stuColSafe) > 0 THEN 1 ELSE NULL END AS submitted_at,
+        CASE WHEN COUNT(sf.$stuColSafe) > 0 THEN ? ELSE NULL END AS submitted_by,
+        COUNT(DISTINCT qi.id) AS num_items
+      FROM quizzes q
+      LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+      LEFT JOIN submitted_flights sf
+        ON sf.$quizColSafe = q.id
+       AND sf.$stuColSafe = ?
+      GROUP BY q.id
+      ORDER BY q.created_at DESC
+    ";
+
+    $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
+    }
+    // bind same studentId twice (for submitted_by and JOIN condition)
+    $stmt->bind_param('ii', $studentId, $studentId);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $quizzes[] = $row;
+    }
+    $stmt->close();
+
+} else {
+    // Fallback: no submitted_flights or we couldn't detect columns.
+    // Show quizzes without submission status (all as not submitted).
+    $sql = "
+      SELECT
+        q.id AS quiz_id,
+        q.title,
+        q.quiz_code AS code,
+        '' AS deadline,
+        COALESCE(q.duration, 0) AS duration,
+        NULL AS submitted_at,
+        NULL AS submitted_by,
+        COUNT(DISTINCT qi.id) AS num_items
+      FROM quizzes q
+      LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+      GROUP BY q.id
+      ORDER BY q.created_at DESC
+    ";
+    $res = $conn->query($sql);
+    if (!$res) {
+        die('<div style="padding:20px; color:darkred">Query failed: ' . htmlspecialchars($conn->error) . '</div>');
+    }
+    while ($row = $res->fetch_assoc()) {
+        $quizzes[] = $row;
+    }
+    $res->free();
 }
-$stmt->close();
 
 // Stats
 $total = count($quizzes);
@@ -123,8 +179,8 @@ $notSubmitted = $total - $submittedCount;
 
 // Helper
 function h($s){ return htmlspecialchars((string)$s); }
-
 ?>
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -160,7 +216,6 @@ function h($s){ return htmlspecialchars((string)$s); }
             <?php else: ?>
               <?php foreach ($quizzes as $q):
                   $isSubmitted = !empty($q['submitted_at']);
-                  $deadlineText = $q['deadline'] ? date('M j, Y \@ H:i', strtotime($q['deadline'])) : 'No deadline';
                   // num_questions might not exist in schema — default to 0
                   $numQuestions = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
                   $duration = isset($q['duration']) ? (int)$q['duration'] : 0;
@@ -175,7 +230,7 @@ function h($s){ return htmlspecialchars((string)$s); }
                 <div style="flex:1">
                   <div class="quiz-title"><?php echo h($q['title']); ?></div>
                   <div class="small-note">
-                    <?php echo h($numQuestions); ?> question<?php echo $numQuestions == 1 ? '' : 's'; ?> • <?php echo h($duration); ?> min • Deadline: <?php echo h($deadlineText); ?>
+                    <?php echo h($numQuestions); ?> question<?php echo $numQuestions == 1 ? '' : 's'; ?>  ?>
                   </div>
                 </div>
 

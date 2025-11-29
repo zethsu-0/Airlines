@@ -1,6 +1,6 @@
 <?php
-// admin_quiz_maker.php (improved)
-include('templates/header.php');
+// admin_quiz_maker.php (cleaned)
+include('templates/header_admin.php');
 
 // Fetch airports for the IATA select and create a JSON list for JS
 $host = 'localhost';
@@ -180,17 +180,6 @@ $airportListJson = json_encode($airportList);
               </div>
             </div>
           </div>
-
-          <div class="card-section">
-            <div class="section-title">Quick Info</div>
-            <div class="muted">Number of items affects the description. Auto-create student prompt will generate a single text question summarizing all items (expected answer = first item's city).</div>
-            <div style="margin-top:8px;">
-              <div class="input-field">
-                <input id="numQuestions" type="number" min="0" value="0" readonly>
-                <label for="numQuestions">Number of Questions (auto)</label>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
       <div class="col" style="margin-top:12px;">
@@ -210,37 +199,6 @@ $airportListJson = json_encode($airportList);
               <label for="sectionField">Section / Course</label>
               <span class="helper-text">e.g. PHY101 or Section A</span>
             </div>
-
-            <div class="input-field">
-              <input id="audienceField" type="text"  autocomplete="off">
-              <label for="audienceField">Target Audience</label>
-              <span class="helper-text">e.g. All Students, Section B</span>
-            </div>
-
-            <!-- Duration and Booking Ref moved here -->
-            <div class="flight-row" style="margin-top:8px">
-              <div class="flight-field input-field">
-                <input id="duration" type="number" min="1" value="60"  autocomplete="off">
-                <label for="duration">Duration (minutes)</label>
-              </div>
-
-              <div class="flight-field input-field">
-                <input id="quizCode" type="text"  autocomplete="off">
-                <label for="quizCode">Booking Ref (Quiz Code)</label>
-                <span class="helper-text">Auto-generated if left empty</span>
-              </div>
-            </div>
-
-            <!-- auto-create checkbox (was referenced in JS but missing) -->
-            <p>
-              <label>
-                <input type="checkbox" id="autoCreateQuestion" />
-                <span>Auto-create student prompt (summary question)</span>
-              </label>
-            </p>
-
-            <!-- hidden expectedCity input referenced in JS (added so suggestion can populate it) -->
-            <input type="hidden" id="expectedCity" />
           </div>
 
           <div class="card-section">
@@ -276,14 +234,10 @@ $airportListJson = json_encode($airportList);
             <div class="section-title">Student prompt (preview)</div>
             <div id="bpDescription" style="font-weight:700;"></div>
           </div>
-        </div>
-
-        
+        </div>    
       </div> <!-- two-col -->
-
     </div> <!-- card-content -->
   </div> <!-- card booking -->
-
 </div> <!-- page-wrap -->
 
 <?php include('templates/footer.php'); ?>
@@ -337,15 +291,7 @@ function createItemBlock(prefill = null){
         <a class="btn-flat remove-item" title="Remove item"><i class="material-icons">delete</i></a>
       </div>
     </div>
-
-    
-
     <div class="flight-row">
-      <div class="flight-field input-field">
-        <input type="datetime-local" class="deadlineInput" autocomplete="off" />
-        <label>Deadline (optional)</label>
-      </div>
-
       <div style="width:120px; display:flex; align-items:center;">
         <span class="muted">Item controls</span>
       </div>
@@ -449,17 +395,6 @@ function createItemBlock(prefill = null){
           inputEl.value = iata;
           inputEl.dataset.city = (city||'').toUpperCase();
           localSugg.style.display='none';
-
-          // if this is main item iatalong and first item, set expectedCity
-          const allItems = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
-          const indexOfBlock = allItems.indexOf(wrapper);
-          if(indexOfBlock === 0 && inputEl.classList.contains('iatalongInputInner') && city){
-            const expectedCityEl = document.getElementById('expectedCity');
-            if(expectedCityEl && !expectedCityEl.value.trim()){
-              expectedCityEl.value = city.toUpperCase();
-              if (M && M.updateTextFields) M.updateTextFields();
-            }
-          }
         });
       });
     });
@@ -484,7 +419,7 @@ function addItem(prefill = null){
   const block = createItemBlock(prefill);
   cont.appendChild(block);
 
-  // re-init Materialize selects inside the newly added block (for difficulty)
+  // re-init Materialize selects inside the newly added block
   const selects = block.querySelectorAll('select');
   M.FormSelect.init(selects);
 
@@ -497,8 +432,6 @@ function refreshItemLabels(){
     const strong = it.querySelector('strong');
     if(strong) strong.textContent = `Item ${i+1}`;
     it.dataset.idx = i;
-    const innerInput = it.querySelector('.iatalongInputInner');
-    if(innerInput) innerInput.dataset.idx = i;
   });
 }
 
@@ -506,7 +439,6 @@ function collectItems(){
   const items = [];
   const blocks = document.querySelectorAll('#itemsContainer .item-row');
   for(const b of blocks){
-    const deadline = b.querySelector('.deadlineInput') ? b.querySelector('.deadlineInput').value : null;
 
     // per-item booking fields
     const adultsEl = b.querySelector('.adultCountInner');
@@ -536,8 +468,6 @@ function collectItems(){
     items.push({
       iata: uc(origin),
       city: uc(destination),
-      difficulty: travelClass || 'economy',
-      deadline,
       booking: {
         adults, children, infants,
         flight_type: flightType,
@@ -555,9 +485,8 @@ function collectItems(){
 
 function buildDescription(){
   const items = collectItems();
-  const section = document.getElementById('sectionField').value || '';
-  const audience = document.getElementById('audienceField').value || '';
-  const duration = document.getElementById('duration').value || '';
+  const sectionField = document.getElementById('sectionField');
+  const section = sectionField ? (sectionField.value || '') : '';
 
   let parts = [];
   for(const it of items){
@@ -582,7 +511,7 @@ function buildDescription(){
 
     // Build readable sentence per item
     let sentence = '';
-    if(personStr) sentence += personStr + ' '; // adds only if persons exist
+    if(personStr) sentence += personStr + ' ';
     sentence += `flying from ${origin} to ${destination} on a ${typeLabel} flight in ${classLabel} class`;
 
     parts.push(sentence);
@@ -594,47 +523,30 @@ function buildDescription(){
   else desc = 'Book the indicated destinations.';
 
   if(section) desc += ` Course/Section: ${section}.`;
-  if(audience) desc += ` Audience: ${audience}.`;
-  if(duration) desc += ` Duration: ${duration} minutes.`;
 
   const first = items[0] || null;
   const expected = first && first.booking && first.booking.destination ? first.booking.destination : null;
-  const firstDeadline = (first && first.deadline) ? new Date(first.deadline).toLocaleString() : '';
 
-  return { description: desc, expected_answer: expected, itemsCount: items.length, firstDeadline };
+  return { description: desc, expected_answer: expected, itemsCount: items.length };
 }
 
 /* SAVE function - declared in global scope so event listeners can call it */
 async function saveQuiz(redirect=false){
   const items = collectItems();
+  const titleEl = document.getElementById('quizTitle');
+  const sectionEl = document.getElementById('sectionField');
+
+  const title = titleEl ? (titleEl.value || 'Untitled Quiz') : 'Untitled Quiz';
+  const fromSection = sectionEl ? (sectionEl.value || '') : '';
+
   const payload = {
-    title: document.getElementById('quizTitle').value || 'Untitled Quiz',
+    title: title,
     items: items,
-    from: document.getElementById('sectionField').value || '',
-    to: document.getElementById('audienceField').value || '',
-    deadline: null,
+    from: fromSection,
     num_questions: 0,
-    duration: parseInt(document.getElementById('duration').value || 0, 10),
-    difficulty: '',
-    code: document.getElementById('quizCode').value || genRef(),
+    code: genRef(),
     questions: []
   };
-
-  // auto-create summary question if checked
-  const autoCreate = document.getElementById('autoCreateQuestion');
-  if(autoCreate && autoCreate.checked){
-    const {description, expected_answer} = buildDescription();
-    payload.questions.push({
-      text: description,
-      type: 'text',
-      points: 1,
-      choices: [],
-      expected_answer: expected_answer || null
-    });
-  }
-
-  payload.num_questions = payload.questions.length;
-  document.getElementById('numQuestions').value = payload.num_questions;
 
   // show a small busy indicator
   M.toast({html: 'Saving quiz...'});
@@ -676,7 +588,7 @@ async function saveQuiz(redirect=false){
 
 /* All DOM lookups & event bindings inside DOMContentLoaded to avoid "null" errors */
 document.addEventListener('DOMContentLoaded', function(){
-  // init global selects (only difficulties)
+  // init global selects
   var elems = document.querySelectorAll('select');
   M.FormSelect.init(elems);
 
@@ -697,38 +609,36 @@ document.addEventListener('DOMContentLoaded', function(){
   if(prevBtn){
     prevBtn.addEventListener('click', (e)=>{
       e.preventDefault();
-      const title = document.getElementById('quizTitle').value || 'QUIZ/EXAM';
-      const section = document.getElementById('sectionField').value || 'Section';
-      const audience = document.getElementById('audienceField').value || 'Audience';
-      const duration = document.getElementById('duration').value || '60';
-      let code = document.getElementById('quizCode').value;
-      if(!code) { code = genRef(); document.getElementById('quizCode').value = code; }
+      const titleEl = document.getElementById('quizTitle');
+      const sectionEl = document.getElementById('sectionField');
 
-      // build description from items (this now includes per-item booking fields)
-      const {description, expected_answer, itemsCount, firstDeadline: bdFirstDeadline} = buildDescription();
+      const title = titleEl ? (titleEl.value || 'QUIZ/EXAM') : 'QUIZ/EXAM';
+      const section = sectionEl ? (sectionEl.value || 'Section') : 'Section';
+      const durationDisplay = '60'; // simple fixed display duration
+      const code = genRef();
+
+      // build description from items
+      const {description, itemsCount} = buildDescription();
 
       // Use the first item's booking origin/destination if available
       const firstItem = collectItems()[0] || null;
-      let repFrom = '---', repTo = '---', firstDeadline = bdFirstDeadline || '';
+      let repFrom = '---', repTo = '---';
       if(firstItem){
         repFrom = (firstItem.booking && firstItem.booking.origin) ? firstItem.booking.origin : (firstItem.iata || '---');
         repTo = (firstItem.booking && firstItem.booking.destination) ? firstItem.booking.destination : (firstItem.city || '---');
-        firstDeadline = firstItem.deadline || firstDeadline;
       }
 
       document.getElementById('bpFrom').textContent = repFrom;
-      document.getElementById('bpFromName').textContent = section;
       document.getElementById('bpTo').textContent = repTo;
-      document.getElementById('bpToName').textContent = audience;
       document.getElementById('bpTitle').textContent = title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
-      document.getElementById('bpDeadline').textContent = firstDeadline || 'Multiple / see description';
+      document.getElementById('bpDeadline').textContent = 'Multiple / see description';
 
       // Meta: items count, duration and class from first item (if available)
       let metaClass = '';
       if(firstItem && firstItem.difficulty) metaClass = firstItem.difficulty;
-      document.getElementById('numQuestions').value = document.getElementById('autoCreateQuestion') && document.getElementById('autoCreateQuestion').checked ? 1 : 0;
-      document.getElementById('bpMeta').textContent = itemsCount + ' Items • ' + duration + ' min' + (metaClass ? ' • ' + metaClass : '');
+      document.getElementById('bpMeta').textContent =
+        itemsCount + ' Items • ' + durationDisplay + ' min' + (metaClass ? ' • ' + metaClass : '');
 
       // Ensure description is readable even when items are empty
       const finalDesc = description || 'Book the indicated destinations.';

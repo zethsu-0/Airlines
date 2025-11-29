@@ -40,7 +40,15 @@ if ($conn->connect_error) {
 
         if ($creator) {
             $creatorQuoted = "`".str_replace("`","``",$creator)."`";
-            $sql = "SELECT id,title,code,COALESCE(deadline,'') AS deadline,COALESCE(num_questions,0) AS num_questions FROM quizzes WHERE $creatorQuoted = ? ORDER BY id DESC";
+            $sql = "SELECT id,
+                        title,
+                        quiz_code AS code,
+                        '' AS deadline,
+                        0 AS num_questions
+                  FROM quizzes
+                  WHERE $creatorQuoted = ?
+                  ORDER BY id DESC";
+
             $stmt = $conn->prepare($sql);
             if ($stmt) {
                 $stmt->bind_param('s', $myAcc);
@@ -180,7 +188,14 @@ if ($conn->connect_error) {
 
         } else {
             $dbError = 'Creator column not detected in quizzes table; showing all quizzes.';
-            $r = $conn->query("SELECT id,title,code,COALESCE(deadline,'') AS deadline,COALESCE(num_questions,0) AS num_questions FROM quizzes ORDER BY id DESC");
+            $r = $conn->query("SELECT id,
+                          title,
+                          quiz_code AS code,
+                          '' AS deadline,
+                          0 AS num_questions
+                   FROM quizzes
+                   ORDER BY id DESC");
+
             if ($r) { while ($row = $r->fetch_assoc()) $quizzes[] = $row; $r->free(); }
             $r = $conn->query("SELECT COUNT(*) AS c FROM students"); if ($r){ $row = $r->fetch_assoc(); $totalStudents = (int)$row['c']; $r->free(); }
             $r = $conn->query("SELECT COUNT(*) AS c FROM quizzes"); if ($r){ $row = $r->fetch_assoc(); $totalCreated = (int)$row['c']; $r->free(); }
@@ -189,7 +204,14 @@ if ($conn->connect_error) {
 
     } else {
         // not signed-in admin: show all quizzes (read-only view)
-        $r = $conn->query("SELECT id,title,code,COALESCE(deadline,'') AS deadline,COALESCE(num_questions,0) AS num_questions FROM quizzes ORDER BY id DESC");
+        $r = $conn->query("SELECT id,
+                          title,
+                          quiz_code AS code,
+                          '' AS deadline,
+                          0 AS num_questions
+                   FROM quizzes
+                   ORDER BY id DESC");
+
         if ($r) { while ($row = $r->fetch_assoc()) $quizzes[] = $row; $r->free(); }
         $r = $conn->query("SELECT COUNT(*) AS c FROM students"); if ($r){ $row = $r->fetch_assoc(); $totalStudents = (int)$row['c']; $r->free(); }
         $r = $conn->query("SELECT COUNT(*) AS c FROM quizzes"); if ($r){ $row = $r->fetch_assoc(); $totalCreated = (int)$row['c']; $r->free(); }
