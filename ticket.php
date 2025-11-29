@@ -10,7 +10,7 @@
   $require_login = true;
   include('config/db_connect.php');
 
-  $studentId = $_SESSION['student_id'] ?? $_SESSION['acc_id'] ?? '';
+  $studentId = (int) ($_SESSION['student_id'] ?? $_SESSION['acc_id']);
 
   $iataData = [];
 
@@ -165,12 +165,16 @@
       $errors['origin'] = 'Origin code is required.';
     } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
       $errors['origin'] = 'Origin must be 3 uppercase letters.';
+    } elseif (!array_key_exists($origin, $iataList)) {
+      $errors['origin'] = 'Unknown origin IATA code.';
     }
 
     if (empty($destination)) {
       $errors['destination'] = 'Destination code is required.';
     } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
       $errors['destination'] = 'Destination must be 3 uppercase letters.';
+    } elseif (!array_key_exists($destination, $iataList)) {
+      $errors['destination'] = 'Unknown destination IATA code.';
     }
 
     if ($origin === $destination && !empty($origin)) {
@@ -347,13 +351,12 @@
   <div class="container">
     <form id="bookingForm" method="POST" action="save_booking.php">
       <!-- Hidden flight inputs -->
-       <input type="hidden" name="acc_id" value="<?php echo htmlspecialchars($studentId); ?>">
-      <input type="hidden" name="quiz_id" value="<?php echo $quizId ? (int)$quizId : 0; ?>">
       <input type="hidden" name="origin" id="booking_origin" value="">
       <input type="hidden" name="destination" id="booking_destination" value="">
       <input type="hidden" name="flight_date" id="booking_flight_date" value="">
       <input type="hidden" name="return_date" id="booking_return_date" value="">
       <input type="hidden" name="flight_type" id="booking_flight_type" value="">
+      <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
       <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
 
       <div id="ticketContainer">
@@ -496,6 +499,14 @@
     initPlainIataInput('origin_autocomplete', 'origin');
     initPlainIataInput('destination_autocomplete', 'destination');
 
+<<<<<<< HEAD
+=======
+    // The rest of your JS is unchanged (ticket clone, seat selection, summary modal, AJAX validation)
+    // For brevity I include the remaining JS functions as in your previous file but kept intact.
+    // Seat option click handler
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
+
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     document.querySelectorAll('.seat-options a').forEach(item => {
       item.addEventListener('click', function (e) {
         e.preventDefault();
@@ -638,12 +649,18 @@
       if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
     }
 
+<<<<<<< HEAD
+=======
+    // fill booking hidden inputs (origin_airline/destination_airline set to City, Country, AirportName)
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     function fillBookingHiddenFlightFields(flight) {
       const bOrigin = document.getElementById('booking_origin');
       const bDestination = document.getElementById('booking_destination');
       const bDate = document.getElementById('booking_flight_date');
       const bReturn = document.getElementById('booking_return_date');
       const bType = document.getElementById('booking_flight_type');
+      const bOriginAir = document.getElementById('booking_origin_airline');
+      const bDestAir = document.getElementById('booking_destination_airline');
 
       const originCode = flight.origin || document.getElementById('origin').value || '';
       const destCode = flight.destination || document.getElementById('destination').value || '';
@@ -657,6 +674,8 @@
       if (bDate) bDate.value = depDate;
       if (bReturn) bReturn.value = retDate;
       if (bType) bType.value = typeVal;
+      if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[originCode]) || '';
+      if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[destCode]) || '';
     }
 
     function buildSummaryAndOpen(flight) {
@@ -680,7 +699,7 @@
         const age = (card.querySelector('input[name="age[]"]') || {}).value || '';
         const type = (card.querySelector('input[name="special[]"]') || {}).value || '';
         const seat = (card.querySelector('input[name="seat[]"]') || {}).value || '';
-        const seatNumber = (card.querySelector('input[name="seat_number[]"]') || {}).value || ''; 
+        const seatNumber = (card.querySelector('input[name="seat_number[]"]') || {}).value || '';
         const genderRadio = card.querySelector('input[type="radio"]:checked');
         const gender = genderRadio ? genderRadio.value : 'Not set';
         const pwdCheckbox = card.querySelector('input[type="checkbox"]');
@@ -747,6 +766,7 @@
       setTimeout(() => bookingForm.submit(), 120);
     });
 
+<<<<<<< HEAD
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
@@ -754,11 +774,15 @@
     }
 
   });
+=======
+  }); // end DOMContentLoaded
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
   </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
 </html>
+<<<<<<< HEAD
 <style>
 .datepicker-date-display{
   display: none !important;
@@ -770,3 +794,5 @@ input.select-dropdown{
   width: 100% !important ;
 }
 </style>
+=======
+>>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c

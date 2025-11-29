@@ -34,8 +34,48 @@ main {
   color: #333;
 }
 
-/* === Carousel Section === */
-/* We leave the carousel intact as requested */
+/* === Carousel / HERO Section ===
+   Fixed: avoid background-attachment:fixed and ensure overlay is behind content
+*/
+.hero-carousel {
+  position: relative;
+  /* split background properties for safer control */
+  background-image: url('assets/island.jpg');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+
+  /* DO NOT use 'fixed' here — it causes painting/slicing artifacts on some browsers */
+  /* background-attachment: scroll;  <-- default behaviour */
+
+  padding: 80px 0;
+  overflow: hidden; /* keep absolutely positioned overlay inside hero */
+  z-index: 0;
+}
+
+/* Overlay sits above the background image but behind text/content */
+.hero-carousel .overlay-bg {
+  position: absolute;
+  inset: 0;                 /* top:0; right:0; bottom:0; left:0; */
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 0;               /* sits above bg but below content */
+  pointer-events: none;     /* allow clicks to pass through to carousel controls */
+}
+
+/* Ensure hero content is above overlay */
+.hero-carousel > .container,
+.hero-carousel h4,
+.hero-carousel .carousel,
+.hero-carousel .destination-card,
+.hero-carousel .reveal-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* If you have elements that use background-image inside cards and you need them grayscaled,
+   scope that explicitly instead of applying global filters. Example (optional):
+.hero-carousel .destination-card img { filter: none; }
+*/
 
 /* === Info Section / Lorem text === */
 .container {
@@ -50,32 +90,38 @@ main {
   line-height: 1.6;
 }
 
-/* === Footer Transparency === */
+/* === Footer Transparency ===
+   Use safe z-index (low) so header (if fixed) stays on top; avoid overly aggressive !important
+*/
 footer.page-footer {
-  background-color: rgba(33, 150, 243, 0.85) !important;
-  color: white !important;
-  width: 100% !important;
-  box-shadow: 0 -2px 5px rgba(0,0,0,0.2) !important;
-  flex-shrink: 0 !important;
-  position: relative !important;
-  z-index: 9999 !important;
+  background-color: rgba(33, 150, 243, 0.85);
+  color: white;
+  width: 100%;
+  box-shadow: 0 -2px 5px rgba(0,0,0,0.2);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5; /* low but above typical page content; keeps footer visible without clobbering header */
 }
 
 footer.page-footer .footer-copyright {
-  background-color: rgba(25, 118, 210, 0.6) !important;
-  text-align: center !important;
-  padding: 10px 0 !important;
-  font-weight: bold !important;
+  background-color: rgba(25, 118, 210, 0.6);
+  text-align: center;
+  padding: 10px 0;
+  font-weight: bold;
 }
 
 /* === Buttons / Branding === */
 .btn.brand {
-  background-color: #2196F3 !important;
-  color: #fff !important;
+  background-color: #2196F3;
+  color: #fff;
   text-transform: uppercase;
 }
 
-
+/* small flatpickr tweak */
 .flatpickr-month .flatpickr-current-month{
   display: flex !important;
 }
+
+
+
+

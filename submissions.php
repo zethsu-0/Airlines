@@ -18,7 +18,7 @@ $quizSql = "
     SELECT quiz_id, deadline, adults, children, infants,
            flight_type, origin, destination,
            departure, return_date, flight_number,
-           seat_number, travel_class, created_at
+           seats, travel_class, created_at
     FROM quiz_items
     WHERE quiz_id = ?
 ";
@@ -44,7 +44,6 @@ echo "Type: " . $quiz['flight_type'] . "<br>";
 echo "From: " . $quiz['origin'] . "<br>";
 echo "To: " . $quiz['destination'] . "<br>";
 echo "Class: " . $quiz['travel_class'] . "<br>";
-echo "Class: " . $quiz['seat_number'] . "<br>";
 echo "<hr>";
 
 // 5) Get submissions for that quiz_id
@@ -58,8 +57,7 @@ $subSql = "
         sf.flight_type,
         sf.origin,
         sf.destination,
-        sf.travel_class,
-        sf.seat_number
+        sf.travel_class
     FROM submitted_flights sf
     WHERE sf.quiz_id = ?
     ORDER BY sf.id
@@ -86,8 +84,7 @@ if ($result->num_rows === 0) {
             $row['flight_type'] === $quiz['flight_type'] &&
             $row['origin'] === $quiz['origin'] &&
             $row['destination'] === $quiz['destination'] &&
-            $row['travel_class'] === $quiz['travel_class'] &&
-            $row['seat_number'] === $quiz['seat_number']
+            $row['travel_class'] === $quiz['travel_class']
         );
 
         echo "Submission ID: " . $row['submission_id'] . "<br>";
@@ -99,8 +96,7 @@ if ($result->num_rows === 0) {
               {$row['infants']} Infants,
               {$row['flight_type']},
               {$row['origin']} → {$row['destination']},
-              {$row['travel_class']},
-              {$row['seat_number']};<br>";
+              {$row['travel_class']}<br>";
 
         echo "Correct:
               {$quiz['adults']} Adults,
@@ -108,8 +104,7 @@ if ($result->num_rows === 0) {
               {$quiz['infants']} Infants,
               {$quiz['flight_type']},
               {$quiz['origin']} → {$quiz['destination']},
-              {$row['travel_class']},
-              {$row['seat_number']};<br>";
+              {$quiz['travel_class']}<br>";
 
         echo "<strong>Result: " . ($is_match ? "MATCH ✅" : "NOT MATCH ❌") . "</strong>";
         echo "<hr>";

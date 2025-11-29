@@ -1,4 +1,9 @@
 <?php
+// students.php (patched to use "admins" table for teacher lookups)
+// Requires: students table (airlines DB) and accounts table (account DB)
+// Note: teachers (admins) are stored in the "admins" table in the accounts DB.
+// Student user accounts are still created/managed in the "accounts" table.
+
 session_start();
 
 // ---------- CONFIG ----------
@@ -15,9 +20,81 @@ $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
 if ($conn->connect_error) die('DB Connection failed: ' . $conn->connect_error);
 $conn->set_charset('utf8mb4');
 
-$acc_conn = new mysqli($db_host, $db_user, $db_pass, $acc_db_name);
-if ($acc_conn->connect_error) die('Accounts DB Connection failed: ' . $acc_conn->connect_error);
-$acc_conn->set_charset('utf8mb4');
+$acc_conn = @new mysqli($db_host, $db_user, $db_pass, $acc_db_name);
+$acc_db_ok = !($acc_conn->connect_error);
+if ($acc_db_ok) $acc_conn->set_charset('utf8mb4');
+
+// ---------- AUTH HELPERS ----------
+// ---------- AUTH HELPERS ----------
+/**
+ * Ensure session is started and map common session keys to the ones this page expects.
+ * Accepts a variety of session keys that your app might set on login so the page
+ * won't incorrectly think the user is logged out.
+ */
+function require_login() {
+    // Make sure session is started
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+
+    // If acc_id already set, consider logged in
+    if (!empty($_SESSION['acc_id'])) return;
+
+    // Try to map other session keys commonly used in different parts of the app
+    $accIdCandidates = ['acc_id','admin_id','user_id','ad_id','account_id','id'];
+    foreach ($accIdCandidates as $c) {
+        if (!empty($_SESSION[$c])) {
+            $_SESSION['acc_id'] = $_SESSION[$c];
+            break;
+        }
+    }
+
+    // Map role-like session keys to acc_role that this page expects
+    $roleCandidates = ['acc_role','role','user_role','admin_role','ad_role'];
+    foreach ($roleCandidates as $r) {
+        if (!empty($_SESSION[$r]) && empty($_SESSION['acc_role'])) {
+            $_SESSION['acc_role'] = $_SESSION[$r];
+            break;
+        }
+    }
+
+    // Also map display name if available
+    if (empty($_SESSION['acc_name'])) {
+        $nameCandidates = ['name','acc_name','username','user_name','admin_name'];
+        foreach ($nameCandidates as $n) {
+            if (!empty($_SESSION[$n])) {
+                $_SESSION['acc_name'] = $_SESSION[$n];
+                break;
+            }
+        }
+    }
+
+    // Final check: if we now have an acc_id we treat user as logged in
+    if (!empty($_SESSION['acc_id'])) return;
+
+    // Otherwise redirect to login page
+    header('Location: login_page.php');
+    exit;
+}
+
+// NOTE: in your app "admin" = teacher, and there's a separate "super_admin" role
+function is_super_admin() {
+    return (isset($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'super_admin');
+}
+function is_admin() {
+    // returns true for teachers (role 'admin')
+    return (isset($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'admin');
+}
+function is_teacher() {
+    // alias for clarity — teacher === admin role in your system
+    return is_admin();
+}
+function current_acc_id() {
+    return $_SESSION['acc_id'] ?? null;
+}
+
+// Protect page
+require_login();
 
 // ---------- HELPERS ----------
 function handle_avatar_upload($input_name, $existing = null) {
@@ -45,12 +122,13 @@ function ensure_unique_acc_id($dbconn, $desired) {
     $candidate = $desired;
     $i = 0;
     $check = $dbconn->prepare("SELECT COUNT(*) FROM accounts WHERE acc_id = ?");
+    if (!$check) return $desired; // fallback if prepare fails
     while (true) {
         $check->bind_param('s', $candidate);
         $check->execute();
         $check->bind_result($cnt);
         $check->fetch();
-        $check->free_result();
+        // no mysqli_stmt::free_result here for COUNT fetch; just reset state
         if ($cnt == 0) break;
         $i++;
         $candidate = $desired . '_' . $i;
@@ -69,6 +147,7 @@ function render_student_row_html($st) {
     $section = htmlspecialchars($st['section'] ?? '', ENT_QUOTES);
     $birthday = $st['birthday'] ? htmlspecialchars($st['birthday'], ENT_QUOTES) : '';
     $sex = $st['sex'] ? htmlspecialchars($st['sex'], ENT_QUOTES) : '';
+    $teacher = $st['teacher_id'] ? htmlspecialchars($st['teacher_id'], ENT_QUOTES) : '';
 
     $avatar = trim((string)($st['avatar'] ?? ''));
     if ($avatar === '' || strtolower($avatar) === 'null') $avatar = 'assets/avatar.png';
@@ -89,6 +168,7 @@ function render_student_row_html($st) {
   <td class="cell-section"><?php echo $section; ?></td>
   <td class="cell-birthday"><?php echo $birthday ?: '&mdash;'; ?></td>
   <td class="cell-sex"><?php echo $sex ?: '&mdash;'; ?></td>
+  <td class="cell-teacher"><?php echo $teacher ?: '&mdash;'; ?></td>
   <td>
     <a class="btn-flat edit-btn tooltipped modal-trigger"
        href="#editStudentModal"
@@ -102,6 +182,7 @@ function render_student_row_html($st) {
        data-avatar="<?php echo $avatar_html; ?>"
        data-birthday="<?php echo $birthday; ?>"
        data-sex="<?php echo $sex; ?>"
+       data-teacher="<?php echo $teacher; ?>"
        data-position="top"
        data-tooltip="Edit">
       <i class="material-icons">edit</i>
@@ -128,19 +209,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthday = trim($_POST['birthday'] ?? '');
         $sex = trim($_POST['sex'] ?? '');
 
+        // determine teacher assignment
+        // Only super_admin can choose which teacher to assign.
+        // Teachers (role 'admin') will have students assigned to themselves.
+        if (is_super_admin()) {
+            $assigned_teacher = trim($_POST['teacher_id'] ?? '') ?: null;
+        } elseif (is_teacher()) {
+            $assigned_teacher = current_acc_id();
+        } else {
+            $assigned_teacher = null;
+        }
+
         $errors = [];
         if ($student_id_val === '') $errors[] = 'Student ID required.';
         if ($last === '') $errors[] = 'Last name required.';
         if ($first === '') $errors[] = 'First name required.';
         if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
-        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Invalid sex selected.';
+        if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
+            // validate teacher exists in the admins table and role = 'admin'
+            $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
+            if ($chk) {
+                $chk->bind_param('s', $assigned_teacher);
+                $chk->execute();
+                $chk->bind_result($roleFound);
+                $ok = $chk->fetch();
+                $chk->close();
+                if (!$ok || $roleFound !== 'admin') $errors[] = 'Assigned teacher is invalid.';
+            } else {
+                $errors[] = 'Accounts DB error while validating teacher.';
+            }
+        }
 
         if (empty($errors)) {
             $avatar = handle_avatar_upload('student_photo', null);
 
             // 1) insert student into airlines DB
-            $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
-            $stmt->bind_param('sssssssss', $student_id_val, $last, $first, $middle, $suffix, $section, $avatar, $birthday, $sex);
+            $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+            if (!$stmt) {
+                $_SESSION['students_errors'] = ['Failed to prepare student insertion.'];
+                header('Location: students.php'); exit;
+            }
+            $stmt->bind_param('ssssssssss', $student_id_val, $last, $first, $middle, $suffix, $section, $avatar, $birthday, $sex, $assigned_teacher);
             $ok = $stmt->execute();
             if (!$ok) {
                 $stmt->close();
@@ -150,37 +259,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $student_row_id = $stmt->insert_id;
             $stmt->close();
 
-            // 2) create account in accounts DB
-            try {
-                $desired_acc_id = $student_id_val;
-                $final_acc_id = ensure_unique_acc_id($acc_conn, $desired_acc_id);
+            // 2) create account in accounts DB (if available) - NOTE: student accounts remain in 'accounts' table
+            if ($acc_db_ok) {
+                try {
+                    $desired_acc_id = $student_id_val;
+                    $final_acc_id = ensure_unique_acc_id($acc_conn, $desired_acc_id);
 
-                $acc_name = trim($first . ' ' . $last);
-                $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
-                $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
-                $acc_role = 'student';
+                    $acc_name = trim($first . ' ' . $last);
+                    $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                    $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                    $acc_role = 'student';
 
-                $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
-                $insAcc->bind_param('ssss', $final_acc_id, $acc_name, $password_hash, $acc_role);
-                $insOk = $insAcc->execute();
-                $insAcc->close();
+                    $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                    if (!$insAcc) {
+                        // rollback student insert to avoid orphan
+                        $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                        $_SESSION['students_errors'] = ['Failed to prepare account insertion in accounts DB. Student insertion rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+                    $insAcc->bind_param('ssss', $final_acc_id, $acc_name, $password_hash, $acc_role);
+                    $insOk = $insAcc->execute();
+                    $insAcc->close();
 
-                if (!$insOk) {
-                    // rollback student insert to avoid orphan
+                    if (!$insOk) {
+                        // rollback student insert to avoid orphan
+                        $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                        $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student insertion rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+
+                    // success — flash one-time account info for admin
+                    $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+
+                    header('Location: students.php'); exit;
+
+                } catch (Exception $e) {
+                    // rollback student
                     $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
-                    $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student insertion rolled back.'];
+                    $_SESSION['students_errors'] = ['Unexpected error while creating account. Student insertion rolled back.'];
                     header('Location: students.php'); exit;
                 }
-
-                // success — flash one-time account info for admin
-                $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
-
-                header('Location: students.php'); exit;
-
-            } catch (Exception $e) {
-                // rollback student
-                $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
-                $_SESSION['students_errors'] = ['Unexpected error while creating account. Student insertion rolled back.'];
+            } else {
+                // accounts DB not available — just finish
                 header('Location: students.php'); exit;
             }
         } else {
@@ -201,12 +321,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthday = trim($_POST['edit_birthday'] ?? '');
         $sex = trim($_POST['edit_sex'] ?? '');
 
+        // only super_admin may change assigned teacher; teachers cannot
+        if (is_super_admin()) {
+            $assigned_teacher = trim($_POST['edit_teacher_id'] ?? '') ?: null;
+        } else if (is_teacher()) {
+            // must verify ownership and force assigned_teacher to current teacher
+            $check = $conn->prepare("SELECT teacher_id FROM students WHERE id = ? LIMIT 1");
+            $check->bind_param('i', $db_id);
+            $check->execute();
+            $check->bind_result($row_teacher);
+            if (!$check->fetch() || $row_teacher !== current_acc_id()) {
+                $check->close();
+                $_SESSION['students_errors'] = ['Unauthorized action.'];
+                header('Location: students.php'); exit;
+            }
+            $check->close();
+            $assigned_teacher = current_acc_id();
+        } else {
+            $assigned_teacher = null;
+        }
+
         $errors = [];
         if ($student_id_val === '') $errors[] = 'Student ID required.';
         if ($last === '') $errors[] = 'Last name required.';
         if ($first === '') $errors[] = 'First name required.';
         if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
-        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Invalid sex selected.';
+        if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
+            // validate teacher exists and role = 'admin' in admins table
+            $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
+            if ($chk) {
+                $chk->bind_param('s', $assigned_teacher);
+                $chk->execute();
+                $chk->bind_result($roleFound);
+                $ok = $chk->fetch();
+                $chk->close();
+                if (!$ok || $roleFound !== 'admin') $errors[] = 'Assigned teacher is invalid.';
+            } else {
+                $errors[] = 'Accounts DB error while validating teacher.';
+            }
+        }
 
         if (empty($errors)) {
             // get current student row (for possible rollback)
@@ -220,9 +373,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
 
-            // update student
-            $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, birthday = ?, sex = ?, updated_at = NOW() WHERE id = ?");
-            $upd->bind_param('sssssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $birthday, $sex, $db_id);
+            // update student (include teacher_id)
+            $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, birthday = ?, sex = ?, teacher_id = ?, updated_at = NOW() WHERE id = ?");
+            $upd->bind_param('ssssssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $birthday, $sex, $assigned_teacher, $db_id);
             $ok = $upd->execute();
             $upd->close();
 
@@ -231,88 +384,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: students.php'); exit;
             }
 
-            // sync account in accounts DB
-            try {
-                $check = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
-                $check->bind_param('s', $old_student_id);
-                $check->execute();
-                $check->bind_result($found_acc);
-                $exists = $check->fetch() ? true : false;
-                $check->close();
+            // sync account in accounts DB (if available) - still using accounts table for students
+            if ($acc_db_ok) {
+                try {
+                    $check = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+                    $check->bind_param('s', $old_student_id);
+                    $check->execute();
+                    $check->bind_result($found_acc);
+                    $exists = $check->fetch() ? true : false;
+                    $check->close();
 
-                if ($exists) {
-                    $final_acc_id = $student_id_val;
-                    if ($old_student_id !== $student_id_val) {
-                        $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
-                    }
-                    if ($birthday !== '') {
-                        $new_hash = password_hash($birthday, PASSWORD_DEFAULT);
+                    if ($exists) {
+                        $final_acc_id = $student_id_val;
+                        if ($old_student_id !== $student_id_val) {
+                            $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                        }
+                        if ($birthday !== '') {
+                            $new_hash = password_hash($birthday, PASSWORD_DEFAULT);
+                        } else {
+                            $gethash = $acc_conn->prepare("SELECT password FROM accounts WHERE acc_id = ? LIMIT 1");
+                            $gethash->bind_param('s', $old_student_id);
+                            $gethash->execute();
+                            $gethash->bind_result($existing_hash);
+                            $gethash->fetch();
+                            $gethash->close();
+                            $new_hash = $existing_hash ?? password_hash(bin2hex(random_bytes(4)), PASSWORD_DEFAULT);
+                        }
+
+                        $new_acc_name = trim($first . ' ' . $last);
+                        $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ?, password = ? WHERE acc_id = ?");
+                        $accUpd->bind_param('ssss', $final_acc_id, $new_acc_name, $new_hash, $old_student_id);
+                        $accOk = $accUpd->execute();
+                        $accUpd->close();
+
+                        if (!$accOk) {
+                            // rollback student update (best-effort)
+                            $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                            $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                            $rb->execute();
+                            $rb->close();
+
+                            $_SESSION['students_errors'] = ['Failed to update account in accounts DB. Student update rolled back.'];
+                            header('Location: students.php'); exit;
+                        }
+
+                        if ($final_acc_id !== $old_student_id) {
+                            $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => ($birthday !== '' ? $birthday : '(password unchanged)')];
+                        } elseif ($birthday !== '') {
+                            $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $birthday];
+                        }
                     } else {
-                        $gethash = $acc_conn->prepare("SELECT password FROM accounts WHERE acc_id = ? LIMIT 1");
-                        $gethash->bind_param('s', $old_student_id);
-                        $gethash->execute();
-                        $gethash->bind_result($existing_hash);
-                        $gethash->fetch();
-                        $gethash->close();
-                        $new_hash = $existing_hash ?? password_hash(bin2hex(random_bytes(4)), PASSWORD_DEFAULT);
+                        // create account because none existed
+                        $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                        $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                        $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                        $acc_role = 'student';
+                        $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                        $insAcc->bind_param('ssss', $final_acc_id, trim($first . ' ' . $last), $password_hash, $acc_role);
+                        $insOk = $insAcc->execute();
+                        $insAcc->close();
+
+                        if (!$insOk) {
+                            // rollback student update
+                            $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                            $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                            $rb->execute();
+                            $rb->close();
+
+                            $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student update rolled back.'];
+                            header('Location: students.php'); exit;
+                        }
+                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
                     }
 
-                    $new_acc_name = trim($first . ' ' . $last);
-                    $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ?, password = ? WHERE acc_id = ?");
-                    $accUpd->bind_param('ssss', $final_acc_id, $new_acc_name, $new_hash, $old_student_id);
-                    $accOk = $accUpd->execute();
-                    $accUpd->close();
+                    header('Location: students.php'); exit;
 
-                    if (!$accOk) {
-                        // rollback student update (best-effort)
-                        $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
-                        $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
-                        $rb->execute();
-                        $rb->close();
+                } catch (Exception $e) {
+                    // rollback student
+                    $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                    $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                    $rb->execute();
+                    $rb->close();
 
-                        $_SESSION['students_errors'] = ['Failed to update account in accounts DB. Student update rolled back.'];
-                        header('Location: students.php'); exit;
-                    }
-
-                    if ($final_acc_id !== $old_student_id) {
-                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => ($birthday !== '' ? $birthday : '(password unchanged)')];
-                    } elseif ($birthday !== '') {
-                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $birthday];
-                    }
-                } else {
-                    // create account because none existed
-                    $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
-                    $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
-                    $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
-                    $acc_role = 'student';
-                    $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
-                    $insAcc->bind_param('ssss', $final_acc_id, trim($first . ' ' . $last), $password_hash, $acc_role);
-                    $insOk = $insAcc->execute();
-                    $insAcc->close();
-
-                    if (!$insOk) {
-                        // rollback student update
-                        $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
-                        $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
-                        $rb->execute();
-                        $rb->close();
-
-                        $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student update rolled back.'];
-                        header('Location: students.php'); exit;
-                    }
-                    $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+                    $_SESSION['students_errors'] = ['Unexpected error while syncing with accounts DB. Student update rolled back.'];
+                    header('Location: students.php'); exit;
                 }
-
-                header('Location: students.php'); exit;
-
-            } catch (Exception $e) {
-                // rollback student
-                $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
-                $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
-                $rb->execute();
-                $rb->close();
-
-                $_SESSION['students_errors'] = ['Unexpected error while syncing with accounts DB. Student update rolled back.'];
+            } else {
                 header('Location: students.php'); exit;
             }
         } else {
@@ -328,54 +485,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $clean = array_map('intval', $ids);
             $in = implode(',', $clean);
 
-            $res = $conn->query("SELECT avatar, student_id FROM students WHERE id IN ($in)");
+            // get affected rows and avatars first (only those allowed for this user)
+            if (is_teacher()) {
+                $teacher_esc = $conn->real_escape_string(current_acc_id());
+                $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in) AND teacher_id = '{$teacher_esc}'");
+            } elseif (is_super_admin()) {
+                // super admin can delete any
+                $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in)");
+            } else {
+                // nobody else may delete
+                $res = false;
+            }
+
+            $accIdsToDelete = [];
             if ($res) {
-                $accIdsToDelete = [];
+                $idsToDelete = [];
                 while ($r = $res->fetch_assoc()) {
+                    $idsToDelete[] = intval($r['id']);
                     if (!empty($r['avatar']) && strpos($r['avatar'], 'uploads/') === 0) {
                         $f = __DIR__ . '/' . $r['avatar'];
                         if (is_file($f)) @unlink($f);
                     }
-                    if (!empty($r['student_id'])) $accIdsToDelete[] = "'" . $acc_conn->real_escape_string($r['student_id']) . "'";
+                    if (!empty($r['student_id'])) $accIdsToDelete[] = "'" . ($acc_db_ok ? $acc_conn->real_escape_string($r['student_id']) : $conn->real_escape_string($r['student_id'])) . "'";
                 }
                 $res->free();
 
-                if (!empty($accIdsToDelete)) {
+                if (!empty($idsToDelete)) {
+                    $in2 = implode(',', $idsToDelete);
+                    $conn->query("DELETE FROM students WHERE id IN ($in2)");
+                }
+
+                if (!empty($accIdsToDelete) && $acc_db_ok) {
                     $accIn = implode(',', $accIdsToDelete);
                     $acc_conn->query("DELETE FROM accounts WHERE acc_id IN ($accIn)");
                 }
             }
-
-            $conn->query("DELETE FROM students WHERE id IN ($in)");
         }
 
         header('Location: students.php'); exit;
     }
 }
 
-// ---------- FETCH students ----------
-$students = [];
-$sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex
-        FROM students
-        ORDER BY COALESCE(NULLIF(section,''),'~'), last_name, first_name";
-$stmt = $conn->prepare($sql);
-$stmt->execute();
-$stmt->bind_result($sid_pk, $sid_val, $nlast, $nfirst, $nmiddle, $nsuffix, $ssection, $savatar, $sbirthday, $ssex);
-while ($stmt->fetch()) {
-    $students[] = [
-        'id' => $sid_pk,
-        'student_id' => $sid_val,
-        'last_name' => $nlast ?? '',
-        'first_name' => $nfirst ?? '',
-        'middle_name' => $nmiddle ?? '',
-        'suffix' => $nsuffix ?? '',
-        'section' => $ssection ?? '',
-        'avatar' => $savatar ?? '',
-        'birthday' => $sbirthday ?? '',
-        'sex' => $ssex ?? ''
-    ];
+// ---------- FETCH teachers list (only for super_admin) ----------
+$teachers_list = [];
+// only super_admin should be allowed to assign teachers
+if (is_super_admin() && $acc_db_ok) {
+    // teachers (admins) are stored in the "admins" table with role = 'admin'
+    $r = $acc_conn->query("SELECT acc_id, name FROM admins WHERE role = 'admin' ORDER BY name");
+    if ($r) {
+        while ($row = $r->fetch_assoc()) $teachers_list[] = $row;
+        $r->free();
+    }
 }
-$stmt->close();
+
+// ---------- FETCH students (super_admin sees all; teacher sees only their students) ----------
+$students = [];
+if (is_super_admin()) {
+    $sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id FROM students ORDER BY COALESCE(NULLIF(section,''),'~'), last_name, first_name";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+} else if (is_teacher()) {
+    $teacher = current_acc_id();
+    $sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id FROM students WHERE teacher_id = ? ORDER BY last_name, first_name";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param('s', $teacher);
+    $stmt->execute();
+} else {
+    $students = [];
+    $stmt = null;
+}
+
+if ($stmt) {
+    $stmt->bind_result($sid_pk, $sid_val, $nlast, $nfirst, $nmiddle, $nsuffix, $ssection, $savatar, $sbirthday, $ssex, $steacher);
+    while ($stmt->fetch()) {
+        $students[] = [
+            'id' => $sid_pk,
+            'student_id' => $sid_val,
+            'last_name' => $nlast ?? '',
+            'first_name' => $nfirst ?? '',
+            'middle_name' => $nmiddle ?? '',
+            'suffix' => $nsuffix ?? '',
+            'section' => $ssection ?? '',
+            'avatar' => $savatar ?? '',
+            'birthday' => $sbirthday ?? '',
+            'sex' => $ssex ?? '',
+            'teacher_id' => $steacher ?? ''
+        ];
+    }
+    $stmt->close();
+}
 
 // normalize avatars
 foreach ($students as &$s) {
@@ -503,6 +701,7 @@ unset($_SESSION['account_info']);
               <th>Section</th>
               <th>Birthday</th>
               <th>Sex</th>
+              <th>Teacher</th>
               <th style="width:120px;">Edit</th>
             </tr>
           </thead>
@@ -547,6 +746,18 @@ unset($_SESSION['account_info']);
         <label for="sex">Sex</label>
       </div>
 
+      <?php if (is_super_admin()): ?>
+      <div class="input-field">
+        <select name="teacher_id" id="teacherSelect">
+          <option value="">Unassigned</option>
+          <?php foreach ($teachers_list as $t): ?>
+            <option value="<?php echo htmlspecialchars($t['acc_id']); ?>"><?php echo htmlspecialchars($t['name']); ?></option>
+          <?php endforeach; ?>
+        </select>
+        <label>Assign Teacher</label>
+      </div>
+      <?php endif; ?>
+
       <div class="right-align"><button class="btn blue" type="submit">Add</button></div>
     </form>
   </div>
@@ -583,6 +794,18 @@ unset($_SESSION['account_info']);
         </select>
         <label for="editSex">Sex</label>
       </div>
+
+      <?php if (is_super_admin()): ?>
+      <div class="input-field">
+        <select name="edit_teacher_id" id="editTeacherSelect">
+          <option value="">Unassigned</option>
+          <?php foreach ($teachers_list as $t): ?>
+            <option value="<?php echo htmlspecialchars($t['acc_id']); ?>"><?php echo htmlspecialchars($t['name']); ?></option>
+          <?php endforeach; ?>
+        </select>
+        <label>Assign Teacher</label>
+      </div>
+      <?php endif; ?>
 
       <div class="confirm-row"><label><input type="checkbox" id="editConfirmCheckbox"><span>I confirm I want to save these changes</span></label></div>
 
@@ -627,6 +850,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var b = btn.getAttribute('data-birthday') || '';
     var s = btn.getAttribute('data-sex') || '';
+    var t = btn.getAttribute('data-teacher') || '';
+
     document.getElementById('editBirthday').value = b;
 
     var editSexEl = document.getElementById('editSex');
@@ -634,6 +859,13 @@ document.addEventListener('DOMContentLoaded', function() {
       editSexEl.value = s;
       try { M.FormSelect.getInstance(editSexEl)?.destroy(); } catch(e){}
       try { M.FormSelect.init(editSexEl); } catch(e){}
+    }
+
+    var editTeacherEl = document.getElementById('editTeacherSelect');
+    if (editTeacherEl) {
+      editTeacherEl.value = t;
+      try { M.FormSelect.getInstance(editTeacherEl)?.destroy(); } catch(e){}
+      try { M.FormSelect.init(editTeacherEl); } catch(e){}
     }
 
     M.updateTextFields();
@@ -722,6 +954,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <?php
 // close accounts connection when script ends
-$acc_conn->close();
-$conn->close();
+if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
+if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
