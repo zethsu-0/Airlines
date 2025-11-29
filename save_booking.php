@@ -150,17 +150,30 @@ if ($passengerCount > 0) {
         $travel_class = '';
     }
 }
+// seat numbers: convert array -> single string for DB storage
+$seats_number = $_POST['seat_number'] ?? [];
 
-/* -------------------------
-   INSERT into submitted_flights ONLY
-   Columns:
-   (id, quiz_id, acc_id, adults, children, infants, flight_type,
-    origin, destination, departure, return_date, flight_number, seats, travel_class)
---------------------------*/
+if (!is_array($seats_number)) {
+    $seats_number = [$seats_number]; // just in case it's a single value
+}
+
+// Clean + uppercase each seat value
+$clean_seats = [];
+foreach ($seats_number as $sn) {
+    $sn = strtoupper(clean($sn));
+    if ($sn !== '') {
+        $clean_seats[] = $sn;
+    }
+}
+
+// Final value saved into DB (e.g. "12A,12B,13C")
+$seat_number = implode(',', $clean_seats);
+
+
 $stmt = $mysqli->prepare("
     INSERT INTO submitted_flights
         (quiz_id, acc_id, adults, children, infants, flight_type,
-         origin, destination, departure, return_date, flight_number, seats, travel_class)
+         origin, destination, departure, return_date, seat_number, travel_class)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 if (!$stmt) {
@@ -171,29 +184,37 @@ if (!$stmt) {
 //        flight_type(s), origin(s), destination(s), departure(s),
 //        return_date(s), flight_number(s), seats(i), travel_class(s)
 if (!$stmt->bind_param(
-    "isiiissssssis",
-    $quiz_id,
-    $acc_id,
-    $adults,
-    $children,
-    $infants,
-    $flight_type,
-    $origin,
-    $destination,
-    $departure,
-    $return_date,
-    $flight_number,
-    $seats,
-    $travel_class
+    "isiiissssssss",
+    $quiz_id,       // i
+    $acc_id,        // s
+    $adults,        // i
+    $children,      // i
+    $infants,       // i
+    $flight_type,   // s
+    $origin,        // s
+    $destination,   // s
+    $departure,     // s
+    $return_date,   // s
+    $seat_number,   // s
+    $travel_class   // s
 )) {
     die("Bind failed: " . htmlspecialchars($stmt->error));
 }
+printf("quiz_id=%d, acc_id='%s'\n", $quiz_id, $acc_id);
+var_dump([
+    $quiz_id, $acc_id, $adults, $children, $infants,
+    $flight_type, $origin, $destination, $departure,
+    $return_date, $seat_number, $travel_class
+]);
 
 if (!$stmt->execute()) {
     die("Execute failed: " . htmlspecialchars($stmt->error));
+} else {
+    echo "Inserted acc_id = " . htmlspecialchars($acc_id);
 }
 
 $stmt->close();
 
 echo "<h3>Flight submission saved to submitted_flights!</h3>";
 echo "<p><a href=\"ticket.php?id=" . htmlspecialchars($quiz_id) . "\">Back to ticket</a></p>";
+

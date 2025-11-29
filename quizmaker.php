@@ -463,7 +463,7 @@ function collectItems(){
     const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
     const seats = seatsEl ? (seatsEl.value || '') : '';
     const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
-    const flightType = flightTypeEl ? (flightTypeEl.value || 'oneway') : 'oneway';
+    const flightType = flightTypeEl ? (flightTypeEl.value || 'ONE-WAY') : 'ONE-WAY';
 
     items.push({
       iata: uc(origin),
@@ -504,10 +504,10 @@ function buildDescription(){
     const destination = b.destination || it.city || '---';
 
     // FLIGHT TYPE
-    const typeLabel = b.flight_type === 'roundtrip' ? 'round-trip' : 'one-way';
+    const typeLabel = b.flight_type === 'roundtrip' ? 'TWO-WAY' : 'ONE-WAY';
 
     // CLASS
-    const classLabel = (b.travel_class || 'economy');
+    const classLabel = (b.travel_class || 'ECONOMY');
 
     // Build readable sentence per item
     let sentence = '';

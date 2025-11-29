@@ -189,16 +189,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors['origin'] = 'Origin code is required.';
   } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
     $errors['origin'] = 'Origin must be 3 uppercase letters.';
-  } elseif (!array_key_exists($origin, $iataList)) {
-    $errors['origin'] = 'Unknown origin IATA code.';
   }
 
   if (empty($destination)) {
     $errors['destination'] = 'Destination code is required.';
   } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
     $errors['destination'] = 'Destination must be 3 uppercase letters.';
-  } elseif (!array_key_exists($destination, $iataList)) {
-    $errors['destination'] = 'Unknown destination IATA code.';
   }
 
   if ($origin === $destination && !empty($origin)) {
@@ -374,7 +370,7 @@ $flight = [
 
   <div class="container">
     <form id="bookingForm" method="POST" action="save_booking.php">
-      <!-- Hidden flight inputs -->
+      <input type="hidden" name="quiz_id" value="<?php echo htmlspecialchars($quizId); ?>">
       <input type="hidden" name="origin" id="booking_origin" value="">
       <input type="hidden" name="destination" id="booking_destination" value="">
       <input type="hidden" name="flight_date" id="booking_flight_date" value="">
