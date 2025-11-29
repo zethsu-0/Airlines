@@ -15,7 +15,7 @@ if ($conn->connect_error) {
 
 // 3) Get quiz_items row using quiz_id
 $quizSql = "
-    SELECT quiz_id, deadline, adults, children, infants,
+    SELECT quiz_id , adults, children, infants,
            flight_type, origin, destination,
            departure, return_date, flight_number,
            seats, travel_class, created_at

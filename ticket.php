@@ -1,243 +1,267 @@
 <?php
-  // ticket.php (ready-to-paste)
-  session_start();
+// ticket.php
+session_start();
 
-  if (empty($_SESSION['acc_id'])) {
-      header('Location: index.php');
-      exit;
+if (empty($_SESSION['acc_id'])) {
+    header('Location: index.php');
+    exit;
+}
+
+$require_login = true;
+include('config/db_connect.php');
+
+$studentId = (int) ($_SESSION['student_id'] ?? $_SESSION['acc_id']);
+
+$iataData = [];
+
+$sql = "SELECT IATACode, AirportName, City, CountryRegion FROM airports ORDER BY IATACode ASC";
+if ($result = $conn->query($sql)) {
+  while ($row = $result->fetch_assoc()) {
+    $code = isset($row['IATACode']) ? trim($row['IATACode']) : '';
+    if ($code === '') continue;
+    $iataData[] = [
+      'code'    => $code,
+      'name'    => $row['AirportName'] ?? '',
+      'city'    => $row['City'] ?? '',
+      'country' => $row['CountryRegion'] ?? ''
+    ];
   }
+  $result->free();
+} else {
+  echo "<!-- IATA load error: " . htmlspecialchars($conn->error) . " -->";
+}
 
-  $require_login = true;
-  include('config/db_connect.php');
-
-  $studentId = (int) ($_SESSION['student_id'] ?? $_SESSION['acc_id']);
-
-  $iataData = [];
-
-  $sql = "SELECT IATACode, AirportName, City, CountryRegion FROM airports ORDER BY IATACode ASC";
-  if ($result = $conn->query($sql)) {
-    while ($row = $result->fetch_assoc()) {
-      $code = isset($row['IATACode']) ? trim($row['IATACode']) : '';
-      if ($code === '') continue;
-      $iataData[] = [
-        'code'    => $code,
-        'name'    => $row['AirportName'] ?? '',
-        'city'    => $row['City'] ?? '',
-        'country' => $row['CountryRegion'] ?? ''
-      ];
-    }
-    $result->free();
-  } else {
-    echo "<!-- IATA load error: " . htmlspecialchars($conn->error) . " -->";
+$iataList = [];
+$iataMap  = [];
+foreach ($iataData as $it) {
+  if (!empty($it['code'])) {
+    $iataList[$it['code']] = $it['name'];
+    $iataMap[$it['code']]  = [
+      'name'    => $it['name'],
+      'city'    => $it['city'],
+      'country' => $it['country']
+    ];
   }
+}
 
-  $iataList = [];
-  $iataMap  = [];
-  foreach ($iataData as $it) {
-    if (!empty($it['code'])) {
-      $iataList[$it['code']] = $it['name'];
-      $iataMap[$it['code']]  = ['name' => $it['name'], 'city' => $it['city'], 'country' => $it['country']];
-    }
-  }
-
-  function format_airport_display($code, $iataMap) {
+function format_airport_display($code, $iataMap) {
   $code = trim(strtoupper((string)$code));
   if ($code === '') return '';
   $parts = [];
-  if (!empty($iataMap[$code]['city'])) $parts[] = trim($iataMap[$code]['city']);
+  if (!empty($iataMap[$code]['city']))    $parts[] = trim($iataMap[$code]['city']);
   if (!empty($iataMap[$code]['country'])) $parts[] = trim($iataMap[$code]['country']);
-  if (!empty($iataMap[$code]['name'])) $parts[] = trim($iataMap[$code]['name']);
+  if (!empty($iataMap[$code]['name']))    $parts[] = trim($iataMap[$code]['name']);
   if (count($parts) > 0) return implode(', ', $parts);
   return $code;
 }
 
-  $quizId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
-  $descObj = null;
-  $quiz = null;
-  if ($quizId > 0) {
-    $qStmt = $conn->prepare("SELECT id, title, section, audience, duration, quiz_code AS code FROM quizzes WHERE id = ?");
-    if ($qStmt) {
-      $qStmt->bind_param('i', $quizId);
-      $qStmt->execute();
-      $qres = $qStmt->get_result();
-      $quiz = $qres->fetch_assoc();
-      $qStmt->close();
+$quizId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+$descObj = null;
+$quiz = null;
+
+if ($quizId > 0) {
+  // Use `from` / `to` as section / audience, and quiz_code as code
+  $qStmt = $conn->prepare("
+    SELECT id,
+           title,
+           `from` AS section,
+           `to`   AS audience,
+           duration,
+           quiz_code AS code
+    FROM quizzes
+    WHERE id = ?
+  ");
+  if ($qStmt) {
+    $qStmt->bind_param('i', $quizId);
+    $qStmt->execute();
+    $qres = $qStmt->get_result();
+    $quiz = $qres->fetch_assoc();
+    $qStmt->close();
+  }
+
+  if ($quiz) {
+    $items = [];
+
+    // Match the quiz_items structure we used in save_quiz.php
+    // origin_iata, destination_iata, departure_date, return_date, etc.
+    $itemSql = "
+      SELECT
+        id,
+        adults,
+        children,
+        infants,
+        flight_type,
+        origin_iata      AS origin,
+        destination_iata AS destination,
+        departure_date   AS departure,
+        return_date,
+        flight_number,
+        seats,
+        travel_class
+      FROM quiz_items
+      WHERE quiz_id = ?
+      ORDER BY id ASC
+    ";
+    $stmt = $conn->prepare($itemSql);
+    if ($stmt) {
+      $stmt->bind_param('i', $quizId);
+      $stmt->execute();
+      $res = $stmt->get_result();
+      while ($r = $res->fetch_assoc()) {
+        $r['adults']   = isset($r['adults'])   ? (int)$r['adults']   : 0;
+        $r['children'] = isset($r['children']) ? (int)$r['children'] : 0;
+        $r['infants']  = isset($r['infants'])  ? (int)$r['infants']  : 0;
+        $items[] = $r;
+      }
+      $stmt->close();
     }
-    if ($quiz) {
-      $items = [];
-      $itemSql = "SELECT id, deadline, adults, children, infants, flight_type, origin, destination, departure, return_date, flight_number, seats, travel_class
-                  FROM quiz_items WHERE quiz_id = ? ORDER BY id ASC";
-      $stmt = $conn->prepare($itemSql);
-      if ($stmt) {
-        $stmt->bind_param('i', $quizId);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        while ($r = $res->fetch_assoc()) {
-          $r['adults'] = isset($r['adults']) ? intval($r['adults']) : 0;
-          $r['children'] = isset($r['children']) ? intval($r['children']) : 0;
-          $r['infants'] = isset($r['infants']) ? intval($r['infants']) : 0;
-          $items[] = $r;
-        }
-        $stmt->close();
+
+    $parts = [];
+    $firstDestination = null;
+
+    foreach ($items as $idx => $it) {
+      $personParts = [];
+      if (!empty($it['adults']))   $personParts[] = $it['adults']   . ($it['adults']   === 1 ? ' adult'  : ' adults');
+      if (!empty($it['children'])) $personParts[] = $it['children'] . ($it['children'] === 1 ? ' child'  : ' children');
+      if (!empty($it['infants']))  $personParts[] = $it['infants']  . ($it['infants']  === 1 ? ' infant' : ' infants');
+      $personStr = count($personParts) ? implode(', ', $personParts) : '';
+
+      $orgCode = strtoupper(trim($it['origin'] ?? ''));
+      $dstCode = strtoupper(trim($it['destination'] ?? ''));
+      $orgReadable = $orgCode ? format_airport_display($orgCode, $iataMap) : '---';
+      $dstReadable = $dstCode ? format_airport_display($dstCode, $iataMap) : '---';
+
+      $typeLabel  = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
+      $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
+
+      $sentence = '';
+      if ($personStr) $sentence .= $personStr . ' ';
+      $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
+
+      $parts[] = $sentence;
+
+      if ($idx === 0) {
+        $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
       }
+    }
 
-      $parts = [];
-      $firstDeadlineRaw = '';
-      $firstDestination = null;
-
-      foreach ($items as $idx => $it) {
-        $personParts = [];
-        if (!empty($it['adults'])) $personParts[] = $it['adults'] . ($it['adults'] === 1 ? ' adult' : ' adults');
-        if (!empty($it['children'])) $personParts[] = $it['children'] . ($it['children'] === 1 ? ' child' : ' children');
-        if (!empty($it['infants'])) $personParts[] = $it['infants'] . ($it['infants'] === 1 ? ' infant' : ' infants');
-        $personStr = count($personParts) ? implode(', ', $personParts) : '';
-
-        $orgCode = strtoupper(trim($it['origin'] ?? ''));
-        $dstCode = strtoupper(trim($it['destination'] ?? ''));
-        $orgReadable = $orgCode ? format_airport_display($orgCode, $iataMap) : '---';
-        $dstReadable = $dstCode ? format_airport_display($dstCode, $iataMap) : '---';
-
-        $typeLabel = ($it['flight_type'] === 'roundtrip') ? 'round-trip' : 'one-way';
-        $classLabel = $it['travel_class'] ? $it['travel_class'] : 'economy';
-
-        $sentence = '';
-        if ($personStr) $sentence .= $personStr . ' ';
-        $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
-
-        $parts[] = $sentence;
-
-        if ($idx === 0) {
-          $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
-        }
-
-        if (empty($firstDeadlineRaw) && !empty($it['deadline'])) {
-          $firstDeadlineRaw = $it['deadline'];
-        }
-      }
-
-      if (count($parts) === 1) {
-        $desc = 'Book ' . $parts[0] . '.';
-      } elseif (count($parts) > 1) {
-        $sentences = array_map(function($p){ return $p . '.'; }, $parts);
-        $desc = 'Book the following flights: ' . implode(' ', $sentences);
-      } else {
-        $desc = 'Book the indicated destinations.';
-      }
-
-      if (!empty($quiz['duration'])) {
-        $desc .= ' Duration: ' . intval($quiz['duration']) . ' minutes.';
-      }
-
-      $firstDeadlineFmt = '';
-      if (!empty($firstDeadlineRaw)) {
-        $ts = strtotime($firstDeadlineRaw);
-        if ($ts !== false) $firstDeadlineFmt = date('M j, Y \@ H:i', $ts);
-        else $firstDeadlineFmt = $firstDeadlineRaw;
-      }
-
-      $descObj = [
-        'description'     => $desc,
-        'expected_answer' => $firstDestination ?: null,
-        'itemsCount'      => count($items),
-        'firstDeadline'   => $firstDeadlineFmt
-      ];
+    if (count($parts) === 1) {
+      $desc = 'Book ' . $parts[0] . '.';
+    } elseif (count($parts) > 1) {
+      $sentences = array_map(function($p){ return $p . '.'; }, $parts);
+      $desc = 'Book the following flights: ' . implode(' ', $sentences);
     } else {
-      http_response_code(404);
-      echo "Quiz not found or you do not have access to it.";
-      exit;
+      $desc = 'Book the indicated destinations.';
+    }
+
+    if (!empty($quiz['duration'])) {
+      $desc .= ' Duration: ' . (int)$quiz['duration'] . ' minutes.';
+    }
+
+    // No dedicated deadline column in quiz_items now, so leave firstDeadline empty.
+    $descObj = [
+      'description'     => $desc,
+      'expected_answer' => $firstDestination ?: null,
+      'itemsCount'      => count($items),
+      'firstDeadline'   => '' // kept key for compatibility
+    ];
+  } else {
+    http_response_code(404);
+    echo "Quiz not found or you do not have access to it.";
+    exit;
+  }
+}
+
+// POST values
+$origin       = strtoupper(trim($_POST['origin'] ?? ''));
+$destination  = strtoupper(trim($_POST['destination'] ?? ''));
+$flight_date  = trim($_POST['flight_date'] ?? '');
+$flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';   // ONE-WAY / TWO-WAY
+$return_date  = trim($_POST['return_date'] ?? '');
+$errors       = [];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  if (!isset($_SESSION['acc_id'])) {
+    $errors['login'] = 'You must be logged in to submit a flight.';
+  }
+
+  if (empty($origin)) {
+    $errors['origin'] = 'Origin code is required.';
+  } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
+    $errors['origin'] = 'Origin must be 3 uppercase letters.';
+  } elseif (!array_key_exists($origin, $iataList)) {
+    $errors['origin'] = 'Unknown origin IATA code.';
+  }
+
+  if (empty($destination)) {
+    $errors['destination'] = 'Destination code is required.';
+  } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
+    $errors['destination'] = 'Destination must be 3 uppercase letters.';
+  } elseif (!array_key_exists($destination, $iataList)) {
+    $errors['destination'] = 'Unknown destination IATA code.';
+  }
+
+  if ($origin === $destination && !empty($origin)) {
+    $errors['destination'] = 'Destination code cannot be the same as origin.';
+  }
+
+  if (empty($flight_date)) {
+    $errors['flight_date'] = 'Departure date is required.';
+  } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+    $errors['flight_date'] = 'Invalid date format.';
+  } else {
+    $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+    if (!$d || $d->format('Y-m-d') !== $flight_date) {
+      $errors['flight_date'] = 'Invalid date.';
     }
   }
 
-  // POST values
-  $origin       = strtoupper(trim($_POST['origin'] ?? ''));
-  $destination  = strtoupper(trim($_POST['destination'] ?? ''));
-  $flight_date  = trim($_POST['flight_date'] ?? '');
-  $flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';   // ONE-WAY / TWO-WAY
-  $return_date  = trim($_POST['return_date'] ?? '');
-  $errors       = [];
-
-  if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_SESSION['acc_id'])) {
-      $errors['login'] = 'You must be logged in to submit a flight.';
-    }
-
-    if (empty($origin)) {
-      $errors['origin'] = 'Origin code is required.';
-    } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
-      $errors['origin'] = 'Origin must be 3 uppercase letters.';
-    } elseif (!array_key_exists($origin, $iataList)) {
-      $errors['origin'] = 'Unknown origin IATA code.';
-    }
-
-    if (empty($destination)) {
-      $errors['destination'] = 'Destination code is required.';
-    } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
-      $errors['destination'] = 'Destination must be 3 uppercase letters.';
-    } elseif (!array_key_exists($destination, $iataList)) {
-      $errors['destination'] = 'Unknown destination IATA code.';
-    }
-
-    if ($origin === $destination && !empty($origin)) {
-      $errors['destination'] = 'Destination code cannot be the same as origin.';
-    }
-
-    if (empty($flight_date)) {
-      $errors['flight_date'] = 'Departure date is required.';
-    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-      $errors['flight_date'] = 'Invalid date format.';
+  if ($flight_type !== 'TWO-WAY') {
+    $return_date = '';
+  } else {
+    if (empty($return_date)) {
+      $errors['return_date'] = 'Return date is required for two-way flights.';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
+      $errors['return_date'] = 'Invalid return date format.';
     } else {
-      $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-      if (!$d || $d->format('Y-m-d') !== $flight_date) {
-        $errors['flight_date'] = 'Invalid date.';
-      }
-    }
-
-    // If not two-way, ignore any return date sent
-    if ($flight_type !== 'TWO-WAY') {
-      $return_date = '';
-    } else {
-      if (empty($return_date)) {
-        $errors['return_date'] = 'Return date is required for two-way flights.';
-      } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
-        $errors['return_date'] = 'Invalid return date format.';
+      $r = DateTime::createFromFormat('Y-m-d', $return_date);
+      if (!$r || $r->format('Y-m-d') !== $return_date) {
+        $errors['return_date'] = 'Invalid return date.';
       } else {
-        $r = DateTime::createFromFormat('Y-m-d', $return_date);
-        if (!$r || $r->format('Y-m-d') !== $return_date) {
-          $errors['return_date'] = 'Invalid return date.';
-        } else {
-          $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-          if ($d && $r < $d) {
-            $errors['return_date'] = 'Return date cannot be before departure date.';
-          }
+        $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+        if ($d && $r < $d) {
+          $errors['return_date'] = 'Return date cannot be before departure date.';
         }
       }
     }
-
-    if (!empty($_POST['ajax_validate'])) {
-      header('Content-Type: application/json; charset=utf-8');
-      echo json_encode([
-        'ok'     => empty($errors),
-        'errors' => $errors,
-        'flight' => [
-          'origin'       => $origin,
-          'destination'  => $destination,
-          'flight_date'  => $flight_date,
-          'return_date'  => $return_date,
-          'flight_type'  => $flight_type
-        ]
-      ]);
-      exit;
-    }
   }
 
-  $flight = [
-    'origin_code'      => htmlspecialchars($origin),
-    'destination_code' => htmlspecialchars($destination),
-    'flight_date'      => htmlspecialchars($flight_date),
-    'return_date'      => htmlspecialchars($return_date),
-    'flight_type'      => htmlspecialchars($flight_type)
-  ];
+  if (!empty($_POST['ajax_validate'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+      'ok'     => empty($errors),
+      'errors' => $errors,
+      'flight' => [
+        'origin'       => $origin,
+        'destination'  => $destination,
+        'flight_date'  => $flight_date,
+        'return_date'  => $return_date,
+        'flight_type'  => $flight_type
+      ]
+    ]);
+    exit;
+  }
+}
+
+$flight = [
+  'origin_code'      => htmlspecialchars($origin),
+  'destination_code' => htmlspecialchars($destination),
+  'flight_date'      => htmlspecialchars($flight_date),
+  'return_date'      => htmlspecialchars($return_date),
+  'flight_type'      => htmlspecialchars($flight_type)
+];
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
   <?php include('templates/header.php'); ?>
@@ -499,14 +523,11 @@
     initPlainIataInput('origin_autocomplete', 'origin');
     initPlainIataInput('destination_autocomplete', 'destination');
 
-<<<<<<< HEAD
-=======
     // The rest of your JS is unchanged (ticket clone, seat selection, summary modal, AJAX validation)
     // For brevity I include the remaining JS functions as in your previous file but kept intact.
     // Seat option click handler
     function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
 
->>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     document.querySelectorAll('.seat-options a').forEach(item => {
       item.addEventListener('click', function (e) {
         e.preventDefault();
@@ -649,10 +670,6 @@
       if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
     }
 
-<<<<<<< HEAD
-=======
-    // fill booking hidden inputs (origin_airline/destination_airline set to City, Country, AirportName)
->>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
     function fillBookingHiddenFlightFields(flight) {
       const bOrigin = document.getElementById('booking_origin');
       const bDestination = document.getElementById('booking_destination');
@@ -766,7 +783,6 @@
       setTimeout(() => bookingForm.submit(), 120);
     });
 
-<<<<<<< HEAD
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
@@ -774,15 +790,11 @@
     }
 
   });
-=======
-  }); // end DOMContentLoaded
->>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
   </script>
 
 <?php include('templates/footer.php'); ?>
 </body>
 </html>
-<<<<<<< HEAD
 <style>
 .datepicker-date-display{
   display: none !important;
@@ -794,5 +806,3 @@ input.select-dropdown{
   width: 100% !important ;
 }
 </style>
-=======
->>>>>>> 655e36bba64237c00f6cf4ed3a372a89095d746c
