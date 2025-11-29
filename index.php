@@ -1,15 +1,8 @@
 <?php
-// index.php (optimized)
-// DEV: Save this file as UTF-8 without BOM.
-
+// index.php - cleaned: profile card links to students_edit.php, edit modal removed
 session_start();
 
-// Clear last booking (if any)
-if (!empty($_SESSION['flight_id'])) {
-    unset($_SESSION['flight_id']);
-}
-
-// Simple CSRF token (optional but recommended)
+// Simple CSRF token (kept for other forms)
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
 }
@@ -18,254 +11,106 @@ if (empty($_SESSION['csrf_token'])) {
 $dbHost = 'localhost';
 $dbUser = 'root';
 $dbPass = '';
-$dbName = 'airlines';
+$dbName = 'airlines';    // airlines DB (students table)
+$accountDbName = 'account'; // account DB (accounts table)
 
-// Create mysqli connection with exceptions for clearer errors
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-try {
-    $conn = new mysqli($dbHost, $dbUser, $dbPass, $dbName);
-    $conn->set_charset('utf8mb4');
-} catch (mysqli_sql_exception $e) {
-    // In production, don't echo the exception message
-    http_response_code(500);
-    echo 'Database connection error.';
-    exit;
-}
-
-// Helper: clean input
-function post_trim_upper(string $key): string {
-    $v = $_POST[$key] ?? '';
-    return strtoupper(trim((string)$v));
-}
-function post_trim(string $key): string {
-    return trim((string)($_POST[$key] ?? ''));
-}
-
-$origin = post_trim_upper('origin');
-$destination = post_trim_upper('destination');
-$flight_date = post_trim('flight_date');
-$errors = [];
-
-// Handle submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['form_submit'])) {
-    // Optional CSRF check (uncomment to enforce)
-    // if (!hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'] ?? '')) {
-    //     $errors['general'] = 'Invalid request (CSRF).';
-    // }
-
-    // must be logged in
-    if (empty($_SESSION['acc_id'])) {
-        $errors['login'] = 'You must be logged in to submit a flight.';
-    }
-
-    // Validate IATA codes (3 uppercase letters)
-    $iataPattern = '/^[A-Z]{3}$/';
-    if ($origin === '') {
-        $errors['origin'] = 'Origin code is required.';
-    } elseif (!preg_match($iataPattern, $origin)) {
-        $errors['origin'] = 'Origin must be 3 uppercase letters.';
-    }
-
-    if ($destination === '') {
-        $errors['destination'] = 'Destination code is required.';
-    } elseif (!preg_match($iataPattern, $destination)) {
-        $errors['destination'] = 'Destination must be 3 uppercase letters.';
-    }
-
-    if ($origin !== '' && $destination !== '' && $origin === $destination) {
-        $errors['destination'] = 'Destination code cannot be the same as origin.';
-    }
-
-    // Validate date using DateTime (YYYY-MM-DD)
-    if ($flight_date === '') {
-        $errors['flight_date'] = 'Departure date is required.';
-    } else {
-        $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-        $validDate = $d && $d->format('Y-m-d') === $flight_date;
-        if (!$validDate) {
-            $errors['flight_date'] = 'Invalid date format.';
-        }
-    }
-
-    // If valid, perform DB lookups + insert
-    if (empty($errors)) {
-        try {
-            // Prepare a single statement to fetch AirportName by IATACode
-            $selectStmt = $conn->prepare("SELECT AirportName FROM airports WHERE IATACode = ? LIMIT 1");
-
-            $origin_airline = "Invalid code ($origin)";
-            $destination_airline = "Invalid code ($destination)";
-
-            // Lookup origin
-            $selectStmt->bind_param('s', $origin);
-            $selectStmt->execute();
-            $res = $selectStmt->get_result();
-            if ($row = $res->fetch_assoc()) {
-                $origin_airline = $row['AirportName'];
-            }
-            $res->free();
-
-            // Lookup destination
-            $selectStmt->bind_param('s', $destination);
-            $selectStmt->execute();
-            $res = $selectStmt->get_result();
-            if ($row = $res->fetch_assoc()) {
-                $destination_airline = $row['AirportName'];
-            }
-            $res->free();
-            $selectStmt->close();
-
-            // Insert the submission using prepared statement
-            $ins = $conn->prepare("INSERT INTO submitted_flights (origin_code, origin_airline, destination_code, destination_airline, flight_date) VALUES (?, ?, ?, ?, ?)");
-            $ins->bind_param('sssss', $origin, $origin_airline, $destination, $destination_airline, $flight_date);
-            $ins->execute();
-
-            $last_id = $ins->insert_id;
-            $ins->close();
-
-            // Store last booking and redirect
-            $_SESSION['flight_id'] = $last_id;
-            // safe redirect
-            header('Location: ticket.php?id=' . urlencode((string)$last_id));
-            $conn->close();
-            exit;
-        } catch (mysqli_sql_exception $e) {
-            // Log $e->getMessage() to server logs in production
-            $errors['general'] = 'Database error. Please try again later.';
-        }
-    }
-}
-
-// Close connection at the end of the script (if not already closed)
-$conn->close();
+// Default avatar fallback
+$default_avatar = 'assets/avatar.png';
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <?php include('templates/header.php'); ?>
 <body>
-  <!-- Hero Section -->
-  <section class="center-align">
-    <img src="assets/island2.jpg" alt="Island" class="responsive-img">
-  </section>
+<?php
+// Show flash messages if any (set by students_edit.php)
+if (!empty($_SESSION['flash_success'])): ?>
+  <script>document.addEventListener('DOMContentLoaded', function(){ M.toast({ html: <?php echo json_encode($_SESSION['flash_success']); ?> }); });</script>
+  <?php unset($_SESSION['flash_success']); endif; ?>
 
-  <!-- Booking Form Card -->
-  <div class="bg-container container center">
-    <form id="flightForm" action="index.php" method="POST" autocomplete="off" class="card" novalidate>
-      <!-- CSRF token (optional) -->
-      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token'] ?? '', ENT_QUOTES); ?>">
-      <div class="row">
-        <div class="col s3 md3">
-          <div class="input-field">
-            <i class="material-icons prefix">flight_takeoff</i>
-            <input type="text" name="origin" class="center" id="origin" value="<?php echo htmlspecialchars($origin, ENT_QUOTES); ?>">
-            <div class="red-text"><?php echo htmlspecialchars($errors['origin'] ?? '', ENT_QUOTES); ?></div>
-            <label for="origin">ORIGIN</label>
-          </div>
-        </div>
+<?php if (!empty($_SESSION['flash_error'])): ?>
+  <script>document.addEventListener('DOMContentLoaded', function(){ M.toast({ html: <?php echo json_encode($_SESSION['flash_error']); ?> }); });</script>
+  <?php unset($_SESSION['flash_error']); endif; ?>
 
-        <div class="col s3 md3">
-          <div class="input-field">
-            <i class="material-icons prefix">flight_land</i>
-            <input type="text" name="destination" class="center" id="destination" value="<?php echo htmlspecialchars($destination, ENT_QUOTES); ?>">
-            <div class="red-text"><?php echo htmlspecialchars($errors['destination'] ?? '', ENT_QUOTES); ?></div>
-            <label for="destination">DESTINATION</label>
-          </div>
-        </div>
+<!-- Hero Section (image) -->
+<section class="center-align">
+  <img src="assets/island2.jpg" alt="Island" class="responsive-img">
+</section>
 
-        <div class="col s3 md3">
-          <div class="center">
-            <div class="input-field">
-              <i class="material-icons prefix">calendar_today</i>
-              <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date, ENT_QUOTES); ?>" readonly>
-              <label for="flight-date">DEPARTURE</label>
-              <div class="red-text"><?php echo htmlspecialchars($errors['flight_date'] ?? '', ENT_QUOTES); ?></div>
-            </div>
-          </div>
-        </div>
+<div class="container">
+  <h3 class="center-align">May gagawin dito diko lang alam ano</h3>
+  <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
+  tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+  quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+  consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+  cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+  proident, sunt in culpa qui officia deserunt mollit anim id est laborum.Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
+  tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+  quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+  consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+  cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+  proident, sunt in culpa qui officia deserunt mollit anim id est laborum.Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
+  tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
+  quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+  consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+  cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
+  proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+</div>
 
-        <div class="col s3 md3 submitbtn">
-          <div class="center">
-            <input type="button" id="submitBtn" name="form_submit" value="Submit" class="btn brand z-depth-0">
-          </div>
-        </div>
-      </div>
-      <div class="red-text center"><?php echo htmlspecialchars($errors['general'] ?? '', ENT_QUOTES); ?></div>
-    </form>
-  </div>
+<!-- Carousel Section -->
+<section class="hero-carousel" style="background-image: url('assets/island.jpg');">
+  <div class="overlay-bg">
+    <div class="container">
+      <h4 class="center-align white-text">Places, You🫵 wanna to Visit</h4>
 
-  <!-- Carousel Section -->
-  <section class="hero-carousel" style="background-image: url('assets/island.jpg');">
-    <div class="overlay-bg">
-      <div class="container">
-        <h4 class="center-align white-text">Places, You🫵 wanna to Visit</h4>
+      <div class="carousel">
+        <!-- Destination Cards -->
+        <?php
+        $destinations = [
+          ["Philippines", "Boracay Island", "assets/tourist/boracay.jpg"],
+          ["Singapore", "Marina Bay Sands", "assets/tourist/singapore.jpg"],
+          ["Malaysia", "Petronas Towers, Kuala Lumpur", "assets/tourist/malaysia.jpg"],
+          ["Thailand", "Phuket Island", "assets/tourist/thailand.jpg"],
+          ["Vietnam", "Ha Long Bay", "assets/tourist/vietnam.jpg"],
+          ["Indonesia", "Bali", "assets/tourist/indonesia.jpg"],
+          ["Brunei", "Omar Ali Saifuddien Mosque", "assets/tourist/brunei.jpg"],
+          ["Cambodia", "Angkor Wat", "assets/tourist/cambodia.jpg"],
+          ["Laos", "Luang Prabang", "assets/tourist/laos.jpg"],
+          ["Myanmar", "Bagan Temples", "assets/tourist/myanmar.jpg"],
+          ["Timor-Leste", "Cristo Rei, Dili", "assets/tourist/timor_leste.jpg"],
+          ["Japan", "Tokyo Tower", "assets/tourist/japan.jpg"],
+          ["Taiwan", "Taipei 101", "assets/tourist/taiwan.jpg"],
+          ["Hong Kong", "Disney Land", "assets/tourist/hong_kong.jpg"]
+        ];
 
-        <div class="carousel">
-          <!-- Destination Cards -->
-          <?php
-          $destinations = [
-            ["Philippines", "Boracay Island", "assets/tourist/boracay.jpg"],
-            ["Singapore", "Marina Bay Sands", "assets/tourist/singapore.jpg"],
-            ["Malaysia", "Petronas Towers, Kuala Lumpur", "assets/tourist/malaysia.jpg"],
-            ["Thailand", "Phuket Island", "assets/tourist/thailand.jpg"],
-            ["Vietnam", "Ha Long Bay", "assets/tourist/vietnam.jpg"],
-            ["Indonesia", "Bali", "assets/tourist/indonesia.jpg"],
-            ["Brunei", "Omar Ali Saifuddien Mosque", "assets/tourist/brunei.jpg"],
-            ["Cambodia", "Angkor Wat", "assets/tourist/cambodia.jpg"],
-            ["Laos", "Luang Prabang", "assets/tourist/laos.jpg"],
-            ["Myanmar", "Bagan Temples", "assets/tourist/myanmar.jpg"],
-            ["Timor-Leste", "Cristo Rei, Dili", "assets/tourist/timor_leste.jpg"],
-            ["Japan", "Tokyo Tower", "assets/tourist/japan.jpg"],
-            ["Taiwan", "Taipei 101", "assets/tourist/taiwan.jpg"],
-            ["Hong Kong", "Disney Land", "assets/tourist/hong_kong.jpg"]
-          ];
-
-          foreach ($destinations as $dest) : ?>
-            <div class="carousel-item">
-              <div class="destination-card">
-                <img src="<?php echo htmlspecialchars($dest[2], ENT_QUOTES); ?>" alt="<?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?>">
-                <div class="country-label"><?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?></div>
-                <div class="card-reveal-overlay">
-                  <div class="reveal-content">
-                    <div class="card-title"><?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?> <span class="close-reveal">✕</span></div>
-                    <p><strong>Location:</strong> <?php echo htmlspecialchars($dest[1], ENT_QUOTES); ?></p>
-                  </div>
+        foreach ($destinations as $dest) : ?>
+          <div class="carousel-item">
+            <div class="destination-card">
+              <img src="<?php echo htmlspecialchars($dest[2], ENT_QUOTES); ?>" alt="<?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?>">
+              <div class="country-label"><?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?></div>
+              <div class="card-reveal-overlay">
+                <div class="reveal-content">
+                  <div class="card-title"><?php echo htmlspecialchars($dest[0], ENT_QUOTES); ?> <span class="close-reveal">✕</span></div>
+                  <p><strong>Location:</strong> <?php echo htmlspecialchars($dest[1], ENT_QUOTES); ?></p>
                 </div>
               </div>
             </div>
-          <?php endforeach; ?>
+          </div>
+        <?php endforeach; ?>
 
-        </div>
       </div>
     </div>
-  </section>
-
-  <!-- Confirmation Modal -->
-  <div id="confirmModal" class="modal">
-    <div class="modal-content center">
-      <h5>Confirm Submission</h5>
-      <p>Are you sure you want to submit this flight?</p>
-    </div>
-    <div class="modal-footer center">
-      <button class="modal-close btn-flat red-text" id="cancelBtn">Cancel</button>
-      <button type="button" class="btn green" id="confirmBtn">Confirm</button>
-    </div>
   </div>
-
-  <!-- Info Section -->
-  <div class="container">
-    <h6>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat...</h6>
-  </div>
+</section>
 
 <?php include('templates/footer.php'); ?>
 
 <!-- Materialize + Page scripts -->
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  // CACHE DOM
+  // Init carousel(s)
   const carouselElems = document.querySelectorAll('.carousel');
   M.Carousel.init(carouselElems, { indicators: false, dist: -50, padding: 20 });
 
-  // safely get instance only for first carousel (if present)
   const carouselElement = document.querySelector('.carousel');
   const carouselInstance = carouselElement ? M.Carousel.getInstance(carouselElement) || M.Carousel.init(carouselElement) : null;
   const items = carouselElement ? Array.from(carouselElement.querySelectorAll('.carousel-item')) : [];
@@ -287,7 +132,6 @@ document.addEventListener('DOMContentLoaded', function () {
           e.stopPropagation();
           hideAll();
           carouselInstance.set(idx);
-          // small delay to allow carousel to center
           setTimeout(() => overlay?.classList.add('active'), 400);
         }, { passive: true });
       }
@@ -324,85 +168,29 @@ document.addEventListener('DOMContentLoaded', function () {
       }, { passive: true });
     });
   }
-
-  // DATE PICKER
-  const dateElems = document.querySelectorAll('.datepicker');
-  M.Datepicker.init(dateElems, { format: 'yyyy-mm-dd', autoClose: true, minDate: new Date() });
-
-  // MODAL + FORM SUBMIT
-  const modalEl = document.querySelector('#confirmModal');
-  const modalInst = modalEl ? M.Modal.getInstance(modalEl) || M.Modal.init(modalEl) : null;
-  const form = document.getElementById('flightForm');
-  const submitBtn = document.getElementById('submitBtn');
-  const confirmBtn = document.getElementById('confirmBtn');
-
-  function setText(node, text) { if (node) node.textContent = text; }
-
-  function validateForm() {
-    // Use cached nodes
-    const originInput = document.getElementById('origin');
-    const destinationInput = document.getElementById('destination');
-    const dateInput = document.getElementById('flight-date');
-
-    // guard
-    if (!originInput || !destinationInput || !dateInput) return false;
-
-    const originErr = originInput.nextElementSibling;
-    const destinationErr = destinationInput.nextElementSibling;
-    const dateErr = dateInput.nextElementSibling;
-
-    setText(originErr, '');
-    setText(destinationErr, '');
-    setText(dateErr, '');
-
-    let valid = true;
-    const origin = originInput.value.trim().toUpperCase();
-    const destination = destinationInput.value.trim().toUpperCase();
-    const flightDate = dateInput.value.trim();
-
-    if (!origin) { setText(originErr, 'Origin code is required.'); valid = false; }
-    else if (!/^[A-Z]{3}$/.test(origin)) { setText(originErr, 'Origin must be 3 uppercase letters.'); valid = false; }
-
-    if (!destination) { setText(destinationErr, 'Destination code is required.'); valid = false; }
-    else if (!/^[A-Z]{3}$/.test(destination)) { setText(destinationErr, 'Destination must be 3 uppercase letters.'); valid = false; }
-
-    if (origin && destination && origin === destination) { setText(destinationErr, 'Destination cannot be the same as origin.'); valid = false; }
-
-    if (!flightDate) { setText(dateErr, 'Departure date is required.'); valid = false; }
-
-    return valid;
-  }
-
-  if (submitBtn) {
-    submitBtn.addEventListener('click', function (e) {
-      e.preventDefault();
-      // require login client-side (nav updated on login). Still validated server-side.
-      if (!document.getElementById('userMenu')) {
-        M.toast({ html: 'Please log in to continue.' });
-        return;
-      }
-      if (validateForm() && modalInst) modalInst.open();
-    });
-  }
-
-  if (confirmBtn && form && modalInst) {
-    confirmBtn.addEventListener('click', function () {
-      // ensure only one hidden marker input exists
-      const existing = form.querySelector('input[name="form_submit"]');
-      if (existing) existing.remove();
-
-      const hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      hidden.name = 'form_submit';
-      hidden.value = 'true';
-      form.appendChild(hidden);
-
-      modalInst.close();
-      // Use native submit to avoid duplicate behavior
-      form.submit();
-    });
-  }
 });
+
+(function () {
+  // If Materialize modal exists, use it. Otherwise fall back to navigating to login.php.
+  document.addEventListener('click', function (ev) {
+    const el = ev.target.closest && ev.target.closest('#indexLoginBtn');
+    if (!el) return;
+    ev.preventDefault();
+
+    // If a login modal is present in the DOM, open it via Materialize.
+    const modalEl = document.getElementById('loginModal');
+    if (modalEl && window.M && M.Modal) {
+      let inst = M.Modal.getInstance(modalEl);
+      if (!inst) inst = M.Modal.init(modalEl);
+      try { inst.open(); } catch (err) { console.warn('Modal open error', err); window.location.href = 'login.php'; }
+      return;
+    }
+
+    // fallback: go to the login.php page (works if you've replaced login.php with the dual-mode file).
+    window.location.href = 'login.php';
+  }, { passive: false });
+})();
+
 </script>
 
 <script>
@@ -515,11 +303,10 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 
 <style>
-  .datepicker-date-display { display: none; }
-  .datepicker-modal { width: 344px; border-radius: 20px; color: blue; }
-  .datepicker-cancel, .datepicker-done { color: blue !important; }
-  .datepicker-controls .select-month { width: 90px !important; }
-  select.datepicker-select { display: none !important; }
+  /* removed datepicker styles - kept minimal */
+  .card-reveal-overlay { display:none; }
+  .card-reveal-overlay.active { display:block; }
+  .destination-card img { width:100%; height:180px; object-fit:cover; border-radius:8px; }
 </style>
 </body>
 </html>
