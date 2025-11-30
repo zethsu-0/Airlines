@@ -198,6 +198,78 @@ $allowed_sex = ['', 'M', 'F', 'Other'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+    // RESET PASSWORD to Birthday (separate safe action)
+    if (!empty($_POST['action']) && $_POST['action'] === 'reset_password') {
+        $db_id = intval($_POST['db_id'] ?? 0);
+
+        // load student row
+        $q = $conn->prepare("SELECT student_id, birthday FROM students WHERE id = ? LIMIT 1");
+        if (!$q) {
+            $_SESSION['students_errors'] = ['Database error while locating student.'];
+            header('Location: students.php'); exit;
+        }
+        $q->bind_param('i', $db_id);
+        $q->execute();
+        $q->bind_result($stu_acc_id, $stu_birthday);
+        $found = $q->fetch();
+        $q->close();
+
+        if (!$found) {
+            $_SESSION['students_errors'] = ['Student record not found.'];
+            header('Location: students.php'); exit;
+        }
+
+        // require accounts DB available
+        if (!$acc_db_ok) {
+            $_SESSION['students_errors'] = ['Accounts database not available. Cannot reset password.'];
+            header('Location: students.php'); exit;
+        }
+
+        // require a non-empty birthday
+        $stu_birthday = trim((string)$stu_birthday);
+        if ($stu_birthday === '') {
+            $_SESSION['students_errors'] = ['Cannot reset password: student has no birthday recorded.'];
+            header('Location: students.php'); exit;
+        }
+
+        // ensure account exists
+        $chk = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+        if (!$chk) {
+            $_SESSION['students_errors'] = ['Accounts DB error.'];
+            header('Location: students.php'); exit;
+        }
+        $chk->bind_param('s', $stu_acc_id);
+        $chk->execute();
+        $chk->bind_result($exists_acc);
+        $exists = $chk->fetch() ? true : false;
+        $chk->close();
+
+        if (!$exists) {
+            $_SESSION['students_errors'] = ['Account not found for this student (cannot reset).'];
+            header('Location: students.php'); exit;
+        }
+
+        // perform reset: set password to the birthday string (YYYY-MM-DD)
+        $new_hash = password_hash($stu_birthday, PASSWORD_DEFAULT);
+        $upd = $acc_conn->prepare("UPDATE accounts SET password = ? WHERE acc_id = ?");
+        if (!$upd) {
+            $_SESSION['students_errors'] = ['Failed to prepare password update.'];
+            header('Location: students.php'); exit;
+        }
+        $upd->bind_param('ss', $new_hash, $stu_acc_id);
+        $ok = $upd->execute();
+        $upd->close();
+
+        if (!$ok) {
+            $_SESSION['students_errors'] = ['Failed to update account password.'];
+            header('Location: students.php'); exit;
+        }
+
+        // success — show the new password (birthday) once
+        $_SESSION['account_info'] = ['acc_id' => $stu_acc_id, 'password' => $stu_birthday];
+        header('Location: students.php'); exit;
+    }
+
     // ADD student
     if (!empty($_POST['action']) && $_POST['action'] === 'add_student') {
         $last = trim($_POST['last_name'] ?? '');
@@ -809,6 +881,21 @@ unset($_SESSION['account_info']);
 
       <div class="confirm-row"><label><input type="checkbox" id="editConfirmCheckbox"><span>I confirm I want to save these changes</span></label></div>
 
+      <div style="margin-top:12px;" class="divider"></div>
+
+      <!-- Reset password to birthday: protected by explicit enable checkbox -->
+      <div style="margin-top:12px;">
+        <label><input type="checkbox" id="enableResetCheckbox"><span>Enable password reset</span></label>
+        <div style="margin-top:8px;">
+          <form method="post" id="resetPwdForm" style="display:inline;">
+            <input type="hidden" name="action" value="reset_password">
+            <input type="hidden" id="reset_db_id" name="db_id" value="">
+            <button type="submit" id="resetPwdBtn" class="btn red" disabled>Reset password to birthday</button>
+          </form>
+          <div style="margin-top:6px;"><small class="grey-text">This will set the student's account password to their birthday (YYYY-MM-DD). Only use when necessary.</small></div>
+        </div>
+      </div>
+
       <div class="right-align" style="margin-top:12px;"><button class="btn blue" type="submit" id="saveEditBtn" disabled>Save</button></div>
     </form>
   </div>
@@ -871,6 +958,15 @@ document.addEventListener('DOMContentLoaded', function() {
     M.updateTextFields();
     document.getElementById('editConfirmCheckbox').checked = false;
     document.getElementById('saveEditBtn').disabled = true;
+
+    // reset-control initial state
+    var resetDbInput = document.getElementById('reset_db_id');
+    if (resetDbInput) resetDbInput.value = dbId;
+    var enReset = document.getElementById('enableResetCheckbox');
+    if (enReset) enReset.checked = false;
+    var resetBtn = document.getElementById('resetPwdBtn');
+    if (resetBtn) resetBtn.disabled = true;
+
     M.Modal.getInstance(document.getElementById('editStudentModal')).open();
     setTimeout(function(){ try{ document.getElementById('editFirstName').focus(); }catch(e){} }, 200);
   }
@@ -910,6 +1006,34 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.getElementById('deleteConfirmCheckbox').addEventListener('change', function(){ document.getElementById('confirmDeleteBtn').disabled = !this.checked; });
   document.getElementById('deleteConfirmForm').addEventListener('submit', function(e){ if (!document.getElementById('deleteConfirmCheckbox').checked) { e.preventDefault(); M.toast({html:'Please confirm before deleting.'}); return; } });
+
+  // enable/disable reset button
+  var enableResetCheckbox = document.getElementById('enableResetCheckbox');
+  var resetPwdBtn = document.getElementById('resetPwdBtn');
+  if (enableResetCheckbox && resetPwdBtn) {
+    enableResetCheckbox.addEventListener('change', function() {
+      resetPwdBtn.disabled = !this.checked;
+    });
+  }
+
+  var resetForm = document.getElementById('resetPwdForm');
+  if (resetForm) {
+    resetForm.addEventListener('submit', function(e) {
+      if (!document.getElementById('enableResetCheckbox').checked) {
+        e.preventDefault();
+        M.toast({html: 'Please check the enable box to reset password.'});
+        return;
+      }
+      // quick client-side check: ensure editBirthday field has a value
+      var birthdayField = document.getElementById('editBirthday');
+      if (!birthdayField || (birthdayField.value || '').trim() === '') {
+        e.preventDefault();
+        M.toast({html: 'Cannot reset password: student has no birthday recorded in the edit form.'});
+        return;
+      }
+      // allow submit; server will perform authoritative checks
+    });
+  }
 
   var headers = document.querySelectorAll('.section-header');
   var COLL_KEY = 'students_sections_collapsed_v1';
