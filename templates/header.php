@@ -149,7 +149,7 @@
     </a>
 
     <ul class="right hide-on-med-and-down" id="nav-right">
-      <li><a class="btn wave-effect wave-light blue" href="ticket.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
+      <li><a class="btn wave-effect wave-light blue" href="takequiz.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
 
       <?php
       // ensure session is active

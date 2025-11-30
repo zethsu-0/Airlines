@@ -48,20 +48,34 @@ if (!is_logged_in()) {
 }
 
 // ---------------------------------------------
-// User is logged in: proceed to load quizzes
+// User is logged in: detect which session key holds the account ID (VARCHAR)
 // ---------------------------------------------
 
-// Determine current student ID from session (try common keys)
-$studentId = null;
-if (!empty($_SESSION['student_id'])) {
-    $studentId = (int)$_SESSION['student_id'];
-} elseif (!empty($_SESSION['user_id'])) {
-    $studentId = (int)$_SESSION['user_id'];
-} elseif (!empty($_SESSION['user']['id'])) {
-    $studentId = (int)$_SESSION['user']['id'];
-} elseif (!empty($_SESSION['acc_id'])) {
-    $studentId = (int)$_SESSION['acc_id'];
+$currentAccId   = null;   // string ID that should match submitted_flights.acc_id
+$currentAccKey  = null;
+
+$sessionCandidates = [
+    'acc_id'     => $_SESSION['acc_id']         ?? null,
+    'student_id' => $_SESSION['student_id']     ?? null,
+    'user_id'    => $_SESSION['user_id']        ?? null,
+    'user.id'    => $_SESSION['user']['id']     ?? null,
+];
+
+// pick the FIRST non-empty value (don't cast to int; acc_id is VARCHAR)
+foreach ($sessionCandidates as $key => $val) {
+    if ($val !== null && $val !== '') {
+        $currentAccId  = (string)$val;
+        $currentAccKey = $key;
+        break;
+    }
 }
+
+// debug: show all candidate values so you can see what's actually set
+echo "<!-- DEBUG session IDs: ";
+foreach ($sessionCandidates as $k => $v) {
+    echo $k . '=' . htmlspecialchars((string)$v) . ' ';
+}
+echo "| chosen_key=" . htmlspecialchars((string)$currentAccKey) . " chosen_id=" . htmlspecialchars((string)$currentAccId) . " -->\n";
 
 // DB connection
 $host = 'localhost';
@@ -76,38 +90,11 @@ if ($conn->connect_error) {
 $conn->set_charset('utf8mb4');
 
 // ---------------------------------------------
-// Detect columns in submitted_flights (quiz + student)
-// ---------------------------------------------
-$sfQuizCol = null;
-$sfStuCol  = null;
-
-$sfCols = [];
-$sfRes = $conn->query("SHOW COLUMNS FROM `submitted_flights`");
-if ($sfRes) {
-    while ($sc = $sfRes->fetch_assoc()) {
-        $sfCols[] = $sc['Field'];
-    }
-    $sfRes->free();
-}
-
-// candidate quiz id columns
-foreach (['quiz_id','quizid','quiz','exam_id','test_id'] as $cand) {
-    if (in_array($cand, $sfCols, true)) { $sfQuizCol = $cand; break; }
-}
-// candidate student/account columns
-foreach (['acc_id','student_id','user_id','account_id','submitted_by','submitted_acc','sid'] as $cand) {
-    if (in_array($cand, $sfCols, true)) { $sfStuCol = $cand; break; }
-}
-
-// ---------------------------------------------
-// Build main query
+// Build main query – submitted_flights has quiz_id + acc_id (both VARCHAR-compatible)
 // ---------------------------------------------
 $quizzes = [];
 
-if ($sfQuizCol && $sfStuCol && $studentId) {
-    // Normal path: submitted_flights exists and we know quiz + student columns.
-    $quizColSafe = '`' . str_replace('`','``',$sfQuizCol) . '`';
-    $stuColSafe  = '`' . str_replace('`','``',$sfStuCol) . '`';
+if ($currentAccId !== null && $currentAccId !== '') {
 
     $sql = "
       SELECT
@@ -116,14 +103,18 @@ if ($sfQuizCol && $sfStuCol && $studentId) {
         q.quiz_code AS code,
         '' AS deadline,
         COALESCE(q.duration, 0) AS duration,
-        CASE WHEN COUNT(sf.$stuColSafe) > 0 THEN 1 ELSE NULL END AS submitted_at,
-        CASE WHEN COUNT(sf.$stuColSafe) > 0 THEN ? ELSE NULL END AS submitted_by,
+
+        -- mark as submitted if any row exists
+        COUNT(sf.id) AS submission_count,
+        MIN(sf.submitted_at) AS submitted_at,
+
         COUNT(DISTINCT qi.id) AS num_items
       FROM quizzes q
-      LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+      LEFT JOIN quiz_items qi 
+        ON qi.quiz_id = q.id
       LEFT JOIN submitted_flights sf
-        ON sf.$quizColSafe = q.id
-       AND sf.$stuColSafe = ?
+        ON sf.quiz_id = q.id
+       AND sf.acc_id = ?
       GROUP BY q.id
       ORDER BY q.created_at DESC
     ";
@@ -132,8 +123,8 @@ if ($sfQuizCol && $sfStuCol && $studentId) {
     if (!$stmt) {
         die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
     }
-    // bind same studentId twice (for submitted_by and JOIN condition)
-    $stmt->bind_param('ii', $studentId, $studentId);
+    // acc_id is VARCHAR → bind as string
+    $stmt->bind_param('s', $currentAccId);
     $stmt->execute();
     $res = $stmt->get_result();
     while ($row = $res->fetch_assoc()) {
@@ -141,9 +132,22 @@ if ($sfQuizCol && $sfStuCol && $studentId) {
     }
     $stmt->close();
 
+    // extra debug: which quiz_ids this ID has actually submitted
+    $dbg = $conn->prepare("SELECT DISTINCT quiz_id FROM submitted_flights WHERE acc_id = ?");
+    if ($dbg) {
+        $dbg->bind_param('s', $currentAccId);
+        $dbg->execute();
+        $dbgRes = $dbg->get_result();
+        $ids = [];
+        while ($r = $dbgRes->fetch_assoc()) {
+            $ids[] = $r['quiz_id'];
+        }
+        $dbg->close();
+        echo "<!-- DEBUG quiz_ids in submitted_flights for acc_id '{$currentAccId}': " . htmlspecialchars(implode(',', $ids)) . " -->\n";
+    }
+
 } else {
-    // Fallback: no submitted_flights or we couldn't detect columns.
-    // Show quizzes without submission status (all as not submitted).
+    // No usable ID found in session: still show quizzes but all as not submitted
     $sql = "
       SELECT
         q.id AS quiz_id,
@@ -151,8 +155,8 @@ if ($sfQuizCol && $sfStuCol && $studentId) {
         q.quiz_code AS code,
         '' AS deadline,
         COALESCE(q.duration, 0) AS duration,
+        0 AS submission_count,
         NULL AS submitted_at,
-        NULL AS submitted_by,
         COUNT(DISTINCT qi.id) AS num_items
       FROM quizzes q
       LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
@@ -173,7 +177,9 @@ if ($sfQuizCol && $sfStuCol && $studentId) {
 $total = count($quizzes);
 $submittedCount = 0;
 foreach ($quizzes as $q) {
-    if (!empty($q['submitted_at'])) $submittedCount++;
+    if (!empty($q['submission_count']) && (int)$q['submission_count'] > 0) {
+        $submittedCount++;
+    }
 }
 $notSubmitted = $total - $submittedCount;
 
@@ -215,11 +221,11 @@ function h($s){ return htmlspecialchars((string)$s); }
               <div class="center" style="padding:28px;color:#555">No quizzes available yet.</div>
             <?php else: ?>
               <?php foreach ($quizzes as $q):
-                  $isSubmitted = !empty($q['submitted_at']);
-                  // num_questions might not exist in schema — default to 0
-                  $numQuestions = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
-                  $duration = isset($q['duration']) ? (int)$q['duration'] : 0;
-                  $numItems = isset($q['num_items']) ? (int)$q['num_items'] : 0;
+                  $submissionCount = isset($q['submission_count']) ? (int)$q['submission_count'] : 0;
+                  $isSubmitted     = $submissionCount > 0;
+                  $numQuestions    = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
+                  $duration        = isset($q['duration']) ? (int)$q['duration'] : 0;
+                  $numItems        = isset($q['num_items']) ? (int)$q['num_items'] : 0;
               ?>
               <div class="quiz-row">
                 <div class="quiz-code">
@@ -230,14 +236,18 @@ function h($s){ return htmlspecialchars((string)$s); }
                 <div style="flex:1">
                   <div class="quiz-title"><?php echo h($q['title']); ?></div>
                   <div class="small-note">
-                    <?php echo h($numQuestions); ?> question<?php echo $numQuestions == 1 ? '' : 's'; ?>  ?>
+                    <?php echo h($numQuestions); ?> question<?php echo $numQuestions == 1 ? '' : 's'; ?>
                   </div>
                 </div>
 
                 <div style="min-width:180px; text-align:right">
                   <?php if ($isSubmitted): ?>
                     <div style="color:green; font-weight:700">Submitted</div>
-                    <div class="small-note">on <?php echo h(date('M j, Y H:i', strtotime($q['submitted_at']))); ?></div>
+                    <?php if (!empty($q['submitted_at'])): ?>
+                      <div class="small-note">on <?php echo h(date('M j, Y H:i', strtotime($q['submitted_at']))); ?></div>
+                    <?php else: ?>
+                      <div class="small-note">&nbsp;</div>
+                    <?php endif; ?>
                     <div style="margin-top:8px">
                       <a class="btn-flat" href="ticket.php?id=<?php echo urlencode($q['quiz_id']); ?>">View</a>
                     </div>
