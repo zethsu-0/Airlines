@@ -135,7 +135,10 @@
     color: purple;
   }
   
-
+  /* header profile small avatar */
+  .hdr-profile { display:flex; align-items:center; gap:8px; }
+  .hdr-profile img { width:28px; height:28px; border-radius:50%; object-fit:cover; border:2px solid rgba(255,255,255,0.15); }
+  .hdr-profile .name { font-weight:500; color:inherit; white-space:nowrap; }
 </style>
 </head>
 
@@ -146,19 +149,53 @@
     </a>
 
     <ul class="right hide-on-med-and-down" id="nav-right">
-      <li><a class="btn wave-effect wave-light blue" href="ticket.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
+      <li><a class="btn wave-effect wave-light blue" href="takequiz.php"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a></li>
 
-      <?php if (!empty($_SESSION['acc_id'])): ?>
-        <!-- Logged-in view -->
-        <li id="userMenu">
-          <a class="waves-effect waves-light" href="index.php">
-            <i class="material-icons left">account_circle</i>
-            <?php echo htmlspecialchars($_SESSION['acc_name']); ?>
+      <?php
+      // ensure session is active
+      if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+
+      // default avatar
+      $default_avatar = 'assets/avatar.png';
+
+      if (!empty($_SESSION['acc_id'])):
+        // show compact header link to students_edit.php (avatar + name)
+        $acc_id = (string)$_SESSION['acc_id'];
+        $acc_name = $_SESSION['acc_name'] ?? 'Student';
+        $avatar = $default_avatar;
+
+        // try to fetch avatar from airlines.students (student_id)
+        try {
+          $dbHost = 'localhost'; $dbUser = 'root'; $dbPass = '';
+          $conn = new mysqli($dbHost, $dbUser, $dbPass, 'airlines');
+          $conn->set_charset('utf8mb4');
+          $stmt = $conn->prepare("SELECT avatar FROM students WHERE student_id = ? LIMIT 1");
+          if ($stmt) {
+            $stmt->bind_param('s', $acc_id);
+            $stmt->execute();
+            $r = $stmt->get_result();
+            if ($row = $r->fetch_assoc()) {
+              if (!empty($row['avatar'])) $avatar = $row['avatar'];
+            }
+            $stmt->close();
+          }
+          $conn->close();
+        } catch (Exception $e) {
+          // ignore DB errors, fall back to default avatar
+        }
+
+        // sanitize
+        $acc_name_html = htmlspecialchars($acc_name, ENT_QUOTES);
+        $avatar_html = htmlspecialchars($avatar, ENT_QUOTES);
+      ?>
+        <li style="display:flex;align-items:center;">
+          <a href="students_edit.php" class="hdr-profile" title="Profile - edit">
+            <img src="<?php echo $avatar_html; ?>" alt="avatar">
+            <span class="name"><?php echo $acc_name_html; ?></span>
           </a>
         </li>
-        <li id="logoutLi"><a href="logout.php">Logout</a></li>
+        <li><a href="logout.php">Logout</a></li>
       <?php else: ?>
-        <!-- Not logged in -->
         <li id="loginLi">
           <a class="waves-effect waves-light btn blue modal-trigger" href="#loginModal" id="loginBtn">
             <i class="material-icons left">login</i>Log In
@@ -167,18 +204,15 @@
       <?php endif; ?>
     </ul>
   </div>
-
-
 </nav>
 
-<!-- LOGIN MODAL -->
+<!-- LOGIN MODAL (unchanged) -->
 <div id="loginModal" class="modal">
   <div class="modal-content">
     <h4 class="center">
       <a href="index.php"><i class="modal-close material-icons left">arrow_back</i></a>
       Log In
     </h4>
-
 
     <form id="loginForm" method="POST" action="login.php" autocomplete="off" novalidate>
       <div class="input-field">
@@ -201,11 +235,11 @@
     </form>
   </div>
 </div>
+
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
   $(document).ready(function(){
-    $('.modal').modal();  
+    $('.modal').modal();
   });
-
 </script>

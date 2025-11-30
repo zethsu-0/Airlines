@@ -242,7 +242,10 @@ if ($conn->connect_error) {
 <body>
 <div class="page-wrap">
   <div class="layout container" style="display:grid;grid-template-columns:200px 1fr 360px;gap:18px;align-items:start">
-    <div class="left-col"><a class="left-create" href="quizmaker.php">CREATE QUIZ</a></div>
+    <div class="left-col">
+      <a class="left-create" href="quizmaker.php">CREATE QUIZ</a>
+      <a class="left-create" href="submissions.php">VIEW SUBMISSIONS</a>
+  </div>
     <div>
       <div class="quiz-list"><div id="quizzesContainer">
         <?php if(!empty($dbError)): ?><div class="frame-card">Notice: <?php echo htmlspecialchars($dbError); ?></div><?php endif; ?>

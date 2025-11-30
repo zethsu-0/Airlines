@@ -139,12 +139,12 @@ try {
             $adults   = (int)($booking['adults'] ?? 0);
             $children = (int)($booking['children'] ?? 0);
             $infants  = (int)($booking['infants'] ?? 0);
-            $type     = trim($booking['flight_type'] ?? 'oneway');
+            $type     = strtoupper(trim($booking['flight_type']) ?? 'ONE-WAY');
             $depart   = $booking['departure'] ?? null;
             $return   = $booking['return'] ?? null;
             $flightNo = trim($booking['flight_number'] ?? '');
-            $seats    = trim($booking['seats'] ?? '');
-            $class    = trim($booking['travel_class'] ?? '');
+            $seats    = strtoupper(trim($booking['seats']) ?? '');
+            $class    = strtoupper(trim($booking['travel_class']) ?? '');
 
             $stmtItem->bind_param(
                 'iissiiissssss',

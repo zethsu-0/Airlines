@@ -2,7 +2,7 @@
 // takequiz.php
 // Student-facing list of available quizzes and submission status.
 
-include('templates/header_admin.php');
+include('templates/header.php');
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
 // Helper to check login quickly

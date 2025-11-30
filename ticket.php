@@ -176,7 +176,7 @@ if ($quizId > 0) {
 $origin       = strtoupper(trim($_POST['origin'] ?? ''));
 $destination  = strtoupper(trim($_POST['destination'] ?? ''));
 $flight_date  = trim($_POST['flight_date'] ?? '');
-$flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';   // ONE-WAY / TWO-WAY
+$flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';   // ONE-WAY / ROUND-TRIP
 $return_date  = trim($_POST['return_date'] ?? '');
 $errors       = [];
 
@@ -189,16 +189,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors['origin'] = 'Origin code is required.';
   } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
     $errors['origin'] = 'Origin must be 3 uppercase letters.';
-  } elseif (!array_key_exists($origin, $iataList)) {
-    $errors['origin'] = 'Unknown origin IATA code.';
   }
 
   if (empty($destination)) {
     $errors['destination'] = 'Destination code is required.';
   } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
     $errors['destination'] = 'Destination must be 3 uppercase letters.';
-  } elseif (!array_key_exists($destination, $iataList)) {
-    $errors['destination'] = 'Unknown destination IATA code.';
   }
 
   if ($origin === $destination && !empty($origin)) {
@@ -216,11 +212,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
-  if ($flight_type !== 'TWO-WAY') {
+  if ($flight_type !== 'ROUND-TRIP') {
     $return_date = '';
   } else {
     if (empty($return_date)) {
-      $errors['return_date'] = 'Return date is required for two-way flights.';
+      $errors['return_date'] = 'Return date is required for round-trip flights.';
     } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
       $errors['return_date'] = 'Invalid return date format.';
     } else {
@@ -296,12 +292,12 @@ $flight = [
     <form id="flightForm" action="ticket.php" method="POST" name="form_submit" autocomplete="off" class="card">
       <p>
         <label>
-        <input name="flight_type" type="radio" value="ONE-WAY" <?php echo ($flight_type !== 'TWO-WAY') ? 'checked' : ''; ?> />
+        <input name="flight_type" type="radio" value="ONE-WAY" <?php echo ($flight_type !== 'ROUND-TRIP') ? 'checked' : ''; ?> />
         <span>ONE-WAY</span>
         </label>
         <label>
-        <input name="flight_type" type="radio" value="TWO-WAY" <?php echo ($flight_type === 'TWO-WAY') ? 'checked' : ''; ?> />
-        <span>TWO-WAY</span>
+        <input name="flight_type" type="radio" value="ROUND-TRIP" <?php echo ($flight_type === 'ROUND-TRIP') ? 'checked' : ''; ?> />
+        <span>ROUND-TRIP</span>
         </label>
       </p>
       <div class="row">
@@ -354,7 +350,7 @@ $flight = [
                 <label for="flight-date">DEPARTURE</label>
                 <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
               </div>
-              <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'TWO-WAY') ? '' : 'display:none;'; ?>">
+              <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'ROUND-TRIP') ? '' : 'display:none;'; ?>">
                 <i class="material-icons prefix">calendar_today</i>
                 <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
                 <label for="return-date">RETURN</label>
@@ -374,7 +370,7 @@ $flight = [
 
   <div class="container">
     <form id="bookingForm" method="POST" action="save_booking.php">
-      <!-- Hidden flight inputs -->
+      <input type="hidden" name="quiz_id" value="<?php echo htmlspecialchars($quizId); ?>">
       <input type="hidden" name="origin" id="booking_origin" value="">
       <input type="hidden" name="destination" id="booking_destination" value="">
       <input type="hidden" name="flight_date" id="booking_flight_date" value="">
@@ -635,7 +631,7 @@ $flight = [
     const returnInput = document.getElementById('return-date');
     document.querySelectorAll('input[name="flight_type"]').forEach(radio => {
       radio.addEventListener('change', function () {
-        if (this.value === 'TWO-WAY') {
+        if (this.value === 'ROUND-TRIP') {
           if (returnWrapper) returnWrapper.style.display = '';
         } else {
           if (returnWrapper) returnWrapper.style.display = 'none';
@@ -700,12 +696,12 @@ $flight = [
 
       const tickets = document.querySelectorAll('.ticket-card');
       const passengerCount = tickets.length;
-      const typeLabel = (flight.flight_type === 'TWO-WAY') ? 'Two-way (round trip)' : 'One-way';
+      const typeLabel = (flight.flight_type === 'ROUND-TRIP') ? 'ROUND-TRIP (round trip)' : 'One-way';
 
       let html = `<p><strong>Origin:</strong> ${escapeHtml(flight.origin)}</p>
                   <p><strong>Destination:</strong> ${escapeHtml(flight.destination)}</p>
                   <p><strong>Departure:</strong> ${escapeHtml(flight.flight_date)}</p>`;
-      if (flight.flight_type === 'TWO-WAY') {
+      if (flight.flight_type === 'ROUND-TRIP') {
         html += `<p><strong>Return:</strong> ${escapeHtml(flight.return_date)}</p>`;
       }
       html += `<p><strong>Type:</strong> ${escapeHtml(typeLabel)}</p>

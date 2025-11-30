@@ -1,52 +1,72 @@
 <?php
 session_start();
 
-// 1) Get quiz_id from URL: submissions.php?id=27
-if (!isset($_GET['id']) || !ctype_digit($_GET['id'])) {
-    die('Invalid quiz id.');
-}
-$quiz_id = (int) $_GET['id'];
-
-// 2) DB connection
+// 1) DB connection
 $conn = new mysqli("localhost", "root", "", "airlines");
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
 }
+$conn->set_charset('utf8mb4');
 
-// 3) Get quiz_items row using quiz_id
+// ---------- Helper normalizers ----------
+function norm_type_quiz($type) {
+    $t = strtoupper(trim((string)$type));
+    // quiz_items uses 'oneway' / 'roundtrip'
+    if ($t === 'ONEWAY' || $t === 'ONE-WAY') return 'ONEWAY';
+    if ($t === 'ROUNDTRIP' || $t === 'ROUND-TRIP' || $t === 'TWOWAY') return 'ROUNDTRIP';
+    return $t;
+}
+
+function norm_type_sub($type) {
+    $t = strtoupper(trim((string)$type));
+    // submissions uses 'ONE-WAY' / 'ROUND-TRIP'
+    if ($t === 'ONEWAY' || $t === 'ONE-WAY') return 'ONEWAY';
+    if ($t === 'ROUND-TRIP' || $t === 'TWOWAY' || $t === 'ROUNDTRIP') return 'ROUNDTRIP';
+    return $t;
+}
+
+function norm_class($c) {
+    return strtoupper(trim((string)$c));
+}
+
+// 2) Get ONE quiz_items row per quiz_id (first item)
 $quizSql = "
-    SELECT quiz_id , adults, children, infants,
-           flight_type, origin, destination,
-           departure, return_date, flight_number,
-           seats, travel_class, created_at
-    FROM quiz_items
-    WHERE quiz_id = ?
+    SELECT
+        qi.quiz_id,
+        qi.adults,
+        qi.children,
+        qi.infants,
+        qi.flight_type,
+        qi.origin_iata      AS origin,
+        qi.destination_iata AS destination,
+        qi.departure_date   AS departure,
+        qi.return_date,
+        qi.flight_number,
+        qi.seats,
+        qi.travel_class
+    FROM quiz_items qi
+    INNER JOIN (
+        SELECT quiz_id, MIN(id) AS min_id
+        FROM quiz_items
+        GROUP BY quiz_id
+    ) AS t
+        ON t.quiz_id = qi.quiz_id
+       AND t.min_id  = qi.id
+    ORDER BY qi.quiz_id ASC
 ";
 
-$stmt = $conn->prepare($quizSql);
-$stmt->bind_param("i", $quiz_id);
-$stmt->execute();
-$quizResult = $stmt->get_result();
+$quizResult = $conn->query($quizSql);
+if (!$quizResult) {
+    die("Quiz query failed: " . htmlspecialchars($conn->error));
+}
 
 if ($quizResult->num_rows === 0) {
-    die("Quiz not found.");
+    echo "<h2>No quiz items found.</h2>";
+    $conn->close();
+    exit;
 }
-$quiz = $quizResult->fetch_assoc();
-$stmt->close();
 
-// 4) Display quiz_items
-echo "<h2>Quiz Requirements</h2>";
-echo "Quiz ID: " . $quiz['quiz_id'] . "<br>";
-echo "Adults: " . $quiz['adults'] . "<br>";
-echo "Children: " . $quiz['children'] . "<br>";
-echo "Infants: " . $quiz['infants'] . "<br>";
-echo "Type: " . $quiz['flight_type'] . "<br>";
-echo "From: " . $quiz['origin'] . "<br>";
-echo "To: " . $quiz['destination'] . "<br>";
-echo "Class: " . $quiz['travel_class'] . "<br>";
-echo "<hr>";
-
-// 5) Get submissions for that quiz_id
+// 3) Prepare submissions query (reused for each quiz)
 $subSql = "
     SELECT 
         sf.id AS submission_id,
@@ -57,60 +77,117 @@ $subSql = "
         sf.flight_type,
         sf.origin,
         sf.destination,
-        sf.travel_class
+        sf.travel_class,
+        sf.seat_number,
+        sf.departure,
+        sf.return_date,
+        sf.submitted_at
     FROM submitted_flights sf
     WHERE sf.quiz_id = ?
     ORDER BY sf.id
 ";
 
-$stmt = $conn->prepare($subSql);
-$stmt->bind_param("i", $quiz_id);
-$stmt->execute();
-$result = $stmt->get_result();
+$subStmt = $conn->prepare($subSql);
+if (!$subStmt) {
+    die("Prepare failed (submissions): " . htmlspecialchars($conn->error));
+}
 
-echo "<h2>Submitted Answers</h2>";
+// 4) Loop through ALL quizzes
+while ($quiz = $quizResult->fetch_assoc()) {
 
-if ($result->num_rows === 0) {
-    echo "No submissions found.";
-} else {
+    $quiz_id = (int)$quiz['quiz_id'];
+
+    echo "<h2>Quiz Requirements (Reference Booking) - Quiz ID: " . $quiz_id . "</h2>";
+    echo "Quiz ID: " . htmlspecialchars($quiz['quiz_id']) . "<br>";
+    echo "Adults: " . (int)$quiz['adults'] . "<br>";
+    echo "Children: " . (int)$quiz['children'] . "<br>";
+    echo "Infants: " . (int)$quiz['infants'] . "<br>";
+    echo "Type: " . htmlspecialchars($quiz['flight_type']) . "<br>";
+    echo "From: " . htmlspecialchars($quiz['origin']) . "<br>";
+    echo "To: " . htmlspecialchars($quiz['destination']) . "<br>";
+    echo "Class: " . htmlspecialchars($quiz['travel_class']) . "<br>";
+    echo "<hr>";
+
+    // Pre-normalize quiz reference values
+    $quizAdults    = (int)$quiz['adults'];
+    $quizChildren  = (int)$quiz['children'];
+    $quizInfants   = (int)$quiz['infants'];
+    $quizTypeNorm  = norm_type_quiz($quiz['flight_type']);
+    $quizOrigin    = strtoupper(trim($quiz['origin']));
+    $quizDest      = strtoupper(trim($quiz['destination']));
+    $quizClassNorm = norm_class($quiz['travel_class']);
+
+    // 5) Get submissions for THIS quiz_id
+    $subStmt->bind_param("i", $quiz_id);
+    $subStmt->execute();
+    $result = $subStmt->get_result();
+
+    echo "<h3>Submitted Answers for Quiz ID: " . $quiz_id . "</h3>";
+
+    if ($result->num_rows === 0) {
+        echo "No submissions found for this quiz.<br><br><hr>";
+        continue;
+    }
 
     while ($row = $result->fetch_assoc()) {
 
-        // 6) Compare submission with quiz_items
+        $subAdults    = (int)$row['adults'];
+        $subChildren  = (int)$row['children'];
+        $subInfants   = (int)$row['infants'];
+        $subTypeNorm  = norm_type_sub($row['flight_type']);
+        $subOrigin    = strtoupper(trim($row['origin']));
+        $subDest      = strtoupper(trim($row['destination']));
+        $subClassNorm = norm_class($row['travel_class']);
+
+        // Compare submission with reference quiz item
         $is_match = (
-            (int)$row['adults'] === (int)$quiz['adults'] &&
-            (int)$row['children'] === (int)$quiz['children'] &&
-            (int)$row['infants'] === (int)$quiz['infants'] &&
-            $row['flight_type'] === $quiz['flight_type'] &&
-            $row['origin'] === $quiz['origin'] &&
-            $row['destination'] === $quiz['destination'] &&
-            $row['travel_class'] === $quiz['travel_class']
+            $subAdults    === $quizAdults &&
+            $subChildren  === $quizChildren &&
+            $subInfants   === $quizInfants &&
+            $subTypeNorm  === $quizTypeNorm &&
+            $subOrigin    === $quizOrigin &&
+            $subDest      === $quizDest &&
+            $subClassNorm === $quizClassNorm
         );
 
-        echo "Submission ID: " . $row['submission_id'] . "<br>";
-        echo "Account ID: " . $row['acc_id'] . "<br>";
+        echo "<div style='margin-bottom:14px;'>";
+        echo "<strong>Submission ID:</strong> " . (int)$row['submission_id'] . "<br>";
+        echo "Account ID: " . htmlspecialchars($row['acc_id']) . "<br>";
 
-        echo "User: 
-              {$row['adults']} Adults,
-              {$row['children']} Children,
-              {$row['infants']} Infants,
-              {$row['flight_type']},
-              {$row['origin']} → {$row['destination']},
-              {$row['travel_class']}<br>";
+        echo "User: "
+           . $subAdults   . " Adults, "
+           . $subChildren . " Children, "
+           . $subInfants  . " Infants, "
+           . htmlspecialchars($row['flight_type']) . ", "
+           . htmlspecialchars($row['origin']) . " → " . htmlspecialchars($row['destination']) . ", "
+           . htmlspecialchars($row['travel_class']) . "<br>";
 
-        echo "Correct:
-              {$quiz['adults']} Adults,
-              {$quiz['children']} Children,
-              {$quiz['infants']} Infants,
-              {$quiz['flight_type']},
-              {$quiz['origin']} → {$quiz['destination']},
-              {$quiz['travel_class']}<br>";
+        if (!empty($row['seat_number'])) {
+            echo "Seats: " . htmlspecialchars($row['seat_number']) . "<br>";
+        }
+        if (!empty($row['departure'])) {
+            echo "Departure: " . htmlspecialchars($row['departure']);
+            if (!empty($row['return_date'])) {
+                echo " • Return: " . htmlspecialchars($row['return_date']);
+            }
+            echo "<br>";
+        }
+
+        echo "Correct (reference): "
+           . $quizAdults   . " Adults, "
+           . $quizChildren . " Children, "
+           . $quizInfants  . " Infants, "
+           . htmlspecialchars($quiz['flight_type']) . ", "
+           . htmlspecialchars($quiz['origin']) . " → " . htmlspecialchars($quiz['destination']) . ", "
+           . htmlspecialchars($quiz['travel_class']) . "<br>";
 
         echo "<strong>Result: " . ($is_match ? "MATCH ✅" : "NOT MATCH ❌") . "</strong>";
-        echo "<hr>";
+        echo "</div><hr>";
     }
+
+    echo "<br>";
 }
 
-$stmt->close();
+$subStmt->close();
 $conn->close();
 ?>

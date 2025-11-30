@@ -44,10 +44,10 @@ $destination = strtoupper(clean($_POST['destination'] ?? ''));
 $departure   = clean($_POST['flight_date'] ?? '');
 $return_date = clean($_POST['return_date'] ?? '');
 $flight_type = strtolower(clean($_POST['flight_type'] ?? 'ONE-WAY'));
-if (!in_array($flight_type, ['ONE-WAY', 'TWO-WAY'], true)) {
+if (!in_array($flight_type, ['ONE-WAY', 'ROUND-TRIP'], true)) {
     $flight_type = 'ONE-WAY';
 }
-if ($flight_type !== 'TWO-WAY') {
+if ($flight_type !== 'ROUND-TRIP') {
     $return_date = '';
 }
 
@@ -86,9 +86,9 @@ if ($departure === '') {
     $errors[] = 'Invalid departure date format (expected YYYY-MM-DD).';
 }
 
-if ($flight_type === 'TWO-WAY') {
+if ($flight_type === 'ROUND-TRIP') {
     if ($return_date === '') {
-        $errors[] = 'Return date is required for two-way flights.';
+        $errors[] = 'Return date is required for round-trip flights.';
     } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
         $errors[] = 'Invalid return date format (expected YYYY-MM-DD).';
     }
@@ -150,18 +150,31 @@ if ($passengerCount > 0) {
         $travel_class = '';
     }
 }
+// seat numbers: convert array -> single string for DB storage
+$seats_number = $_POST['seat_number'] ?? [];
 
-/* -------------------------
-   INSERT into submitted_flights ONLY
-   Columns:
-   (id, quiz_id, acc_id, adults, children, infants, flight_type,
-    origin, destination, departure, return_date, flight_number, seats, travel_class)
---------------------------*/
+if (!is_array($seats_number)) {
+    $seats_number = [$seats_number]; // just in case it's a single value
+}
+
+// Clean + uppercase each seat value
+$clean_seats = [];
+foreach ($seats_number as $sn) {
+    $sn = strtoupper(clean($sn));
+    if ($sn !== '') {
+        $clean_seats[] = $sn;
+    }
+}
+
+// Final value saved into DB (e.g. "12A,12B,13C")
+$seat_number = implode(',', $clean_seats);
+
+
 $stmt = $mysqli->prepare("
     INSERT INTO submitted_flights
         (quiz_id, acc_id, adults, children, infants, flight_type,
-         origin, destination, departure, return_date, flight_number, seats, travel_class)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         origin, destination, departure, return_date, seat_number, travel_class)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 if (!$stmt) {
     die("Prepare failed: " . htmlspecialchars($mysqli->error));
@@ -171,26 +184,33 @@ if (!$stmt) {
 //        flight_type(s), origin(s), destination(s), departure(s),
 //        return_date(s), flight_number(s), seats(i), travel_class(s)
 if (!$stmt->bind_param(
-    "isiiissssssis",
-    $quiz_id,
-    $acc_id,
-    $adults,
-    $children,
-    $infants,
-    $flight_type,
-    $origin,
-    $destination,
-    $departure,
-    $return_date,
-    $flight_number,
-    $seats,
-    $travel_class
+    "isiiisssssss",
+    $quiz_id,       // i
+    $acc_id,        // s
+    $adults,        // i
+    $children,      // i
+    $infants,       // i
+    $flight_type,   // s
+    $origin,        // s
+    $destination,   // s
+    $departure,     // s
+    $return_date,   // s
+    $seat_number,   // s
+    $travel_class   // s
 )) {
     die("Bind failed: " . htmlspecialchars($stmt->error));
 }
+printf("quiz_id=%d, acc_id='%s'\n", $quiz_id, $acc_id);
+var_dump([
+    $quiz_id, $acc_id, $adults, $children, $infants,
+    $flight_type, $origin, $destination, $departure,
+    $return_date, $seat_number, $travel_class
+]);
 
 if (!$stmt->execute()) {
     die("Execute failed: " . htmlspecialchars($stmt->error));
+} else {
+    echo "Inserted acc_id = " . htmlspecialchars($acc_id);
 }
 
 $stmt->close();
