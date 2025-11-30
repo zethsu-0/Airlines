@@ -262,79 +262,162 @@ $flash_error = get_flash('flash_error');
   <!-- Materialize (local includes are ok if you have them in templates/header.php) -->
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css"/>
-  <style>
-    :root{
-      --accent: #516BFF;
-      --muted: #666;
-      --card-radius: 14px;
+<style>
+  :root {
+    --accent: #516BFF;
+    --muted: #ccc;
+  }
+
+  /* Make sure page background is transparent so the background image shows */
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: transparent !important;
+    font-family: "Roboto", "Helvetica", Arial, sans-serif;
+  }
+
+  /* FULL-SCREEN BACKGROUND IMAGE */
+  .background-image {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    object-position: center;
+    z-index: -9999;
+    pointer-events: none;
+    filter: brightness(1.03) saturate(1.05) contrast(1.05);
+  }
+
+  /* OUTER TRANSLUCENT BOX (the wrapper container) */
+  .overlay-box {
+    background: rgba(30, 30, 30, 0.46);  /* dark gray transparent */
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.35);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    color: #fff;
+    z-index: 10;
+    position: relative;
+  }
+
+  /* Override Materialize card styles (many are solid white) */
+  .overlay-box .card,
+  .overlay-box .card-panel {
+    background: rgba(255,255,255,0.05) !important;
+    color: #fff !important;
+    border-radius: 12px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+  }
+
+  /* PROFILE CARD */
+  .profile-card {
+    background: rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    color: #fff;
+  }
+
+  /* EDIT CARD */
+  .edit-card {
+    background: rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    color: #fff;
+  }
+
+  /* AVATAR */
+  .avatar-large {
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 5px solid rgba(255,255,255,0.3);
+  }
+
+  /* small preview image */
+  #preview {
+    width: 110px;
+    height: 110px;
+    border-radius: 10px;
+    object-fit: cover;
+    border: 3px solid rgba(255,255,255,0.4);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  /* FILE SELECT BUTTON */
+  .file-label-btn {
+    display: inline-block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(50, 120, 255, 0.8);
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.15s;
+  }
+  .file-label-btn:hover {
+    background: rgba(50, 120, 255, 1);
+  }
+
+  /* INPUT LABELS & TEXT COLORS */
+  label {
+    color: #eee !important;
+  }
+  .input-field input {
+    color: #fff !important;
+  }
+  .input-field input:focus + label {
+    color: #fff !important;
+  }
+  .input-field input:focus {
+    border-bottom: 1px solid #fff !important;
+    box-shadow: 0 1px 0 0 #fff !important;
+  }
+
+  /* Buttons on dark translucent background */
+  .overlay-box .btn {
+    color: #fff !important;
+  }
+  .overlay-box .btn-flat {
+    color: #fff !important;
+  }
+
+  /* TEXT MUTED */
+  .muted {
+    color: #ddd;
+  }
+
+  /* Responsive layout */
+  @media (max-width: 600px) {
+    .overlay-box {
+      margin: 12px;
+      padding: 16px;
+      border-radius: 12px;
     }
-    body { background:#f7f9fc; padding-bottom:60px; margin:0; font-family: "Roboto", "Helvetica", Arial, sans-serif; }
-
-    .container-compact { max-width:1100px; margin:20px auto; padding: 12px; }
-
-    /* Profile card */
-    .profile-card { border-radius:20px; padding:18px; border:6px solid var(--accent); background:#fff; box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
-    .avatar-large { width:150px; height:150px; border-radius:50%; object-fit:cover; border:6px solid #EEE; }
-    .small-note { color:var(--muted); font-size:0.95rem; margin-top:6px; }
-
-    /* Form card */
-    .edit-card { padding:18px; border-radius:12px; background:#fff; box-shadow: 0 6px 18px rgba(0,0,0,0.04); }
-
-    /* Responsive layout tweaks */
-    .controls-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    .controls-row .btn { min-width: 120px; }
-
-    /* Avatar preview */
-    #preview { width:110px; height:110px; border-radius:10px; object-fit:cover; display:block; margin-bottom:8px; }
-
-    /* Mobile-first: buttons full width on small screens */
-    @media (max-width: 599px) {
-      .avatar-large { width:110px; height:110px; border-width:4px; }
-      .controls-row { flex-direction:column; align-items:stretch; }
-      .controls-row .btn { width:100% !important; }
-      .profile-row { flex-direction:column; gap:12px; }
-      .profile-left, .profile-right { width:100% !important; }
-      .hdr-actions { margin-top:8px; display:flex; gap:8px; }
+    .avatar-large {
+      width: 110px;
+      height: 110px;
     }
-
-    /* Tablet */
-    @media (min-width: 600px) and (max-width: 991px) {
-      .avatar-large { width:130px; height:130px; }
-      .profile-row { flex-direction:column; gap:12px; }
-      .controls-row { justify-content:flex-start; }
+    .profile-card, .edit-card {
+      padding: 14px;
     }
+  }
+</style>
 
-    /* Desktop */
-    @media (min-width: 992px) {
-      .profile-row { display:flex; gap:18px; align-items:center; }
-      .profile-left { flex: 0 0 320px; }
-      .profile-right { flex: 1; }
-    }
-
-    /* Form input spacing */
-    .input-field { margin-top:12px; margin-bottom:6px; }
-
-    /* Make the Choose image label look like a button */
-    .file-label-btn {
-      display:inline-block;
-      padding:8px 12px;
-      border-radius:6px;
-      border: none;
-      cursor:pointer;
-      background: linear-gradient(180deg, #2b6cff, #1e4fe6);
-      color:#fff;
-      font-weight:600;
-    }
-
-    /* small helper */
-    .muted { color:var(--muted); font-size:0.95rem; }
-
-  </style>
 </head>
 <body>
   <?php include('templates/header.php'); ?>
 
-  <div class="container container-compact">
+  <img src="assets/island.jpg" class="background-image">
+
+    <div class="container container-compact overlay-box">
+
     <?php if ($flash_success): ?>
       <div class="card-panel green lighten-4 green-text text-darken-4"><?php echo htmlspecialchars($flash_success, ENT_QUOTES); ?></div>
     <?php endif; ?>
@@ -353,7 +436,7 @@ $flash_error = get_flash('flash_error');
               <p class="small-note">You can change your profile picture and password here.</p>
 
               <div class="hdr-actions" style="margin-top:12px;">
-                <a href="index.php" class="btn grey lighten-3 black-text">Back</a>
+                <a href="index.php" class="btn blue lighten-3 black-text">Back</a>
                 <a href="logout.php" class="btn red">Logout</a>
               </div>
             </div>
