@@ -25,22 +25,16 @@ $acc_db_ok = !($acc_conn->connect_error);
 if ($acc_db_ok) $acc_conn->set_charset('utf8mb4');
 
 // ---------- AUTH HELPERS ----------
-// ---------- AUTH HELPERS ----------
 /**
  * Ensure session is started and map common session keys to the ones this page expects.
- * Accepts a variety of session keys that your app might set on login so the page
- * won't incorrectly think the user is logged out.
  */
 function require_login() {
-    // Make sure session is started
     if (session_status() !== PHP_SESSION_ACTIVE) {
         session_start();
     }
 
-    // If acc_id already set, consider logged in
     if (!empty($_SESSION['acc_id'])) return;
 
-    // Try to map other session keys commonly used in different parts of the app
     $accIdCandidates = ['acc_id','admin_id','user_id','ad_id','account_id','id'];
     foreach ($accIdCandidates as $c) {
         if (!empty($_SESSION[$c])) {
@@ -49,7 +43,6 @@ function require_login() {
         }
     }
 
-    // Map role-like session keys to acc_role that this page expects
     $roleCandidates = ['acc_role','role','user_role','admin_role','ad_role'];
     foreach ($roleCandidates as $r) {
         if (!empty($_SESSION[$r]) && empty($_SESSION['acc_role'])) {
@@ -58,7 +51,6 @@ function require_login() {
         }
     }
 
-    // Also map display name if available
     if (empty($_SESSION['acc_name'])) {
         $nameCandidates = ['name','acc_name','username','user_name','admin_name'];
         foreach ($nameCandidates as $n) {
@@ -69,24 +61,19 @@ function require_login() {
         }
     }
 
-    // Final check: if we now have an acc_id we treat user as logged in
     if (!empty($_SESSION['acc_id'])) return;
 
-    // Otherwise redirect to login page
     header('Location: login_page.php');
     exit;
 }
 
-// NOTE: in your app "admin" = teacher, and there's a separate "super_admin" role
 function is_super_admin() {
     return (isset($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'super_admin');
 }
 function is_admin() {
-    // returns true for teachers (role 'admin')
     return (isset($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'admin');
 }
 function is_teacher() {
-    // alias for clarity — teacher === admin role in your system
     return is_admin();
 }
 function current_acc_id() {
@@ -122,13 +109,12 @@ function ensure_unique_acc_id($dbconn, $desired) {
     $candidate = $desired;
     $i = 0;
     $check = $dbconn->prepare("SELECT COUNT(*) FROM accounts WHERE acc_id = ?");
-    if (!$check) return $desired; // fallback if prepare fails
+    if (!$check) return $desired;
     while (true) {
         $check->bind_param('s', $candidate);
         $check->execute();
         $check->bind_result($cnt);
         $check->fetch();
-        // no mysqli_stmt::free_result here for COUNT fetch; just reset state
         if ($cnt == 0) break;
         $i++;
         $candidate = $desired . '_' . $i;
@@ -281,9 +267,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthday = trim($_POST['birthday'] ?? '');
         $sex = trim($_POST['sex'] ?? '');
 
-        // determine teacher assignment
-        // Only super_admin can choose which teacher to assign.
-        // Teachers (role 'admin') will have students assigned to themselves.
         if (is_super_admin()) {
             $assigned_teacher = trim($_POST['teacher_id'] ?? '') ?: null;
         } elseif (is_teacher()) {
@@ -298,7 +281,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($first === '') $errors[] = 'First name required.';
         if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
         if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
-            // validate teacher exists in the admins table and role = 'admin'
             $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
             if ($chk) {
                 $chk->bind_param('s', $assigned_teacher);
@@ -315,7 +297,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($errors)) {
             $avatar = handle_avatar_upload('student_photo', null);
 
-            // 1) insert student into airlines DB
             $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
             if (!$stmt) {
                 $_SESSION['students_errors'] = ['Failed to prepare student insertion.'];
@@ -331,7 +312,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $student_row_id = $stmt->insert_id;
             $stmt->close();
 
-            // 2) create account in accounts DB (if available) - NOTE: student accounts remain in 'accounts' table
             if ($acc_db_ok) {
                 try {
                     $desired_acc_id = $student_id_val;
@@ -344,7 +324,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
                     if (!$insAcc) {
-                        // rollback student insert to avoid orphan
                         $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
                         $_SESSION['students_errors'] = ['Failed to prepare account insertion in accounts DB. Student insertion rolled back.'];
                         header('Location: students.php'); exit;
@@ -354,25 +333,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $insAcc->close();
 
                     if (!$insOk) {
-                        // rollback student insert to avoid orphan
                         $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
                         $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student insertion rolled back.'];
                         header('Location: students.php'); exit;
                     }
 
-                    // success — flash one-time account info for admin
                     $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
 
                     header('Location: students.php'); exit;
 
                 } catch (Exception $e) {
-                    // rollback student
                     $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
                     $_SESSION['students_errors'] = ['Unexpected error while creating account. Student insertion rolled back.'];
                     header('Location: students.php'); exit;
                 }
             } else {
-                // accounts DB not available — just finish
                 header('Location: students.php'); exit;
             }
         } else {
@@ -393,11 +368,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $birthday = trim($_POST['edit_birthday'] ?? '');
         $sex = trim($_POST['edit_sex'] ?? '');
 
-        // only super_admin may change assigned teacher; teachers cannot
         if (is_super_admin()) {
             $assigned_teacher = trim($_POST['edit_teacher_id'] ?? '') ?: null;
         } else if (is_teacher()) {
-            // must verify ownership and force assigned_teacher to current teacher
             $check = $conn->prepare("SELECT teacher_id FROM students WHERE id = ? LIMIT 1");
             $check->bind_param('i', $db_id);
             $check->execute();
@@ -419,7 +392,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($first === '') $errors[] = 'First name required.';
         if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
         if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
-            // validate teacher exists and role = 'admin' in admins table
             $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
             if ($chk) {
                 $chk->bind_param('s', $assigned_teacher);
@@ -434,7 +406,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (empty($errors)) {
-            // get current student row (for possible rollback)
             $cur_avatar = null;
             $q = $conn->prepare("SELECT avatar, student_id, last_name, first_name FROM students WHERE id = ?");
             $q->bind_param('i', $db_id);
@@ -445,7 +416,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
 
-            // update student (include teacher_id)
             $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, birthday = ?, sex = ?, teacher_id = ?, updated_at = NOW() WHERE id = ?");
             $upd->bind_param('ssssssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $birthday, $sex, $assigned_teacher, $db_id);
             $ok = $upd->execute();
@@ -456,7 +426,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: students.php'); exit;
             }
 
-            // sync account in accounts DB (if available) - still using accounts table for students
             if ($acc_db_ok) {
                 try {
                     $check = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
@@ -490,7 +459,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $accUpd->close();
 
                         if (!$accOk) {
-                            // rollback student update (best-effort)
                             $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
                             $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
                             $rb->execute();
@@ -506,7 +474,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $birthday];
                         }
                     } else {
-                        // create account because none existed
                         $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
                         $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
                         $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
@@ -517,7 +484,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $insAcc->close();
 
                         if (!$insOk) {
-                            // rollback student update
                             $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
                             $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
                             $rb->execute();
@@ -532,7 +498,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     header('Location: students.php'); exit;
 
                 } catch (Exception $e) {
-                    // rollback student
                     $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
                     $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
                     $rb->execute();
@@ -557,15 +522,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $clean = array_map('intval', $ids);
             $in = implode(',', $clean);
 
-            // get affected rows and avatars first (only those allowed for this user)
             if (is_teacher()) {
                 $teacher_esc = $conn->real_escape_string(current_acc_id());
                 $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in) AND teacher_id = '{$teacher_esc}'");
             } elseif (is_super_admin()) {
-                // super admin can delete any
                 $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in)");
             } else {
-                // nobody else may delete
                 $res = false;
             }
 
@@ -600,9 +562,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ---------- FETCH teachers list (only for super_admin) ----------
 $teachers_list = [];
-// only super_admin should be allowed to assign teachers
 if (is_super_admin() && $acc_db_ok) {
-    // teachers (admins) are stored in the "admins" table with role = 'admin'
     $r = $acc_conn->query("SELECT acc_id, name FROM admins WHERE role = 'admin' ORDER BY name");
     if ($r) {
         while ($row = $r->fetch_assoc()) $teachers_list[] = $row;
@@ -610,7 +570,7 @@ if (is_super_admin() && $acc_db_ok) {
     }
 }
 
-// ---------- FETCH students (super_admin sees all; teacher sees only their students) ----------
+// ---------- FETCH students ----------
 $students = [];
 if (is_super_admin()) {
     $sql = "SELECT id, student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id FROM students ORDER BY COALESCE(NULLIF(section,''),'~'), last_name, first_name";
@@ -887,11 +847,10 @@ unset($_SESSION['account_info']);
       <div style="margin-top:12px;">
         <label><input type="checkbox" id="enableResetCheckbox"><span>Enable password reset</span></label>
         <div style="margin-top:8px;">
-          <form method="post" id="resetPwdForm" style="display:inline;">
-            <input type="hidden" name="action" value="reset_password">
-            <input type="hidden" id="reset_db_id" name="db_id" value="">
-            <button type="submit" id="resetPwdBtn" class="btn red" disabled>Reset password to birthday</button>
-          </form>
+          <!-- NOTE: NOT a nested form. We'll submit a small dynamic form via JS -->
+          <input type="hidden" id="reset_db_id" name="reset_db_id" value="">
+          <button type="button" id="resetPwdBtn" class="btn red" disabled>Reset password to birthday</button>
+
           <div style="margin-top:6px;"><small class="grey-text">This will set the student's account password to their birthday (YYYY-MM-DD). Only use when necessary.</small></div>
         </div>
       </div>
@@ -972,6 +931,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   document.querySelectorAll('.edit-btn').forEach(function(b){ b.addEventListener('click', function(){ openEditModal(this); }); });
 
+  // Save button enable toggle
   document.getElementById('editConfirmCheckbox').addEventListener('change', function(){ document.getElementById('saveEditBtn').disabled = !this.checked; });
   document.getElementById('editForm').addEventListener('submit', function(e){ if (!document.getElementById('editConfirmCheckbox').checked) { e.preventDefault(); M.toast({html:'Please confirm before saving.'}); return; } });
 
@@ -1007,7 +967,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('deleteConfirmCheckbox').addEventListener('change', function(){ document.getElementById('confirmDeleteBtn').disabled = !this.checked; });
   document.getElementById('deleteConfirmForm').addEventListener('submit', function(e){ if (!document.getElementById('deleteConfirmCheckbox').checked) { e.preventDefault(); M.toast({html:'Please confirm before deleting.'}); return; } });
 
-  // enable/disable reset button
+  // enable/disable reset button (checkbox)
   var enableResetCheckbox = document.getElementById('enableResetCheckbox');
   var resetPwdBtn = document.getElementById('resetPwdBtn');
   if (enableResetCheckbox && resetPwdBtn) {
@@ -1016,22 +976,38 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  var resetForm = document.getElementById('resetPwdForm');
-  if (resetForm) {
-    resetForm.addEventListener('submit', function(e) {
-      if (!document.getElementById('enableResetCheckbox').checked) {
-        e.preventDefault();
+  // Reset button behavior - builds a temporary POST form to avoid nested forms
+  if (resetPwdBtn) {
+    resetPwdBtn.addEventListener('click', function(e) {
+      if (!enableResetCheckbox.checked) {
         M.toast({html: 'Please check the enable box to reset password.'});
         return;
       }
-      // quick client-side check: ensure editBirthday field has a value
       var birthdayField = document.getElementById('editBirthday');
       if (!birthdayField || (birthdayField.value || '').trim() === '') {
-        e.preventDefault();
         M.toast({html: 'Cannot reset password: student has no birthday recorded in the edit form.'});
         return;
       }
-      // allow submit; server will perform authoritative checks
+
+      var confirmMsg = 'Reset this student password to their birthday (' + birthdayField.value + ')? This will overwrite the existing password.';
+      if (!confirm(confirmMsg)) return;
+
+      var dbId = (document.getElementById('reset_db_id') && document.getElementById('reset_db_id').value) || (document.getElementById('edit_db_id') && document.getElementById('edit_db_id').value);
+      if (!dbId) { M.toast({html:'Student ID missing; cannot reset.'}); return; }
+
+      var f = document.createElement('form');
+      f.method = 'post';
+      f.action = 'students.php';
+
+      var a = document.createElement('input'); a.type='hidden'; a.name='action'; a.value='reset_password'; f.appendChild(a);
+      var i = document.createElement('input'); i.type='hidden'; i.name='db_id'; i.value = dbId; f.appendChild(i);
+
+      // If you use CSRF tokens in this page for POSTs, uncomment and include it:
+      // var csrfEl = document.querySelector('input[name="csrf_token"]');
+      // if (csrfEl) { var cs = document.createElement('input'); cs.type='hidden'; cs.name='csrf_token'; cs.value = csrfEl.value; f.appendChild(cs); }
+
+      document.body.appendChild(f);
+      f.submit();
     });
   }
 
