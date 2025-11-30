@@ -310,7 +310,7 @@ function createItemBlock(prefill = null){
       <div style="margin-bottom:8px">
         <label style="display:block; margin-bottom:6px">Flight type</label>
         <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="oneway" checked /><span>One-way</span></label>
-        <label><input name="flightTypeInner${idx}" type="radio" value="roundtrip" /><span>Round-trip</span></label>
+        <label><input name="flightTypeInner${idx}" type="radio" value="Round-trip" /><span>Round-trip</span></label>
       </div>
 
       <div class="flight-row" style="margin-bottom:8px">
@@ -504,7 +504,7 @@ function buildDescription(){
     const destination = b.destination || it.city || '---';
 
     // FLIGHT TYPE
-    const typeLabel = b.flight_type === 'roundtrip' ? 'TWO-WAY' : 'ONE-WAY';
+    const typeLabel = b.flight_type === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
 
     // CLASS
     const classLabel = (b.travel_class || 'ECONOMY');

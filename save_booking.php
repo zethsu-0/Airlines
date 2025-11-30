@@ -44,10 +44,10 @@ $destination = strtoupper(clean($_POST['destination'] ?? ''));
 $departure   = clean($_POST['flight_date'] ?? '');
 $return_date = clean($_POST['return_date'] ?? '');
 $flight_type = strtolower(clean($_POST['flight_type'] ?? 'ONE-WAY'));
-if (!in_array($flight_type, ['ONE-WAY', 'TWO-WAY'], true)) {
+if (!in_array($flight_type, ['ONE-WAY', 'ROUND-TRIP'], true)) {
     $flight_type = 'ONE-WAY';
 }
-if ($flight_type !== 'TWO-WAY') {
+if ($flight_type !== 'ROUND-TRIP') {
     $return_date = '';
 }
 
@@ -86,9 +86,9 @@ if ($departure === '') {
     $errors[] = 'Invalid departure date format (expected YYYY-MM-DD).';
 }
 
-if ($flight_type === 'TWO-WAY') {
+if ($flight_type === 'ROUND-TRIP') {
     if ($return_date === '') {
-        $errors[] = 'Return date is required for two-way flights.';
+        $errors[] = 'Return date is required for round-trip flights.';
     } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
         $errors[] = 'Invalid return date format (expected YYYY-MM-DD).';
     }
