@@ -145,7 +145,7 @@ if ($passengerCount > 0) {
     if (count($distinct) === 1) {
         $travel_class = strtoupper($distinct[0]);
     } elseif (count($distinct) > 1) {
-        $travel_class = 'Mixed';
+        $travel_class = 'MIXED';
     } else {
         $travel_class = '';
     }

@@ -952,7 +952,13 @@ function createItemBlock(prefill = null){
     seatPickerModalInstance.open();
   }
 }
-
+  document.addEventListener('click', function (e) {
+    if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+      if (seatPickerModalInstance && seatPickerModalInstance.close) {
+        seatPickerModalInstance.close();
+      }
+    }
+  });
   // Open modal when clicking OR focusing the input
   seatInput.addEventListener('click', openSeatPickerForThisItem);
   seatInput.addEventListener('focus', openSeatPickerForThisItem);

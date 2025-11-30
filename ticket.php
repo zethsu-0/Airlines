@@ -559,6 +559,7 @@ $flight = [
     let lastClickedSeat = null;
     let currentFilterKey = 'all';
 
+
     const CABINS = [
       {
         key: 'first',
@@ -831,7 +832,13 @@ $flight = [
       seatPickerModalInstance = M.Modal.init(seatPickerElem, {dismissible:true});
       generateSeatLayout();
     }
-
+    document.addEventListener('click', function (e) {
+      if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+        if (seatPickerModalInstance && seatPickerModalInstance.close) {
+          seatPickerModalInstance.close();
+        }
+      }
+    });
     const clearSeatSelectionBtn = document.getElementById('clearSeatSelectionBtn');
     const seatModalDoneBtn = document.getElementById('seatModalDoneBtn');
 
@@ -843,8 +850,10 @@ $flight = [
     }
 
     if (seatModalDoneBtn) {
-      seatModalDoneBtn.addEventListener('click', function(){
-        if (!seatNumberTargetInput) return;
+      seatModalDoneBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+
+      if (seatNumberTargetInput) {
         const chosen = Array.from(selectedSeats)[0] || '';
         if (chosen) {
           seatNumberTargetInput.value = chosen;
@@ -852,11 +861,13 @@ $flight = [
             M.updateTextFields();
           }
         }
-        if (seatPickerModalInstance && seatPickerModalInstance.close) {
+      }
+
+      if (seatPickerModalInstance && seatPickerModalInstance.close) {
         seatPickerModalInstance.close();
-        } 
-      });
-    }
+      }
+    });
+  }
 
     function initPlainIataInput(displayId, hiddenId) {
       const display = document.getElementById(displayId);
@@ -1243,6 +1254,8 @@ $flight = [
       summaryModal.close();
       setTimeout(() => bookingForm.submit(), 120);
     });
+
+
   });
   </script>
 
