@@ -1,8 +1,8 @@
 <?php
-// admin_quiz_maker.php (cleaned)
+// admin_quiz_maker.php (cleaned, now supports EDIT mode)
 include('templates/header_admin.php');
 
-// Fetch airports for the IATA select and create a JSON list for JS
+// ---------------- AIRPORTS FOR AUTOCOMPLETE ----------------
 $host = 'localhost';
 $user = 'root';
 $pass = '';
@@ -13,8 +13,9 @@ $airportList = []; // array of objects for JS autocomplete
 
 $conn = new mysqli($host, $user, $pass, $db);
 if (!$conn->connect_error) {
-    // Using your actual column names: IATACode, AirportName, City
-    $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(AirportName,'') AS AirportName FROM airports ORDER BY IATACode ASC";
+    $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(AirportName,'') AS AirportName 
+            FROM airports 
+            ORDER BY IATACode ASC";
     if ($res = $conn->query($sql)) {
         while ($row = $res->fetch_assoc()) {
             $iata = strtoupper(trim($row['IATACode']));
@@ -25,21 +26,19 @@ if (!$conn->connect_error) {
             if ($city !== '') $labelParts[] = $city;
             if ($name !== '' && stripos($name, $city) === false) $labelParts[] = $name;
             $label = $labelParts ? implode(' — ', $labelParts) : $iata;
-            // Option HTML (kept for fallback if needed)
+
             $opt = '<option value="' . htmlspecialchars($iata) . '" data-city="' . htmlspecialchars(strtoupper($city ?: $name ?: '')) . '">' . htmlspecialchars($iata . ' — ' . $label) . '</option>';
             $airportOptionsHtml .= $opt;
 
-            // Add to JS-friendly list
             $airportList[] = [
-                'iata' => $iata,
-                'city' => strtoupper($city ?: $name ?: ''),
+                'iata'  => $iata,
+                'city'  => strtoupper($city ?: $name ?: ''),
                 'label' => $iata . ' — ' . $label,
-                'name' => $name
+                'name'  => $name
             ];
         }
         $res->free();
     } else {
-        // fallback
         $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
         $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
         $airportList = [
@@ -48,8 +47,7 @@ if (!$conn->connect_error) {
         ];
     }
 } else {
-    // connection error fallback
-    $airportOptionsHtml = '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
+    $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
     $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
     $airportList = [
         ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','name'=>'Manila Airport'],
@@ -57,20 +55,28 @@ if (!$conn->connect_error) {
     ];
 }
 
-// Provide the options string to JS (safe JSON) and airport list JSON
+// JSON for JS
 $airportOptionsJson = json_encode($airportOptionsHtml);
-$airportListJson = json_encode($airportList);
-?>
+$airportListJson    = json_encode($airportList);
 
+// ---------------- EDIT MODE: CHECK FOR ?id= ----------------
+$editing   = false;
+$editId    = null;
+
+if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
+    $editing = true;
+    $editId  = (int) $_GET['id'];
+}
+?>
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Quiz Maker - Admin</title>
+  <title><?php echo $editing ? 'Edit Quiz' : 'Quiz Maker - Admin'; ?></title>
   <!-- Materialize CSS -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
-  <!-- Material icons (needed for your remove icon) -->
+  <!-- Material icons -->
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
     :root{ --primary-blue:#0d6efd; --accent-blue:#0b5ed7; --soft-blue:#e9f2ff; }
@@ -96,7 +102,6 @@ $airportListJson = json_encode($airportList);
     .item-row{border:1px solid rgba(0,0,0,0.06); padding:10px; border-radius:8px; margin-bottom:8px; background:#fbfdff}
     .item-actions{display:flex; gap:6px; align-items:center}
 
-    /* autocomplete dropdown styles */
     .iata-autocomplete {
       position: relative;
     }
@@ -120,6 +125,145 @@ $airportListJson = json_encode($airportList);
     }
     .iata-suggestion small { display:block; font-weight:400; color:#666; }
     .iata-suggestion:hover { background:#f1f5ff; }
+
+    /* ===== SEAT PICKER STYLES ===== */
+    .seat-map {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .seat-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .row-label {
+      width: 44px;
+      min-width: 44px;
+      text-align: center;
+      font-weight: 600;
+      color: #444;
+    }
+
+    .seat {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      border: 1px solid rgba(0,0,0,0.12);
+      transition: transform .08s ease, box-shadow .12s ease;
+      background: #fff;
+      font-weight: 600;
+    }
+    .seat:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 14px rgba(0,0,0,0.08);
+    }
+
+    .seat.selected {
+      color: white;
+      border-color: rgba(0,0,0,0.15);
+    }
+
+    .seat.disabled {
+      background: #efefef;
+      color: #9e9e9e;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .aisle {
+      width: 28px;
+      min-width: 28px;
+    }
+
+    .legend {
+      display:flex;
+      gap:12px;
+      align-items:center;
+      margin: 8px 16px 18px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .legend .box {
+      width:18px;height:18px;border-radius:4px;border:1px solid rgba(0,0,0,0.12);
+      display:inline-block;vertical-align:middle;margin-right:6px;
+    }
+    .legend .box.selected { background:#26a69a; border:none; }
+    .legend .box.disabled { background:#efefef; color:#9e9e9e; border:none; }
+
+    .selection-summary {
+      margin-top: 12px;
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+      padding: 0 16px 16px;
+    }
+
+    .cabin-header {
+      margin-top: 10px;
+      margin-bottom: 4px;
+      text-align: left;
+      max-width: 960px;
+      margin-left: auto;
+      margin-right: auto;
+      padding: 0 18px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .cabin-header h6 {
+      margin: 0;
+      font-weight: 600;
+    }
+    .cabin-header .line {
+      flex:1;
+      height: 1px;
+      background: rgba(0,0,0,0.12);
+    }
+
+    /* Cabin colors */
+    .seat.first    { background-color: #e3f2fd; }  /* light blue */
+    .seat.business { background-color: #fff3e0; }  /* light orange */
+    .seat.premium  { background-color: #ede7f6; }  /* light purple */
+    .seat.economy  { background-color: #e8f5e9; }  /* light green */
+
+    .seat.first.selected    { background-color: #1e88e5; }
+    .seat.business.selected { background-color: #fb8c00; }
+    .seat.premium.selected  { background-color: #7e57c2; }
+    .seat.economy.selected  { background-color: #43a047; }
+
+    .cabin-header.first h6    { color: #1e88e5; }
+    .cabin-header.business h6 { color: #fb8c00; }
+    .cabin-header.premium h6  { color: #7e57c2; }
+    .cabin-header.economy h6  { color: #43a047; }
+
+    @media(max-width:680px){
+      .seat { width:36px; height:36px; border-radius:6px; }
+      .row-label { width:36px; min-width:36px; font-size:0.9rem; }
+    }
+
+    .modal.modal-fixed-footer {
+      max-height: 90%;
+    }
+
+    /* seat picker button on seat field */
+    .seat-picker-btn {
+      position:absolute;
+      right:0;
+      top:32px;
+    }
   </style>
 </head>
 <body>
@@ -128,8 +272,12 @@ $airportListJson = json_encode($airportList);
   <div class="header-hero">
     <div style="display:flex; justify-content:space-between; align-items:center">
       <div>
-        <div class="brand-title">Quiz Maker — Flight Booking UI</div>
-        <div class="small-note">Duration & Booking Ref moved to General Info. Add multiple quiz items (IATA + class + deadline).</div>
+        <div class="brand-title">
+          <?php echo $editing ? 'Edit Quiz — Flight Booking UI' : 'Quiz Maker — Flight Booking UI'; ?>
+        </div>
+        <div class="small-note">
+          Duration & Booking Ref in General Info. Add or edit multiple quiz items (IATA + class + deadline).
+        </div>
       </div>
       <div>
         <a href="Admin.php" class="btn-flat white-text">Back to Dashboard</a>
@@ -139,9 +287,11 @@ $airportListJson = json_encode($airportList);
 
   <div style="margin-top:18px" class="card booking">
     <div class="card-content">
-      <h5 style="margin-top:0">Create New Quiz</h5>
+      <h5 style="margin-top:0">
+        <?php echo $editing ? 'Edit Quiz' : 'Create New Quiz'; ?>
+      </h5>
       <div class="col">
-        <!-- RIGHT: Boarding pass / stats -->
+        <!-- RIGHT: Boarding pass preview -->
         <div>
           <div class="card-section">
             <div class="section-title">Boarding Pass Preview</div>
@@ -181,7 +331,8 @@ $airportListJson = json_encode($airportList);
             </div>
           </div>
         </div>
-      </div>
+      </div> <!-- col -->
+
       <div class="col" style="margin-top:12px;">
         <!-- LEFT: Main form -->
         <div>
@@ -201,6 +352,7 @@ $airportListJson = json_encode($airportList);
             </div>
           </div>
 
+          <!-- ITEMS -->
           <div class="card-section">
             <div style="display:flex; justify-content:space-between; align-items:center">
               <div class="section-title">Quiz Details (Flight-style items)</div>
@@ -222,11 +374,16 @@ $airportListJson = json_encode($airportList);
           <div style="display:flex; gap:10px; align-items:center; margin-top:12px">
             <a id="previewBtn" class="btn btn-primary">Preview Boarding Pass</a>
 
-            <!-- Save buttons required by the JS listeners -->
-            <a id="saveQuizBtn" class="btn btn-primary lighten-1">Save Quiz</a>
-            <a id="saveAndOpenBtn" class="btn btn-primary">Save & Open</a>
+            <a id="saveQuizBtn" class="btn btn-primary lighten-1">
+              <?php echo $editing ? 'Update Quiz' : 'Save Quiz'; ?>
+            </a>
+            <a id="saveAndOpenBtn" class="btn btn-primary">
+              <?php echo $editing ? 'Update & Open' : 'Save & Open'; ?>
+            </a>
 
-            <div style="margin-left:auto" class="small-note">Admin: make sure to save to persist to DB</div>
+            <div style="margin-left:auto" class="small-note">
+              Admin: make sure to <?php echo $editing ? 'update' : 'save'; ?> to persist to DB
+            </div>
           </div>
 
           <!-- Student prompt preview -->
@@ -235,10 +392,51 @@ $airportListJson = json_encode($airportList);
             <div id="bpDescription" style="font-weight:700;"></div>
           </div>
         </div>    
-      </div> <!-- two-col -->
+      </div> <!-- col -->
     </div> <!-- card-content -->
   </div> <!-- card booking -->
 </div> <!-- page-wrap -->
+
+
+<!-- Seat Picker Modal -->
+<div id="seatPickerModal" class="modal modal-fixed-footer">
+  <div class="modal-content">
+    <h5>Seat Picker</h5>
+    <p class="grey-text text-darken-1" style="margin-top:-4px;">
+      First: rows 1–6 (1–2–1), Business: 7–20 (1–2–1), Premium: 25–27 (2–4–2), Economy: 30–40 (3–4–3)
+    </p>
+
+    <!-- Cabin headers injected here -->
+    <div id="cabinContainer"></div>
+
+    <!-- Seat map -->
+    <div id="seatMap" class="seat-map" aria-label="Seat map" role="application"></div>
+
+    <!-- Legend -->
+    <div class="legend">
+      <span><span class="box selected"></span> Selected</span>
+      <span><span class="box disabled"></span> Taken / Unavailable</span>
+    </div>
+    <div class="legend">
+      <span><span class="box" style="background:#1e88e5"></span> First Class</span>
+      <span><span class="box" style="background:#fb8c00"></span> Business Class</span>
+      <span><span class="box" style="background:#7e57c2"></span> Premium Economy</span>
+      <span><span class="box" style="background:#43a047"></span> Economy</span>
+    </div>
+
+    <!-- Selected summary -->
+    <div class="selection-summary">
+      <h6>Selected seats</h6>
+      <div id="selectedChips" class="chips"></div>
+      <p id="summaryText" class="grey-text text-darken-1"></p>
+    </div>
+  </div>
+
+  <div class="modal-footer">
+    <a id="clearSeatSelectionBtn" class="btn-flat">Clear</a>
+    <a class="modal-close btn" id="seatModalDoneBtn">Done</a>
+  </div>
+</div>
 
 <?php include('templates/footer.php'); ?>
 
@@ -246,15 +444,14 @@ $airportListJson = json_encode($airportList);
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
 // airport options (HTML string) kept for optional fallbacks
-const airportOptionsHtml = <?php echo $airportOptionsJson; ?>; // string of <option>... populated server-side
+const airportOptionsHtml = <?php echo $airportOptionsJson; ?>;
+const airportList        = <?php echo $airportListJson; ?>;
 
-// structured airport list for JS autocomplete
-const airportList = <?php echo $airportListJson; ?>; // [{iata,city,label,name}, ...]
+// EDIT MODE FLAGS FROM PHP
+const isEditing  = <?php echo $editing ? 'true' : 'false'; ?>;
+const editQuizId = <?php echo $editing ? (int)$editId : 'null'; ?>;
 
-/* Simple matching function:
-   returns list of airports where query matches iata, city or name (startsWith or includes).
-   Limits results to top 50 to avoid huge lists.
-*/
+/* Simple matching function */
 function matchAirports(query){
   if(!query) return [];
   const q = query.trim().toUpperCase();
@@ -264,7 +461,6 @@ function matchAirports(query){
     if(a.iata && a.iata.startsWith(q)) { results.push(a); continue; }
     if(a.city && a.city.startsWith(q)) { results.push(a); continue; }
     if(a.name && a.name.toUpperCase().startsWith(q)) { results.push(a); continue; }
-    // fallback fuzzy includes
     if(a.iata && a.iata.includes(q)) { results.push(a); continue; }
     if(a.city && a.city.includes(q)) { results.push(a); continue; }
     if(a.name && a.name.toUpperCase().includes(q)) { results.push(a); continue; }
@@ -272,12 +468,294 @@ function matchAirports(query){
   return results;
 }
 
-// utility
 function genRef(){ const rand = Math.random().toString(36).substring(2,8).toUpperCase(); return 'QZ-' + rand; }
 function uc(s){ return (s || '').toString().trim().toUpperCase(); }
 
-// create item DOM block (autocomplete input instead of select)
 let itemIndex = 0;
+
+// ======== SEAT PICKER JS (GLOBAL) ========
+const seatMapEl = document.getElementById('seatMap');
+const cabinContainerEl = document.getElementById('cabinContainer');
+const selectedChipsEl = document.getElementById('selectedChips');
+const summaryText = document.getElementById('summaryText');
+const clearSeatSelectionBtn = document.getElementById('clearSeatSelectionBtn');
+const seatModalDoneBtn = document.getElementById('seatModalDoneBtn');
+let seatPickerTargetInput = null;
+
+// Cabin definitions (FIRST + BUSINESS separated)
+const CABINS = [
+  {
+    key: 'first',
+    name: 'First Class',
+    className: 'first',
+    startRow: 1,
+    endRow: 6,
+    letters: ['A', '', 'D', 'G', '', 'K'] // 1–2–1
+  },
+  {
+    key: 'business',
+    name: 'Business Class',
+    className: 'business',
+    startRow: 7,
+    endRow: 20,
+    letters: ['A', '', 'D', 'G', '', 'K'] // 1–2–1
+  },
+  {
+    key: 'premium',
+    name: 'Premium Economy',
+    className: 'premium',
+    startRow: 25,
+    endRow: 27,
+    letters: ['A','B','','D','E','F','G','','J','K'] // 2–4–2
+  },
+  {
+    key: 'economy',
+    name: 'Economy',
+    className: 'economy',
+    startRow: 30,
+    endRow: 40,
+    letters: ['A','B','C','','D','E','F','G','','H','J','K'] // 3–4–3
+  }
+];
+
+let selectedSeats = new Set();
+let lastClickedSeat = null;
+let currentFilterKey = 'all';
+let activeCabinKeyForSelection = null;
+let maxSeatsForCurrentItem = Infinity;
+
+function createCabinHeader(name, rowsText, className, key) {
+  const wrap = document.createElement('div');
+  wrap.className = 'cabin-header ' + className;
+  wrap.setAttribute('data-cabin-key', key);
+  const title = document.createElement('h6');
+  title.textContent = name + ' (' + rowsText + ')';
+  const line = document.createElement('div');
+  line.className = 'line';
+  wrap.appendChild(title);
+  wrap.appendChild(line);
+  return wrap;
+}
+
+function generateMultiCabinLayout() {
+  if (!seatMapEl || !cabinContainerEl) return;
+  seatMapEl.innerHTML = '';
+  cabinContainerEl.innerHTML = '';
+  selectedSeats.clear();
+  updateSeatSummary();
+
+  CABINS.forEach(cabin => {
+    const rowsText = cabin.startRow + '–' + cabin.endRow;
+    const headerEl = createCabinHeader(cabin.name, rowsText, cabin.className, cabin.key);
+    cabinContainerEl.appendChild(headerEl);
+
+    for (let r = cabin.startRow; r <= cabin.endRow; r++) {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'seat-row';
+      rowEl.setAttribute('data-row', r);
+      rowEl.setAttribute('data-cabin', cabin.name);
+      rowEl.setAttribute('data-cabin-key', cabin.key);
+
+      const rowLabel = document.createElement('div');
+      rowLabel.className = 'row-label';
+      rowLabel.textContent = r;
+      rowEl.appendChild(rowLabel);
+
+      cabin.letters.forEach(part => {
+        if (part === '') {
+          const aisle = document.createElement('div');
+          aisle.className = 'aisle';
+          rowEl.appendChild(aisle);
+          return;
+        }
+
+        const seatId = `${r}${part}`;
+        const seatBtn = document.createElement('button');
+        seatBtn.type = 'button';
+        seatBtn.className = 'seat ' + cabin.className;
+        seatBtn.textContent = part;
+        seatBtn.setAttribute('data-seat', seatId);
+        seatBtn.setAttribute('data-cabin', cabin.name);
+        seatBtn.setAttribute('data-cabin-key', cabin.key);
+        seatBtn.setAttribute('aria-pressed', 'false');
+        seatBtn.setAttribute('title', `${seatId} – ${cabin.name}`);
+        seatBtn.setAttribute('aria-label', `Seat ${seatId} in ${cabin.name}`);
+
+        seatBtn.addEventListener('click', (ev) => onSeatClick(ev, seatBtn));
+        seatBtn.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            seatBtn.click();
+          }
+        });
+
+        rowEl.appendChild(seatBtn);
+      });
+
+      seatMapEl.appendChild(rowEl);
+    }
+  });
+
+  applyCabinFilter(currentFilterKey);
+}
+
+function onSeatClick(ev, seatBtn) {
+  if (seatBtn.classList.contains('disabled')) return;
+
+  const seatCabinKey = seatBtn.getAttribute('data-cabin-key');
+
+  // HARD GUARD: must be in the active cabin
+  if (activeCabinKeyForSelection && seatCabinKey !== activeCabinKeyForSelection) {
+    if (typeof M !== 'undefined' && M.toast) {
+      M.toast({html: 'Please pick a seat in the selected class only.'});
+    }
+    return;
+  }
+
+  const seatId = seatBtn.getAttribute('data-seat');
+
+  if (ev.shiftKey && lastClickedSeat) {
+    const allSeats = Array.from(document.querySelectorAll('.seat')).filter(s => !s.classList.contains('disabled'));
+    const ids = allSeats.map(s => s.getAttribute('data-seat'));
+    const i1 = ids.indexOf(lastClickedSeat);
+    const i2 = ids.indexOf(seatId);
+    if (i1 >= 0 && i2 >= 0) {
+      const [start, end] = i1 < i2 ? [i1, i2] : [i2, i1];
+      for (let i = start; i <= end; i++) {
+        const s = allSeats[i];
+
+        // ENFORCE LIMIT: before selecting new seats
+        const alreadySelected = s.classList.contains('selected');
+        if (!alreadySelected && selectedSeats.size >= maxSeatsForCurrentItem) {
+          if (typeof M !== 'undefined' && M.toast) {
+            M.toast({html:`You can only select ${maxSeatsForCurrentItem} seats for this booking.`});
+          }
+          break;
+        }
+
+        toggleSeatSelection(s, true);
+      }
+    }
+  } else {
+    // ENFORCE LIMIT: this single seat click
+    const isSelected = seatBtn.classList.contains('selected');
+    if (!isSelected && selectedSeats.size >= maxSeatsForCurrentItem) {
+      if (typeof M !== 'undefined' && M.toast) {
+        M.toast({html:`You can only select ${maxSeatsForCurrentItem} seats for this booking.`});
+      }
+      return;
+    }
+
+    toggleSeatSelection(seatBtn, null);
+  }
+
+  lastClickedSeat = seatId;
+  updateSeatSummary();
+
+  // AUTO CLOSE when we've reached the limit
+  if (selectedSeats.size >= maxSeatsForCurrentItem) {
+    if (seatPickerTargetInput) {
+      const seats = window.getSelectedSeats();
+      seatPickerTargetInput.value = seats.join(', ');
+      if (typeof M !== 'undefined' && M.updateTextFields) {
+        M.updateTextFields();
+      }
+    }
+    if (seatPickerModalInstance && seatPickerModalInstance.close) {
+      seatPickerModalInstance.close();
+    }
+  }
+}
+
+function toggleSeatSelection(seatEl, forceSelect = null) {
+  const seatId = seatEl.getAttribute('data-seat');
+  const isSelected = seatEl.classList.contains('selected');
+  const shouldSelect = forceSelect === null ? !isSelected : Boolean(forceSelect);
+
+  if (shouldSelect) {
+    seatEl.classList.add('selected');
+    seatEl.setAttribute('aria-pressed', 'true');
+    selectedSeats.add(seatId);
+  } else {
+    seatEl.classList.remove('selected');
+    seatEl.setAttribute('aria-pressed', 'false');
+    selectedSeats.delete(seatId);
+  }
+}
+
+function updateSeatSummary() {
+  if (!selectedChipsEl || !summaryText) return;
+
+  selectedChipsEl.innerHTML = '';
+
+  const seats = Array.from(selectedSeats).sort((a,b) => {
+    const re = /^(\d+)(.+)$/;
+    const ma = a.match(re);
+    const mb = b.match(re);
+    const ra = parseInt(ma[1],10), rb = parseInt(mb[1],10);
+    if (ra !== rb) return ra - rb;
+    return ma[2].localeCompare(mb[2]);
+  });
+
+  seats.forEach(s => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = s;
+    const close = document.createElement('i');
+    close.className = 'close material-icons';
+    close.textContent = 'close';
+    close.style.cursor = 'pointer';
+    close.addEventListener('click', () => {
+      const el = document.querySelector(`[data-seat="${s}"]`);
+      if (el) toggleSeatSelection(el, false);
+      updateSeatSummary();
+    });
+    chip.appendChild(close);
+    selectedChipsEl.appendChild(chip);
+  });
+
+  if (seats.length === 0) {
+    summaryText.textContent = 'No seats selected.';
+  } else if (seats.length === 1) {
+    summaryText.textContent = `You selected seat ${seats[0]}.`;
+  } else {
+    summaryText.textContent = `You selected ${seats.length} seats: ${seats.join(', ')}.`;
+  }
+}
+
+function clearSeatSelections() {
+  document.querySelectorAll('.seat.selected').forEach(s => {
+    s.classList.remove('selected');
+    s.setAttribute('aria-pressed', 'false');
+  });
+  selectedSeats.clear();
+  updateSeatSummary();
+}
+
+function applyCabinFilter(filterKey) {
+  currentFilterKey = filterKey || 'all';
+
+  const rows = document.querySelectorAll('.seat-row');
+  const headers = document.querySelectorAll('.cabin-header');
+
+  rows.forEach(row => {
+    const key = row.getAttribute('data-cabin-key');
+    row.style.display = (key === filterKey) ? 'flex' : 'none';
+  });
+
+  headers.forEach(header => {
+    const key = header.getAttribute('data-cabin-key');
+    header.style.display = (key === filterKey) ? 'flex' : 'none';
+  });
+}
+
+// expose for debugging / integration if needed
+window.getSelectedSeats = () => Array.from(selectedSeats).sort();
+
+// ======== ORIGINAL FORM/ITEM JS ========
+
+let seatPickerModalInstance = null;
+
 function createItemBlock(prefill = null){
   const idx = itemIndex++;
   const wrapper = document.createElement('div');
@@ -297,7 +775,6 @@ function createItemBlock(prefill = null){
       </div>
     </div>
 
-    <!-- Booking details per item -->
     <div class="card-section" style="margin-top:10px; padding:10px; background:#fcfeff;">
       <div style="font-weight:700; margin-bottom:8px">Booking Details (Item ${idx+1})</div>
 
@@ -309,8 +786,8 @@ function createItemBlock(prefill = null){
 
       <div style="margin-bottom:8px">
         <label style="display:block; margin-bottom:6px">Flight type</label>
-        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="oneway" checked /><span>One-way</span></label>
-        <label><input name="flightTypeInner${idx}" type="radio" value="Round-trip" /><span>Round-trip</span></label>
+        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="ONE-WAY" checked /><span>One-way</span></label>
+        <label><input name="flightTypeInner${idx}" type="radio" value="ROUND-TRIP" /><span>Round-trip</span></label>
       </div>
 
       <div class="flight-row" style="margin-bottom:8px">
@@ -343,7 +820,7 @@ function createItemBlock(prefill = null){
           <input type="text" class="flightNumberInner" data-idx="${idx}" readonly />
           <label>Flight number (autogenerated)</label>
         </div>
-        <div class="flight-field input-field">
+        <div class="flight-field input-field" style="position:relative;">
           <input type="text" class="seatNumbersInner" data-idx="${idx}" placeholder="e.g., 14A, 14B" />
           <label>Seat numbers</label>
         </div>
@@ -354,6 +831,7 @@ function createItemBlock(prefill = null){
           <option value="economy" selected>Economy</option>
           <option value="business">Business</option>
           <option value="premium">Premium</option>
+          <option value="first">First Class</option>
         </select>
         <label>Class</label>
       </div>
@@ -367,7 +845,6 @@ function createItemBlock(prefill = null){
     refreshItemLabels();
   });
 
-  // helper to attach autocomplete to any input inside the wrapper
   function attachAutocompleteTo(inputEl){
     if(!inputEl) return;
     const container = inputEl.closest('.iata-autocomplete');
@@ -387,7 +864,6 @@ function createItemBlock(prefill = null){
       }).join('');
       localSugg.style.display = 'block';
 
-      // attach click handlers
       localSugg.querySelectorAll('.iata-suggestion').forEach(node=>{
         node.addEventListener('click', ()=>{
           const iata = node.dataset.iata || '';
@@ -399,16 +875,130 @@ function createItemBlock(prefill = null){
       });
     });
 
-    inputEl.addEventListener('blur', function(){ setTimeout(()=>{ if(localSugg) localSugg.style.display='none'; },120); });
+    inputEl.addEventListener('blur', function(){
+      setTimeout(()=>{ if(localSugg) localSugg.style.display='none'; },120);
+    });
   }
-
-  // attach to origin/destination per-item
-  attachAutocompleteTo(wrapper.querySelector('.originAirportInner'));
-  attachAutocompleteTo(wrapper.querySelector('.destinationAirportInner'));
 
   // autogenerate flight number for this item
   const flightNumEl = wrapper.querySelector('.flightNumberInner');
-  if(flightNumEl && !flightNumEl.value){ flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase(); }
+  if(flightNumEl && !flightNumEl.value){ 
+    flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase(); 
+  }
+
+  // attach autocomplete to origin/destination
+  attachAutocompleteTo(wrapper.querySelector('.originAirportInner'));
+  attachAutocompleteTo(wrapper.querySelector('.destinationAirportInner'));
+
+  // ===== wire seat picker "Pick" button for THIS item =====
+  const seatInput = wrapper.querySelector('.seatNumbersInner');
+  if (seatInput) {
+
+  function openSeatPickerForThisItem() {
+  seatPickerTargetInput = seatInput;
+
+  // 1) Determine cabin from class dropdown
+  const travelSelect = wrapper.querySelector('.travelClassInner');
+  const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
+
+  activeCabinKeyForSelection = travelClass;
+  applyCabinFilter(travelClass);
+
+  // 2) Compute how many seats are allowed for THIS item
+  const adultsEl   = wrapper.querySelector('.adultCountInner');
+  const childrenEl = wrapper.querySelector('.childCountInner');
+  const infantsEl  = wrapper.querySelector('.infantCountInner');
+
+  const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
+  const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
+  const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
+
+  // If you don't want infants to count as seats, use (adults + children) instead.
+  let totalPeople = adults + children;
+
+  // Safety: at least 1 seat
+  if (totalPeople <= 0) totalPeople = 1;
+
+  maxSeatsForCurrentItem = totalPeople;
+
+  // 3) Clear previous selection
+  clearSeatSelections();
+
+  // 4) Preselect any seats already in the input (but only in this cabin)
+  const existing = (seatInput.value || '')
+    .split(',')
+    .map(s => s.trim().toUpperCase())
+    .filter(s => s.length > 0);
+
+  if (existing.length) {
+    const allSeats = document.querySelectorAll('.seat');
+    allSeats.forEach(seatEl => {
+      const id = seatEl.getAttribute('data-seat');
+      const seatCabinKey = seatEl.getAttribute('data-cabin-key');
+      if (existing.includes(id) && seatCabinKey === activeCabinKeyForSelection) {
+        toggleSeatSelection(seatEl, true);
+      }
+    });
+    updateSeatSummary();
+  }
+
+  // 5) Open the modal
+  if (seatPickerModalInstance) {
+    seatPickerModalInstance.open();
+  } else if (typeof M !== 'undefined' && M.Modal) {
+    const modalElem = document.getElementById('seatPickerModal'); // make sure this ID matches your modal
+    const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem);
+    seatPickerModalInstance = instance;
+    seatPickerModalInstance.open();
+  }
+}
+
+  // Open modal when clicking OR focusing the input
+  seatInput.addEventListener('click', openSeatPickerForThisItem);
+  seatInput.addEventListener('focus', openSeatPickerForThisItem);
+}
+
+  // ------------ PREFILL (EDIT MODE) ------------
+  if(prefill && prefill.booking){
+    const b = prefill.booking;
+
+    const adultsEl   = wrapper.querySelector('.adultCountInner');
+    const childrenEl = wrapper.querySelector('.childCountInner');
+    const infantsEl  = wrapper.querySelector('.infantCountInner');
+    const originEl   = wrapper.querySelector('.originAirportInner');
+    const destEl     = wrapper.querySelector('.destinationAirportInner');
+    const depEl      = wrapper.querySelector('.departureDateInner');
+    const retEl      = wrapper.querySelector('.returnDateInner');
+    const seatsEl    = wrapper.querySelector('.seatNumbersInner');
+    const travelEl   = wrapper.querySelector('.travelClassInner');
+    const radios     = wrapper.querySelectorAll(`input[name="flightTypeInner${idx}"]`);
+
+    if(adultsEl)   adultsEl.value   = b.adults   != null ? b.adults   : 1;
+    if(childrenEl) childrenEl.value = b.children != null ? b.children : 0;
+    if(infantsEl)  infantsEl.value  = b.infants  != null ? b.infants  : 0;
+
+    const originVal = b.origin || prefill.iata || '';
+    const destVal   = b.destination || prefill.city || '';
+
+    if(originEl){ originEl.value = originVal; }
+    if(destEl){   destEl.value   = destVal; }
+
+    if(depEl) depEl.value = b.departure || '';
+    if(retEl) retEl.value = b.return || '';
+
+    if(flightNumEl && b.flight_number){
+      flightNumEl.value = b.flight_number;
+    }
+
+    if(seatsEl) seatsEl.value = b.seats || '';
+
+    if(travelEl) travelEl.value = (b.travel_class || 'economy').toLowerCase();
+
+    const ft = (b.flight_type || 'ONE-WAY').toUpperCase();
+    radios.forEach(r => {
+      if(r.value.toUpperCase() === ft) r.checked = true;
+    });
+  }
 
   return wrapper;
 }
@@ -419,7 +1009,6 @@ function addItem(prefill = null){
   const block = createItemBlock(prefill);
   cont.appendChild(block);
 
-  // re-init Materialize selects inside the newly added block
   const selects = block.querySelectorAll('select');
   M.FormSelect.init(selects);
 
@@ -439,19 +1028,17 @@ function collectItems(){
   const items = [];
   const blocks = document.querySelectorAll('#itemsContainer .item-row');
   for(const b of blocks){
-
-    // per-item booking fields
-    const adultsEl = b.querySelector('.adultCountInner');
+    const adultsEl   = b.querySelector('.adultCountInner');
     const childrenEl = b.querySelector('.childCountInner');
-    const infantsEl = b.querySelector('.infantCountInner');
-    const originEl = b.querySelector('.originAirportInner');
-    const destEl = b.querySelector('.destinationAirportInner');
-    const departureEl = b.querySelector('.departureDateInner');
-    const returnEl = b.querySelector('.returnDateInner');
-    const flightNumEl = b.querySelector('.flightNumberInner');
-    const seatsEl = b.querySelector('.seatNumbersInner');
+    const infantsEl  = b.querySelector('.infantCountInner');
+    const originEl   = b.querySelector('.originAirportInner');
+    const destEl     = b.querySelector('.destinationAirportInner');
+    const departureEl= b.querySelector('.departureDateInner');
+    const returnEl   = b.querySelector('.returnDateInner');
+    const flightNumEl= b.querySelector('.flightNumberInner');
+    const seatsEl    = b.querySelector('.seatNumbersInner');
     const travelClassEl = b.querySelector('.travelClassInner');
-    const flightTypeEl = b.querySelector(`input[name=flightTypeInner${b.dataset.idx}]:checked`);
+    const flightTypeInput = b.querySelector(`input[name=flightTypeInner${b.dataset.idx}]:checked`);
 
     const adults = adultsEl ? parseInt(adultsEl.value || 0, 10) : 0;
     const children = childrenEl ? parseInt(childrenEl.value || 0, 10) : 0;
@@ -463,7 +1050,8 @@ function collectItems(){
     const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
     const seats = seatsEl ? (seatsEl.value || '') : '';
     const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
-    const flightType = flightTypeEl ? (flightTypeEl.value || 'ONE-WAY') : 'ONE-WAY';
+    const ftVal = flightTypeInput ? (flightTypeInput.value || 'ONE-WAY') : 'ONE-WAY';
+    const flightType = ftVal.toUpperCase() === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
 
     items.push({
       iata: uc(origin),
@@ -492,24 +1080,18 @@ function buildDescription(){
   for(const it of items){
     const b = it.booking || {};
 
-    // PERSON COUNT SENTENCES — remove zeros
     let personParts = [];
     if(b.adults && b.adults > 0) personParts.push(b.adults + (b.adults === 1 ? ' adult' : ' adults'));
     if(b.children && b.children > 0) personParts.push(b.children + (b.children === 1 ? ' child' : ' children'));
     if(b.infants && b.infants > 0) personParts.push(b.infants + (b.infants === 1 ? ' infant' : ' infants'));
     const personStr = personParts.length ? personParts.join(', ') : '';
 
-    // ORIGIN / DESTINATION
     const origin = b.origin || it.iata || '---';
     const destination = b.destination || it.city || '---';
 
-    // FLIGHT TYPE
     const typeLabel = b.flight_type === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
-
-    // CLASS
     const classLabel = (b.travel_class || 'ECONOMY');
 
-    // Build readable sentence per item
     let sentence = '';
     if(personStr) sentence += personStr + ' ';
     sentence += `flying from ${origin} to ${destination} on a ${typeLabel} flight in ${classLabel} class`;
@@ -530,7 +1112,6 @@ function buildDescription(){
   return { description: desc, expected_answer: expected, itemsCount: items.length };
 }
 
-/* SAVE function - declared in global scope so event listeners can call it */
 async function saveQuiz(redirect=false){
   const items = collectItems();
   const titleEl = document.getElementById('quizTitle');
@@ -540,6 +1121,8 @@ async function saveQuiz(redirect=false){
   const fromSection = sectionEl ? (sectionEl.value || '') : '';
 
   const payload = {
+    id: isEditing ? editQuizId : null,
+    mode: isEditing ? 'update' : 'create',
     title: title,
     items: items,
     from: fromSection,
@@ -548,8 +1131,7 @@ async function saveQuiz(redirect=false){
     questions: []
   };
 
-  // show a small busy indicator
-  M.toast({html: 'Saving quiz...'});
+  M.toast({html: isEditing ? 'Updating quiz...' : 'Saving quiz...'});
   console.log('Saving payload:', payload);
 
   try {
@@ -561,7 +1143,7 @@ async function saveQuiz(redirect=false){
 
     const text = await res.text();
     let data = null;
-    try { data = JSON.parse(text); } catch(e) { /* not JSON */ }
+    try { data = JSON.parse(text); } catch(e) {}
 
     console.log('save_quiz response status:', res.status, 'raw:', text, 'jsonParsed:', data);
 
@@ -572,7 +1154,7 @@ async function saveQuiz(redirect=false){
     }
 
     if (data && data.success) {
-      M.toast({html: 'Quiz saved (ID: '+data.id+')'});
+      M.toast({html: (isEditing ? 'Quiz updated' : 'Quiz saved') + ' (ID: '+data.id+')'});
       if (redirect) window.location.href = 'Exam.php?id='+data.id;
       else window.location.href = 'Admin.php';
       return;
@@ -586,16 +1168,57 @@ async function saveQuiz(redirect=false){
   }
 }
 
-/* All DOM lookups & event bindings inside DOMContentLoaded to avoid "null" errors */
 document.addEventListener('DOMContentLoaded', function(){
-  // init global selects
   var elems = document.querySelectorAll('select');
   M.FormSelect.init(elems);
 
-  // Insert initial item
+  // Init Materialize modal for seat picker
+  const modalElems = document.querySelectorAll('seatPickerModal');
+  const instances = M.Modal.init(modalElems);
+  if (instances && instances.length) {
+    seatPickerModalInstance = instances[0];
+  }
+
+  // Build seat layout once
+  generateMultiCabinLayout();
+
+  // Cabin filter radio events
+  document.querySelectorAll('input[name="cabinFilter"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      applyCabinFilter(e.target.value);
+    });
+  });
+  const initialFilter = document.querySelector('input[name="cabinFilter"]:checked');
+  if (initialFilter) applyCabinFilter(initialFilter.value);
+
+  // Clear button in modal
+  if (clearSeatSelectionBtn) {
+    clearSeatSelectionBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      clearSeatSelections();
+    });
+  }
+
+  // When user clicks DONE in modal, push selection into target input
+  if (seatModalDoneBtn) {
+      seatModalDoneBtn.addEventListener('click', function(){
+        if (!seatNumberTargetInput) return;
+        const chosen = Array.from(selectedSeats)[0] || '';
+        if (chosen) {
+          seatNumberTargetInput.value = chosen;
+          if (typeof M !== 'undefined' && M.updateTextFields) {
+            M.updateTextFields();
+          }
+        }
+      if (seatPickerModalInstance && seatPickerModalInstance.close) {
+      seatPickerModalInstance.close();
+        } 
+      });
+    }
+
+  // Insert at least one item
   addItem();
 
-  // Add item button
   const addBtn = document.getElementById('addItemBtn');
   if(addBtn){
     addBtn.addEventListener('click', function(e){
@@ -604,7 +1227,6 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
 
-  // Preview button
   const prevBtn = document.getElementById('previewBtn');
   if(prevBtn){
     prevBtn.addEventListener('click', (e)=>{
@@ -614,33 +1236,29 @@ document.addEventListener('DOMContentLoaded', function(){
 
       const title = titleEl ? (titleEl.value || 'QUIZ/EXAM') : 'QUIZ/EXAM';
       const section = sectionEl ? (sectionEl.value || 'Section') : 'Section';
-      const durationDisplay = '60'; // simple fixed display duration
+      const durationDisplay = '60';
       const code = genRef();
 
-      // build description from items
       const {description, itemsCount} = buildDescription();
 
-      // Use the first item's booking origin/destination if available
       const firstItem = collectItems()[0] || null;
       let repFrom = '---', repTo = '---';
       if(firstItem){
         repFrom = (firstItem.booking && firstItem.booking.origin) ? firstItem.booking.origin : (firstItem.iata || '---');
-        repTo = (firstItem.booking && firstItem.booking.destination) ? firstItem.booking.destination : (firstItem.city || '---');
+        repTo   = (firstItem.booking && firstItem.booking.destination) ? firstItem.booking.destination : (firstItem.city || '---');
       }
 
       document.getElementById('bpFrom').textContent = repFrom;
-      document.getElementById('bpTo').textContent = repTo;
-      document.getElementById('bpTitle').textContent = title;
+      document.getElementById('bpTo').textContent   = repTo;
+      document.getElementById('bpTitle').textContent= title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
       document.getElementById('bpDeadline').textContent = 'Multiple / see description';
 
-      // Meta: items count, duration and class from first item (if available)
       let metaClass = '';
       if(firstItem && firstItem.difficulty) metaClass = firstItem.difficulty;
       document.getElementById('bpMeta').textContent =
         itemsCount + ' Items • ' + durationDisplay + ' min' + (metaClass ? ' • ' + metaClass : '');
 
-      // Ensure description is readable even when items are empty
       const finalDesc = description || 'Book the indicated destinations.';
       document.getElementById('bpDescription').textContent = finalDesc;
       document.getElementById('bpDescriptionRight').textContent = finalDesc;
@@ -650,7 +1268,6 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
 
-  // Save buttons wiring
   const saveBtn = document.getElementById('saveQuizBtn');
   if(saveBtn){
     saveBtn.addEventListener('click', (e)=>{ e.preventDefault(); saveQuiz(false); });
@@ -660,8 +1277,48 @@ document.addEventListener('DOMContentLoaded', function(){
     saveAndOpenBtn.addEventListener('click', (e)=>{ e.preventDefault(); saveQuiz(true); });
   }
 
-}); // end DOMContentLoaded
+  // ------------------ IF EDITING, LOAD QUIZ DATA ------------------
+  if(isEditing && editQuizId){
+    M.toast({html:'Loading quiz data...'});
+    fetch('load_quiz.php?id=' + encodeURIComponent(editQuizId))
+      .then(r => r.json())
+      .then(data => {
+        console.log('load_quiz response:', data);
+        if(!data || !data.success){
+          M.toast({html:'Failed to load quiz: ' + (data && data.error ? data.error : 'unknown error')});
+          return;
+        }
 
+        const q = data.quiz || data;
+
+        const titleEl = document.getElementById('quizTitle');
+        const sectionEl = document.getElementById('sectionField');
+
+        if(titleEl){ titleEl.value = q.title || ''; }
+        if(sectionEl){ sectionEl.value = q.from || ''; }
+
+        // update floating labels
+        M.updateTextFields();
+
+        const cont = document.getElementById('itemsContainer');
+        cont.innerHTML = '';
+        itemIndex = 0;
+
+        if(Array.isArray(q.items) && q.items.length){
+          q.items.forEach(item => addItem(item));
+        } else {
+          addItem();
+        }
+
+        M.toast({html:'Quiz loaded'});
+      })
+      .catch(err => {
+        console.error('Error loading quiz:', err);
+        M.toast({html:'Error loading quiz data'});
+      });
+  }
+
+}); // DOMContentLoaded
 </script>
 </body>
 </html>

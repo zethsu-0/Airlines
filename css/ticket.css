@@ -18,8 +18,12 @@ body { min-height: 100vh; }
   position: relative;
   border-left: 6px solid #2196f3;
   transition: transform 0.2s ease;
+  z-index: 1 !important;
 }
-.ticket-card:hover { transform: scale(1.01); }
+.ticket-card:hover { 
+  transform: scale(1.01); 
+  z-index: 9999 !important;
+}
 
 .remove-btn {
   position: absolute; top: 10px; right: 10px;
