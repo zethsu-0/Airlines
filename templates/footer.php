@@ -2,21 +2,15 @@
   <div class="footer-main container">
     <div class="row">
       <div class="col l6 s12">
-        <h5>Travel More Ewan</h5>
-        <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod
-            tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,
-            quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
-            consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
-            cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non
-            proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+        <h5>What's TOURS</h5>
+        <p>This website is intended to be used as a place to practice flight booking while also serving as an interactive learning platform.</p>
       </div>
       <div class="col l4 offset-l2 s12">
         <h5>Official Links</h5>
         <ul class="footer-links">
-          <li>TOURS TRAVELS</li>
-          <li>CURRENCY EXCHANGE</li>
-          <li>HOTELS</li>
+          <li>URS Website</li>
+          <li>URS Official Page </li>
+          <li>Official Link</li>
         </ul>
       </div>
     </div>
