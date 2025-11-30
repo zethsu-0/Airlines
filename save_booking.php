@@ -174,7 +174,7 @@ $stmt = $mysqli->prepare("
     INSERT INTO submitted_flights
         (quiz_id, acc_id, adults, children, infants, flight_type,
          origin, destination, departure, return_date, seat_number, travel_class)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 if (!$stmt) {
     die("Prepare failed: " . htmlspecialchars($mysqli->error));
@@ -184,7 +184,7 @@ if (!$stmt) {
 //        flight_type(s), origin(s), destination(s), departure(s),
 //        return_date(s), flight_number(s), seats(i), travel_class(s)
 if (!$stmt->bind_param(
-    "isiiissssssss",
+    "isiiisssssss",
     $quiz_id,       // i
     $acc_id,        // s
     $adults,        // i
