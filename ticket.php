@@ -54,20 +54,48 @@ function format_airport_display($code, $iataMap) {
   if (count($parts) > 0) return implode(', ', $parts);
   return $code;
 }
+function airport_prompt_text($code, $iataMap) {
+  $code = strtoupper(trim((string)$code));
+  if ($code === '' || !isset($iataMap[$code])) {
+    return $code ?: '---';
+  }
+
+  $info = $iataMap[$code];
+  $parts = [];
+
+  // Match quizmaker: NAME then CITY, no country, all caps, separated by " - "
+  if (!empty($info['name'])) {
+    $parts[] = strtoupper($info['name']);
+  }
+  if (!empty($info['city'])) {
+    $parts[] = strtoupper($info['city']);
+  }
+
+  if (count($parts) > 0) {
+    return implode(' - ', $parts);
+  }
+
+  return $code;
+}
 
 $quizId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 $descObj = null;
 $quiz = null;
 
+$quizInputType = 'airport-code';
+if (is_array($quiz) && isset($quiz['input_type']) && $quiz['input_type'] !== '') {
+    $quizInputType = $quiz['input_type'];
+}
 if ($quizId > 0) {
-  // Use `from` / `to` as section / audience, and quiz_code as code
+
   $qStmt = $conn->prepare("
     SELECT id,
            title,
            `from` AS section,
            `to`   AS audience,
            duration,
-           quiz_code AS code
+           quiz_code AS code,
+           input_type
     FROM quizzes
     WHERE id = ?
   ");
@@ -114,86 +142,78 @@ if ($quizId > 0) {
       $stmt->close();
     }
 
-    $parts = [];
+     $sentences = [];
     $firstDestination = null;
+    $firstDeadline = null;
+
+    $inputType = $quiz['input_type'] ?? 'code-airport'; // 'airport-code' or 'code-airport'
 
     foreach ($items as $idx => $it) {
-      // ----- People breakdown: seats vs. infants (no seat) -----
-      $seatParts = [];
-      if (!empty($it['adults'])) {
-        $seatParts[] = $it['adults'] . ($it['adults'] === 1 ? ' adult' : ' adults');
-      }
-      if (!empty($it['children'])) {
-        $seatParts[] = $it['children'] . ($it['children'] === 1 ? ' child' : ' children');
-      }
+      $adults   = (int)($it['adults'] ?? 0);
+      $children = (int)($it['children'] ?? 0);
+      $infants  = (int)($it['infants'] ?? 0);
 
-      $seatStr = count($seatParts) ? implode(', ', $seatParts) : '';
+      // ---- PASSENGER TEXT (same style as quizmaker) ----
+      $passengerParts = [];
+      if ($adults > 0)   $passengerParts[] = $adults   . ' adult'  . ($adults   > 1 ? 's' : '');
+      if ($children > 0) $passengerParts[] = $children . ' child'  . ($children > 1 ? 'ren' : '');
+      if ($infants > 0)  $passengerParts[] = $infants  . ' infant' . ($infants  > 1 ? 's' : '');
 
-      $infantStr = '';
-      if (!empty($it['infants'])) {
-        $infantStr = $it['infants'] . ($it['infants'] === 1 ? ' infant' : ' infants');
-      }
+      $passengerText = $passengerParts ? implode(', ', $passengerParts) : '1 passenger';
 
-      $personStr = '';
-      if ($seatStr && $infantStr) {
-        $personStr = $seatStr . ' plus ' . $infantStr . ' (no separate seat)';
-      } elseif ($seatStr) {
-        $personStr = $seatStr;
-      } elseif ($infantStr) {
-        $personStr = $infantStr . ' (no separate seat)';
-      }
-
-      // ----- Airports -----
+      // ---- AIRPORTS, matching quizmaker mode ----
       $orgCode = strtoupper(trim($it['origin'] ?? ''));
       $dstCode = strtoupper(trim($it['destination'] ?? ''));
-      $orgReadable = $orgCode ? format_airport_display($orgCode, $iataMap) : '---';
-      $dstReadable = $dstCode ? format_airport_display($dstCode, $iataMap) : '---';
 
-      // ----- Flight type / class -----
-      $ftRaw = strtoupper(trim($it['flight_type'] ?? ''));
-      $typeLabel = ($ftRaw === 'ROUND-TRIP' || $ftRaw === 'ROUNDTRIP' || $ftRaw === 'RT')
-        ? 'round-trip'
-        : 'one-way';
-
-      $classRaw = strtolower(trim($it['travel_class'] ?? 'economy'));
-      switch ($classRaw) {
-        case 'first':
-        case 'first class':
-          $classLabel = 'First Class';
-          break;
-        case 'business':
-          $classLabel = 'Business';
-          break;
-        case 'premium':
-        case 'premium economy':
-          $classLabel = 'Premium Economy';
-          break;
-        default:
-          $classLabel = 'Economy';
+      if ($inputType === 'airport-code') {
+        // Show airport name text (student answers IATA code)
+        $fromText = $orgCode ? airport_prompt_text($orgCode, $iataMap) : '---';
+        $toText   = $dstCode ? airport_prompt_text($dstCode, $iataMap) : '---';
+      } else {
+        // Show IATA codes (student answers airport name)
+        $fromText = $orgCode ?: '---';
+        $toText   = $dstCode ?: '---';
       }
 
-      $sentence = '';
-      if ($personStr) {
-        $sentence .= $personStr . ' ';
+      // ---- FLIGHT TYPE / CLASS (UPPERCASE, comma-separated) ----
+      $flightType = strtoupper(trim($it['flight_type'] ?? 'ONE-WAY'));
+      if ($flightType !== 'ROUND-TRIP') {
+        $flightType = 'ONE-WAY';
       }
-      $sentence .= "flying from {$orgReadable} to {$dstReadable} on a {$typeLabel} flight in {$classLabel} class";
 
-      $parts[] = $sentence;
+      $flightClass = strtoupper(trim($it['travel_class'] ?? 'ECONOMY'));
 
+      // ---- FINAL SENTENCE (copy of quizmaker style) ----
+      $sentence = "Book {$passengerText} from {$fromText} to {$toText}, {$flightType}, {$flightClass}.";
+      $sentences[] = $sentence;
+
+      // expected_answer based on the FIRST item, like quizmaker
       if ($idx === 0) {
-        $firstDestination = $dstReadable !== '---' ? $dstReadable : ($dstCode ?: null);
+        if ($inputType === 'airport-code') {
+          // user should answer IATA code
+          $firstDestination = $dstCode ?: null;
+        } else {
+          // user should answer airport name text
+          $firstDestination = $dstCode ? airport_prompt_text($dstCode, $iataMap) : null;
+        }
+      }
+
+      // firstDeadline => first (earliest) departure_date
+      if ($firstDeadline === null && !empty($it['departure'])) {
+        $firstDeadline = $it['departure'];
       }
     }
 
-    if (count($parts) === 1) {
-      $desc = 'Book ' . $parts[0] . '.';
-    } elseif (count($parts) > 1) {
-      $sentences = array_map(function($p){ return $p . '.'; }, $parts);
-      $desc = 'Book the following flights: ' . implode(' ', $sentences);
-    } else {
+    // Combine all sentences (for multiple items)
+    if (count($sentences) === 0) {
       $desc = 'Book the indicated destinations.';
+    } elseif (count($sentences) === 1) {
+      $desc = $sentences[0];
+    } else {
+      $desc = implode(' ', $sentences);
     }
 
+    // Optional: keep duration info like before
     if (!empty($quiz['duration'])) {
       $desc .= ' Duration: ' . (int)$quiz['duration'] . ' minutes.';
     }
@@ -202,7 +222,7 @@ if ($quizId > 0) {
       'description'     => $desc,
       'expected_answer' => $firstDestination ?: null,
       'itemsCount'      => count($items),
-      'firstDeadline'   => ''
+      'firstDeadline'   => $firstDeadline ?: ''
     ];
   } else {
     http_response_code(404);
@@ -220,20 +240,26 @@ $return_date  = trim($_POST['return_date'] ?? '');
 $errors       = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+  $quizInputType = isset($_POST['quiz_type']) && $_POST['quiz_type'] !== ''
+    ? $_POST['quiz_type']
+    : 'airport-code';
+
   if (!isset($_SESSION['acc_id'])) {
     $errors['login'] = 'You must be logged in to submit a flight.';
   }
 
   if (empty($origin)) {
-    $errors['origin'] = 'Origin code is required.';
-  } elseif (!preg_match('/^[A-Z]{3}$/', $origin)) {
-    $errors['origin'] = 'Origin must be 3 uppercase letters.';
+    $errors['origin'] = 'Origin is required.';
+  } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
+    // Only enforce 3-letter IATA for airport-code quizzes
+    $errors['origin'] = 'Origin must be a 3-letter IATA code.';
   }
 
   if (empty($destination)) {
-    $errors['destination'] = 'Destination code is required.';
-  } elseif (!preg_match('/^[A-Z]{3}$/', $destination)) {
-    $errors['destination'] = 'Destination must be 3 uppercase letters.';
+    $errors['destination'] = 'Destination is required.';
+  } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
+    $errors['destination'] = 'Destination must be a 3-letter IATA code.';
   }
 
   if ($origin === $destination && !empty($origin)) {
@@ -271,11 +297,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
   }
 
+
   if (!empty($_POST['ajax_validate'])) {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
       'ok'     => empty($errors),
       'errors' => $errors,
+      'quiz_type' => $quizInputType,
       'flight' => [
         'origin'       => $origin,
         'destination'  => $destination,
@@ -550,6 +578,11 @@ $flight = [
   <script>const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;</script>
 
   <script>
+  // 🔹 Make the PHP-generated student prompt available in JS
+  const QUIZ_PROMPT = <?php echo json_encode($descObj['description'] ?? null); ?>;
+  const QUIZ_TYPE   = <?php echo json_encode($quiz['input_type'] ?? null); ?>;
+  window.IATA_DATA = <?php echo json_encode($iataData); ?>;
+
   document.addEventListener('DOMContentLoaded', function () {
     // ====== SEAT PICKER (BOEING 777) CORE VARS ======
     let seatPickerModalInstance = null;
@@ -594,7 +627,7 @@ $flight = [
         letters: ['A','B','C','','D','E','F','G','','H','J','K']
       }
     ];
-
+    
     function createCabinHeader(name, rowsText, className, key) {
       const wrap = document.createElement('div');
       wrap.className = 'cabin-header ' + className;
@@ -795,13 +828,45 @@ $flight = [
 
       applyCabinFilter('economy'); // default
     }
-
+    
     // ===== General helpers =====
+
+    function initIataDropdown(inputId) {
+      const input = document.getElementById(inputId);
+      if (!input || typeof M === 'undefined' || !M.Autocomplete || !window.IATA_DATA) return;
+
+      const data = {};
+      // Build autocomplete entries: "MNL — MANILA / PHILIPPINES / NINOY AQUINO INTL"
+      window.IATA_DATA.forEach(it => {
+        const parts = [];
+        if (it.city) parts.push(it.city);
+        if (it.country) parts.push(it.country);
+        if (it.name) parts.push(it.name);
+        const label = `${it.code} — ${parts.join(' / ')}`;
+        data[label] = null; // Materialize wants { text: null } if no icon
+      });
+
+      M.Autocomplete.init(input, {
+        data,
+        minLength: 1,
+        onAutocomplete: (val) => {
+          // Extract first 3 letters as IATA code
+          const m = val.match(/^([A-Za-z]{3})/);
+          if (m) {
+            input.value = m[1].toUpperCase();
+            // Trigger input so initPlainIataInput syncs hidden field
+            input.dispatchEvent(new Event('input'));
+          }
+        }
+      });
+    }
+
     function escapeHtml(s) {
       return String(s).replace(/[&<>"']/g, function (m) {
         return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
       });
     }
+    
 
     window.IATA_LOOKUP = {};
     IATA_DATA.forEach(it => window.IATA_LOOKUP[it.code] = it.name);
@@ -851,23 +916,86 @@ $flight = [
 
     if (seatModalDoneBtn) {
       seatModalDoneBtn.addEventListener('click', function (e) {
-      e.preventDefault();
+        e.preventDefault();
 
-      if (seatNumberTargetInput) {
-        const chosen = Array.from(selectedSeats)[0] || '';
-        if (chosen) {
-          seatNumberTargetInput.value = chosen;
-          if (typeof M !== 'undefined' && M.updateTextFields) {
-            M.updateTextFields();
+        if (seatNumberTargetInput) {
+          const chosen = Array.from(selectedSeats)[0] || '';
+          if (chosen) {
+            seatNumberTargetInput.value = chosen;
+            if (typeof M !== 'undefined' && M.updateTextFields) {
+              M.updateTextFields();
+            }
           }
         }
-      }
 
-      if (seatPickerModalInstance && seatPickerModalInstance.close) {
-        seatPickerModalInstance.close();
+        if (seatPickerModalInstance && seatPickerModalInstance.close) {
+          seatPickerModalInstance.close();
+        }
+      });
+    }
+
+    function initAirportNameInput(displayId, hiddenId) {
+      const display = document.getElementById(displayId);
+      const hidden  = document.getElementById(hiddenId);
+      if (!display || !hidden) return;
+
+      display.addEventListener('input', function () {
+        hidden.value = (this.value || '').toUpperCase();
+      });
+
+      display.addEventListener('blur', function () {
+        hidden.value = (this.value || '').toUpperCase();
+      });
+
+      if (display.value) {
+        hidden.value = display.value.toUpperCase();
       }
-    });
-  }
+    }
+    // For quiz_type = 'code-airport': dropdown shows ONLY airport name/city, no code
+    function initAirportNameDropdown(inputId, hiddenId) {
+      const input  = document.getElementById(inputId);
+      const hidden = document.getElementById(hiddenId);
+      if (!input || !hidden || typeof M === 'undefined' || !M.Autocomplete || !window.IATA_DATA) return;
+
+      const data = {};
+
+      // Build dropdown entries: NAME - CITY - COUNTRY (NO IATA CODE)
+      window.IATA_DATA.forEach(it => {
+        const parts = [];
+        if (it.name)    parts.push(it.name.toUpperCase());
+        if (it.city)    parts.push(it.city.toUpperCase());
+        if (it.country) parts.push(it.country.toUpperCase());
+        if (!parts.length) return;
+
+        const label = parts.join(' - ');  // 👈 NO it.code here
+        data[label] = null;               // Materialize autocomplete format
+      });
+
+      M.Autocomplete.init(input, {
+        data,
+        minLength: 1,
+        onAutocomplete: (val) => {
+          // Show the full label in the visible input (name / city / country)
+          input.value = val.toUpperCase();
+
+          // Store the student's "answer" in the hidden field (you want name, not code)
+          hidden.value = val.toUpperCase();
+
+          // If you EVER want to store the IATA code internally instead, you can change this:
+          // const match = window.IATA_DATA.find(it => {
+          //   const parts = [];
+          //   if (it.name)    parts.push(it.name.toUpperCase());
+          //   if (it.city)    parts.push(it.city.toUpperCase());
+          //   if (it.country) parts.push(it.country.toUpperCase());
+          //   return parts.join(' - ') === val.toUpperCase();
+          // });
+          // hidden.value = match ? match.code.toUpperCase() : val.toUpperCase();
+
+          input.dispatchEvent(new Event('input'));
+        }
+      });
+    }
+
 
     function initPlainIataInput(displayId, hiddenId) {
       const display = document.getElementById(displayId);
@@ -890,12 +1018,22 @@ $flight = [
       }
     }
 
-    initPlainIataInput('origin_autocomplete', 'origin');
-    initPlainIataInput('destination_autocomplete', 'destination');
+    if (QUIZ_TYPE === 'code-airport') {
+      // Student answers AIRPORT NAME -> allow any text + name-only dropdown
+      initAirportNameInput('origin_autocomplete', 'origin');
+      initAirportNameInput('destination_autocomplete', 'destination');
+      initAirportNameDropdown('origin_autocomplete', 'origin');
+      initAirportNameDropdown('destination_autocomplete', 'destination');
+
+      } else {
+        // Default / airport-code: student answers IATA code -> 3 letters only
+        initPlainIataInput('origin_autocomplete', 'origin');
+        initPlainIataInput('destination_autocomplete', 'destination');
+      }
 
     // seat class dropdown click handler (for first ticket; clones are wired later)
     document.querySelectorAll('.seat-options a').forEach(item => {
-          item.addEventListener('click', function (e) {
+      item.addEventListener('click', function (e) {
         e.preventDefault();
         const value = this.getAttribute('data-value');
         const dropdown = this.closest('.dropdown-content');
@@ -1161,12 +1299,21 @@ $flight = [
       const passengerCount = tickets.length;
       const typeLabel = (flight.flight_type === 'ROUND-TRIP') ? 'ROUND-TRIP (round trip)' : 'One-way';
 
-      let html = `<p><strong>Origin:</strong> ${escapeHtml(flight.origin)}</p>
-                  <p><strong>Destination:</strong> ${escapeHtml(flight.destination)}</p>
-                  <p><strong>Departure:</strong> ${escapeHtml(flight.flight_date)}</p>`;
+      // 🔹 Start summary HTML, include quiz student prompt if available
+      let html = '';
+
+      if (QUIZ_PROMPT) {
+        html += `<p><strong>Student prompt:</strong> ${escapeHtml(QUIZ_PROMPT)}</p><hr>`;
+      }
+
+      html += `<p><strong>Origin:</strong> ${escapeHtml(flight.origin)}</p>
+               <p><strong>Destination:</strong> ${escapeHtml(flight.destination)}</p>
+               <p><strong>Departure:</strong> ${escapeHtml(flight.flight_date)}</p>`;
+
       if (flight.flight_type === 'ROUND-TRIP') {
         html += `<p><strong>Return:</strong> ${escapeHtml(flight.return_date)}</p>`;
       }
+
       html += `<p><strong>Type:</strong> ${escapeHtml(typeLabel)}</p>
                <p><strong>Passengers:</strong> ${passengerCount}</p><hr><h5>Passenger Details:</h5>`;
 
@@ -1204,6 +1351,8 @@ $flight = [
       const fd = new FormData(flightForm || document.createElement('form'));
       fd.set('form_submit', '1');
       fd.set('ajax_validate', '1');
+      fd.set('quiz_type', QUIZ_TYPE || '');
+
 
       fetch('ticket.php', {
         method: 'POST',
@@ -1257,7 +1406,8 @@ $flight = [
 
 
   });
-  </script>
+</script>
+
 
 <?php include('templates/footer.php'); ?>
 </body>

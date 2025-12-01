@@ -31,10 +31,32 @@ if ($acc_id === '') {
 if ($acc_id === '') {
     die('Not logged in or acc_id not provided.');
 }
+
 /* -------------------------
    quiz_id from POST (ticket.php sends this)
 --------------------------*/
 $quiz_id = isset($_POST['quiz_id']) ? (int)$_POST['quiz_id'] : 0;
+
+/* -------------------------
+   Determine quiz input_type from DB
+   ('airport-code' or 'code-airport')
+--------------------------*/
+$quizInputType = 'airport-code'; // safe default
+
+if ($quiz_id > 0) {
+    $qs = $mysqli->prepare("SELECT input_type FROM quizzes WHERE id = ?");
+    if ($qs) {
+        $qs->bind_param("i", $quiz_id);
+        $qs->execute();
+        $qres = $qs->get_result();
+        if ($row = $qres->fetch_assoc()) {
+            if (!empty($row['input_type'])) {
+                $quizInputType = $row['input_type'];
+            }
+        }
+        $qs->close();
+    }
+}
 
 /* -------------------------
    Flight fields (from hidden inputs in bookingForm)
@@ -43,7 +65,9 @@ $origin      = strtoupper(clean($_POST['origin'] ?? ''));
 $destination = strtoupper(clean($_POST['destination'] ?? ''));
 $departure   = clean($_POST['flight_date'] ?? '');
 $return_date = clean($_POST['return_date'] ?? '');
-$flight_type = strtolower(clean($_POST['flight_type'] ?? 'ONE-WAY'));
+
+// Normalize flight_type to UPPERCASE
+$flight_type = strtoupper(clean($_POST['flight_type'] ?? 'ONE-WAY'));
 if (!in_array($flight_type, ['ONE-WAY', 'ROUND-TRIP'], true)) {
     $flight_type = 'ONE-WAY';
 }
@@ -59,7 +83,7 @@ $flight_number = "";
 --------------------------*/
 $names        = $_POST['name'] ?? [];
 $ages         = $_POST['age'] ?? [];
-$specials     = $_POST['special'] ?? [];        // "Infant", "Child", "Regular"
+$specials     = $_POST['special'] ?? [];             // "Infant", "Child", "Regular"
 $seats_class  = $_POST['seat_class'] ?? $_POST['seat'] ?? [];  // "Economy", etc.
 $seats_number = $_POST['seat_number'] ?? [];
 
@@ -70,11 +94,19 @@ $passengerCount = is_array($names) ? count($names) : 0;
 --------------------------*/
 $errors = [];
 
-if ($origin === '') $errors[] = 'Origin is required.';
-if (!preg_match('/^[A-Z]{3}$/', $origin)) $errors[] = 'Origin must be 3 uppercase letters.';
+// Origin / destination rules depend on quiz_input_type
+if ($origin === '') {
+    $errors[] = 'Origin is required.';
+} elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
+    // Only enforce 3-letter IATA when quiz expects codes
+    $errors[] = 'Origin must be 3 uppercase letters.';
+}
 
-if ($destination === '') $errors[] = 'Destination is required.';
-if (!preg_match('/^[A-Z]{3}$/', $destination)) $errors[] = 'Destination must be 3 uppercase letters.';
+if ($destination === '') {
+    $errors[] = 'Destination is required.';
+} elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
+    $errors[] = 'Destination must be 3 uppercase letters.';
+}
 
 if ($origin === $destination && $origin !== '') {
     $errors[] = 'Origin and destination cannot be the same.';
@@ -150,9 +182,8 @@ if ($passengerCount > 0) {
         $travel_class = '';
     }
 }
-// seat numbers: convert array -> single string for DB storage
-$seats_number = $_POST['seat_number'] ?? [];
 
+// seat numbers: convert array -> single string for DB storage
 if (!is_array($seats_number)) {
     $seats_number = [$seats_number]; // just in case it's a single value
 }
@@ -169,7 +200,9 @@ foreach ($seats_number as $sn) {
 // Final value saved into DB (e.g. "12A,12B,13C")
 $seat_number = implode(',', $clean_seats);
 
-
+/* -------------------------
+   Insert into submitted_flights
+--------------------------*/
 $stmt = $mysqli->prepare("
     INSERT INTO submitted_flights
         (quiz_id, acc_id, adults, children, infants, flight_type,
@@ -180,9 +213,6 @@ if (!$stmt) {
     die("Prepare failed: " . htmlspecialchars($mysqli->error));
 }
 
-// types: quiz_id(i), acc_id(s), adults(i), children(i), infants(i),
-//        flight_type(s), origin(s), destination(s), departure(s),
-//        return_date(s), flight_number(s), seats(i), travel_class(s)
 if (!$stmt->bind_param(
     "isiiisssssss",
     $quiz_id,       // i
@@ -191,7 +221,7 @@ if (!$stmt->bind_param(
     $children,      // i
     $infants,       // i
     $flight_type,   // s
-    $origin,        // s
+    $origin,        // s (can be IATA or airport name depending on quizInputType)
     $destination,   // s
     $departure,     // s
     $return_date,   // s
@@ -200,21 +230,12 @@ if (!$stmt->bind_param(
 )) {
     die("Bind failed: " . htmlspecialchars($stmt->error));
 }
-printf("quiz_id=%d, acc_id='%s'\n", $quiz_id, $acc_id);
-var_dump([
-    $quiz_id, $acc_id, $adults, $children, $infants,
-    $flight_type, $origin, $destination, $departure,
-    $return_date, $seat_number, $travel_class
-]);
 
 if (!$stmt->execute()) {
     die("Execute failed: " . htmlspecialchars($stmt->error));
-} else {
-    echo "Inserted acc_id = " . htmlspecialchars($acc_id);
 }
 
 $stmt->close();
 
 echo "<h3>Flight submission saved to submitted_flights!</h3>";
 echo "<p><a href=\"ticket.php?id=" . htmlspecialchars($quiz_id) . "\">Back to ticket</a></p>";
-
