@@ -351,7 +351,18 @@ if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
               <span class="helper-text">e.g. PHY101 or Section A</span>
             </div>
           </div>
-
+                <!-- QUESTION DIRECTION: IATA <-> AIRPORT -->
+          <div style="margin-bottom:8px">
+            <span class="muted">Question type</span><br>
+            <label style="margin-right:12px;">
+              <input name="quizInputType" type="radio" value="code-airport" checked />
+              <span>IATA CODE -> AIRPORT NAME</span>
+            </label>
+            <label>
+              <input name="quizInputType" type="radio" value="airport-code" />
+              <span>AIRPORT NAME -> IATA CODE</span>
+            </label>
+          </div>
           <!-- ITEMS -->
           <div class="card-section">
             <div style="display:flex; justify-content:space-between; align-items:center">
@@ -384,6 +395,12 @@ if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
             <div style="margin-left:auto" class="small-note">
               Admin: make sure to <?php echo $editing ? 'update' : 'save'; ?> to persist to DB
             </div>
+
+            <?php if ($editing): ?>
+              <a id="deleteQuizBtn" class="btn red darken-2">
+                <i class="material-icons left">delete</i>Delete Quiz
+              </a>
+            <?php endif; ?>
           </div>
 
           <!-- Student prompt preview -->
@@ -442,6 +459,7 @@ if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
 
 <!-- Materialize + JS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
 <script>
 // airport options (HTML string) kept for optional fallbacks
 const airportOptionsHtml = <?php echo $airportOptionsJson; ?>;
@@ -466,6 +484,54 @@ function matchAirports(query){
     if(a.name && a.name.toUpperCase().includes(q)) { results.push(a); continue; }
   }
   return results;
+}
+
+// Get structured airport info + display texts from airportList
+function resolveAirportInfo(value){
+  const v = (value || '').trim().toUpperCase();
+  if (!v) {
+    return {
+      code: '---',
+      city: '',
+      name: '',
+      country: '',
+      airportText: '---',
+      iataText: '---'
+    };
+  }
+
+  let match = null;
+  if (Array.isArray(airportList)) {
+    match = airportList.find(a =>
+      a.iata === v ||
+      a.city === v ||
+      (a.name && a.name.toUpperCase() === v)
+    );
+  }
+
+  let code = v;
+  let city = '';
+  let name = '';
+  let country = '';
+
+  if (match) {
+    code    = (match.iata || v).toUpperCase();
+    city    = (match.city || '').toUpperCase();
+    name    = (match.name || '').toUpperCase();
+    // If you later include CountryRegion in PHP, map it here:
+    country = (match.country || match.countryRegion || '').toUpperCase();
+  }
+
+  // Airport text: ONLY name/city/country – no IATA code here
+  const parts = [];
+  if (name)    parts.push(name);
+  if (city)    parts.push(city);
+  if (country) parts.push(country);
+
+  const airportText = parts.length ? parts.join(' - ') : v;
+  const iataText    = code;  // just the code
+
+  return { code, city, name, country, airportText, iataText };
 }
 
 function genRef(){ const rand = Math.random().toString(36).substring(2,8).toUpperCase(); return 'QZ-' + rand; }
@@ -789,7 +855,7 @@ function createItemBlock(prefill = null){
         <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="ONE-WAY" checked /><span>One-way</span></label>
         <label><input name="flightTypeInner${idx}" type="radio" value="ROUND-TRIP" /><span>Round-trip</span></label>
       </div>
-
+      
       <div class="flight-row" style="margin-bottom:8px">
         <div class="flight-field input-field iata-autocomplete">
           <input type="text" class="originAirportInner" data-idx="${idx}" placeholder="Origin IATA / city" autocomplete="off" />
@@ -894,75 +960,69 @@ function createItemBlock(prefill = null){
   const seatInput = wrapper.querySelector('.seatNumbersInner');
   if (seatInput) {
 
-  function openSeatPickerForThisItem() {
-  seatPickerTargetInput = seatInput;
+    function openSeatPickerForThisItem() {
+      seatPickerTargetInput = seatInput;
 
-  // 1) Determine cabin from class dropdown
-  const travelSelect = wrapper.querySelector('.travelClassInner');
-  const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
+      // 1) Determine cabin from class dropdown
+      const travelSelect = wrapper.querySelector('.travelClassInner');
+      const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
 
-  activeCabinKeyForSelection = travelClass;
-  applyCabinFilter(travelClass);
+      activeCabinKeyForSelection = travelClass;
+      applyCabinFilter(travelClass);
 
-  // 2) Compute how many seats are allowed for THIS item
-  const adultsEl   = wrapper.querySelector('.adultCountInner');
-  const childrenEl = wrapper.querySelector('.childCountInner');
-  const infantsEl  = wrapper.querySelector('.infantCountInner');
+      // 2) Compute how many seats are allowed for THIS item
+      const adultsEl   = wrapper.querySelector('.adultCountInner');
+      const childrenEl = wrapper.querySelector('.childCountInner');
+      const infantsEl  = wrapper.querySelector('.infantCountInner');
 
-  const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
-  const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
-  const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
+      const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
+      const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
+      const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
 
-  // If you don't want infants to count as seats, use (adults + children) instead.
-  let totalPeople = adults + children;
+      // If you don't want infants to count as seats, use (adults + children) instead.
+      let totalPeople = adults + children;
 
-  // Safety: at least 1 seat
-  if (totalPeople <= 0) totalPeople = 1;
+      // Safety: at least 1 seat
+      if (totalPeople <= 0) totalPeople = 1;
 
-  maxSeatsForCurrentItem = totalPeople;
+      maxSeatsForCurrentItem = totalPeople;
 
-  // 3) Clear previous selection
-  clearSeatSelections();
+      // 3) Clear previous selection
+      clearSeatSelections();
 
-  // 4) Preselect any seats already in the input (but only in this cabin)
-  const existing = (seatInput.value || '')
-    .split(',')
-    .map(s => s.trim().toUpperCase())
-    .filter(s => s.length > 0);
+      // 4) Preselect any seats already in the input (but only in this cabin)
+      const existing = (seatInput.value || '')
+        .split(',')
+        .map(s => s.trim().toUpperCase())
+        .filter(s => s.length > 0);
 
-  if (existing.length) {
-    const allSeats = document.querySelectorAll('.seat');
-    allSeats.forEach(seatEl => {
-      const id = seatEl.getAttribute('data-seat');
-      const seatCabinKey = seatEl.getAttribute('data-cabin-key');
-      if (existing.includes(id) && seatCabinKey === activeCabinKeyForSelection) {
-        toggleSeatSelection(seatEl, true);
+      if (existing.length) {
+        const allSeats = document.querySelectorAll('.seat');
+        allSeats.forEach(seatEl => {
+          const id = seatEl.getAttribute('data-seat');
+          const seatCabinKey = seatEl.getAttribute('data-cabin-key');
+          if (existing.includes(id) && seatCabinKey === activeCabinKeyForSelection) {
+            toggleSeatSelection(seatEl, true);
+          }
+        });
+        updateSeatSummary();
       }
-    });
-    updateSeatSummary();
-  }
 
-  // 5) Open the modal
-  if (seatPickerModalInstance) {
-    seatPickerModalInstance.open();
-  } else if (typeof M !== 'undefined' && M.Modal) {
-    const modalElem = document.getElementById('seatPickerModal'); // make sure this ID matches your modal
-    const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem);
-    seatPickerModalInstance = instance;
-    seatPickerModalInstance.open();
-  }
-}
-  document.addEventListener('click', function (e) {
-    if (e.target.classList && e.target.classList.contains('modal-overlay')) {
-      if (seatPickerModalInstance && seatPickerModalInstance.close) {
-        seatPickerModalInstance.close();
+      // 5) Open the modal
+      if (seatPickerModalInstance) {
+        seatPickerModalInstance.open();
+      } else if (typeof M !== 'undefined' && M.Modal) {
+        const modalElem = document.getElementById('seatPickerModal');
+        const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem);
+        seatPickerModalInstance = instance;
+        seatPickerModalInstance.open();
       }
     }
-  });
-  // Open modal when clicking OR focusing the input
-  seatInput.addEventListener('click', openSeatPickerForThisItem);
-  seatInput.addEventListener('focus', openSeatPickerForThisItem);
-}
+
+    // Open modal when clicking OR focusing the input
+    seatInput.addEventListener('click', openSeatPickerForThisItem);
+    seatInput.addEventListener('focus', openSeatPickerForThisItem);
+  }
 
   // ------------ PREFILL (EDIT MODE) ------------
   if(prefill && prefill.booking){
@@ -1004,10 +1064,23 @@ function createItemBlock(prefill = null){
     radios.forEach(r => {
       if(r.value.toUpperCase() === ft) r.checked = true;
     });
+
+    // (Optional) legacy per-item direction handling could be wired here if needed
   }
 
   return wrapper;
 }
+
+
+    // close when clicking overlay
+document.addEventListener('click', function (e) {
+      if (e.target.classList && e.target.classList.contains('modal-overlay')) {
+        if (seatPickerModalInstance && seatPickerModalInstance.close) {
+          seatPickerModalInstance.close();
+        }
+      }
+});
+
 
 function addItem(prefill = null){
   const cont = document.getElementById('itemsContainer');
@@ -1059,6 +1132,7 @@ function collectItems(){
     const ftVal = flightTypeInput ? (flightTypeInput.value || 'ONE-WAY') : 'ONE-WAY';
     const flightType = ftVal.toUpperCase() === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
 
+
     items.push({
       iata: uc(origin),
       city: uc(destination),
@@ -1077,63 +1151,169 @@ function collectItems(){
   return items;
 }
 
+// Turn a code or city into a nicer display using airportList
+function resolveAirportDisplay(value){
+  const v = (value || '').trim().toUpperCase();
+  if (!v) {
+    return {
+      code: '---',
+      city: '',
+      name: '',
+      country: '',
+      airportText: '---',
+      iataText: '---'
+    };
+  }
+
+  let match = null;
+  if (Array.isArray(airportList)) {
+    match = airportList.find(a =>
+      a.iata === v ||
+      a.city === v ||
+      (a.name && a.name.toUpperCase() === v)
+    );
+  }
+
+  let code = v;
+  let city = '';
+  let name = '';
+  let country = '';
+
+  if (match) {
+    code    = (match.iata || v).toUpperCase();
+    city    = (match.city || '').toUpperCase();
+    name    = (match.name || '').toUpperCase();
+    // optional: if you add CountryRegion in PHP, map it to a.country
+    country = (match.country || match.countryRegion || '').toUpperCase();
+  }
+
+  // Airport text: NO IATA here, only airport name / city / country
+  const parts = [];
+  if (name)    parts.push(name);
+  if (city)    parts.push(city);
+  if (country) parts.push(country);
+
+  const airportText = parts.length ? parts.join(' - ') : v;
+  const iataText    = code;  // just the code
+
+  return { code, city, name, country, airportText, iataText };
+}
+
 function buildDescription(){
   const items = collectItems();
   const sectionField = document.getElementById('sectionField');
   const section = sectionField ? (sectionField.value || '') : '';
 
+  // Quiz-level type from the radio or from loaded quiz
+  const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
+  const quizType = quizTypeRadio
+    ? quizTypeRadio.value  // 'code-airport' or 'airport-code'
+    : (window.currentQuizInputType || 'code-airport');
+
   let parts = [];
-  for(const it of items){
+
+  items.forEach((it) => {
     const b = it.booking || {};
 
-    let personParts = [];
-    if(b.adults && b.adults > 0) personParts.push(b.adults + (b.adults === 1 ? ' adult' : ' adults'));
-    if(b.children && b.children > 0) personParts.push(b.children + (b.children === 1 ? ' child' : ' children'));
-    if(b.infants && b.infants > 0) personParts.push(b.infants + (b.infants === 1 ? ' infant' : ' infants'));
-    const personStr = personParts.length ? personParts.join(', ') : '';
+    // ----- PASSENGERS -----
+    let passengerParts = [];
+    if (b.adults > 0)   passengerParts.push(`${b.adults} adult${b.adults > 1 ? 's' : ''}`);
+    if (b.children > 0) passengerParts.push(`${b.children} child${b.children > 1 ? 'ren' : ''}`);
+    if (b.infants > 0)  passengerParts.push(`${b.infants} infant${b.infants > 1 ? 's' : ''}`);
 
-    const origin = b.origin || it.iata || '---';
-    const destination = b.destination || it.city || '---';
+    const passengerText = passengerParts.length
+      ? passengerParts.join(', ')
+      : '1 passenger';
 
-    const typeLabel = b.flight_type === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
-    const classLabel = (b.travel_class || 'ECONOMY');
+    // ----- AIRPORT VALUE LOOKUP -----
+    const originRaw      = b.origin || it.iata || '';
+    const destinationRaw = b.destination || it.city || '';
 
-    let sentence = '';
-    if(personStr) sentence += personStr + ' ';
-    sentence += `flying from ${origin} to ${destination} on a ${typeLabel} flight in ${classLabel} class`;
+    const originInfo = resolveAirportInfo(originRaw);
+    const destInfo   = resolveAirportInfo(destinationRaw);
+
+    // Display depends on quizType:
+    // 'airport-code' -> show airport name (student answers with CODE)
+    // 'code-airport' -> show IATA code (student answers with AIRPORT)
+    let originDisplay = '';
+    let destinationDisplay = '';
+
+    if (quizType === 'airport-code') {
+      originDisplay      = originInfo.airportText;
+      destinationDisplay = destInfo.airportText;
+    } else {
+      originDisplay      = originInfo.iataText;
+      destinationDisplay = destInfo.iataText;
+    }
+
+    const flightType  = (b.flight_type || 'ONE-WAY').toUpperCase();
+    const flightClass = (b.travel_class || 'ECONOMY').toUpperCase();
+
+    // ----- FINAL PROMPT -----
+    const sentence =
+      `Book ${passengerText} from ${originDisplay} to ${destinationDisplay}, ` +
+      `${flightType}, ${flightClass}.`;
 
     parts.push(sentence);
+  });
+
+  // Join items
+  let desc = parts.join(' ');
+
+  // Course / Section
+  if (section) {
+    desc += ` Course/Section: ${section}.`;
   }
 
-  let desc = '';
-  if(parts.length === 1) desc = 'Book ' + parts[0] + '.';
-  else if(parts.length > 1) desc = 'Book the following flights: ' + parts.map(p => p + '.').join(' ');
-  else desc = 'Book the indicated destinations.';
+  // Expected answer (helper) based on quizType
+  let expected = null;
+  if (items.length) {
+    const first = items[0];
+    const b0 = first.booking || {};
 
-  if(section) desc += ` Course/Section: ${section}.`;
+    const originInfo0 = resolveAirportInfo(b0.origin || first.iata || '');
+    const destInfo0   = resolveAirportInfo(b0.destination || first.city || '');
 
-  const first = items[0] || null;
-  const expected = first && first.booking && first.booking.destination ? first.booking.destination : null;
+    if (quizType === 'airport-code') {
+      // Student should answer with IATA code -> use destination code
+      expected = destInfo0.code;
+    } else {
+      // Student should answer with airport name -> use full text
+      expected = destInfo0.airportText;
+    }
+  }
 
   return { description: desc, expected_answer: expected, itemsCount: items.length };
 }
 
 async function saveQuiz(redirect=false){
-  const items = collectItems();
+
   const titleEl = document.getElementById('quizTitle');
   const sectionEl = document.getElementById('sectionField');
+
+  const items = collectItems(); // read once
+
+  // 👇 Quiz type from the radio; fallback to loaded type or default
+  const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
+  const inputType = quizTypeRadio
+    ? quizTypeRadio.value               // 'code-airport' or 'airport-code'
+    : (window.currentQuizInputType || 'code-airport');
 
   const title = titleEl ? (titleEl.value || 'Untitled Quiz') : 'Untitled Quiz';
   const fromSection = sectionEl ? (sectionEl.value || '') : '';
 
   const payload = {
-    id: isEditing ? editQuizId : null,
-    mode: isEditing ? 'update' : 'create',
-    title: title,
-    items: items,
-    from: fromSection,
+    id:        isEditing ? editQuizId : null,
+    quiz_id:   isEditing ? editQuizId : null,
+    action:    isEditing ? 'edit'    : 'create',
+    mode:      isEditing ? 'edit'    : 'create',
+    input_type: inputType,          // ✅ sent to PHP
+
+    title:         title,
+    items:         items,
+    from:          fromSection,
     num_questions: 0,
-    code: genRef(),
+    code: isEditing && window.currentQuizCode ? window.currentQuizCode : genRef(),
     questions: []
   };
 
@@ -1162,7 +1342,6 @@ async function saveQuiz(redirect=false){
     if (data && data.success) {
       M.toast({html: (isEditing ? 'Quiz updated' : 'Quiz saved') + ' (ID: '+data.id+')'});
       if (redirect) window.location.href = 'Exam.php?id='+data.id;
-      else window.location.href = 'Admin.php';
       return;
     }
 
@@ -1178,8 +1357,8 @@ document.addEventListener('DOMContentLoaded', function(){
   var elems = document.querySelectorAll('select');
   M.FormSelect.init(elems);
 
-  // Init Materialize modal for seat picker
-  const modalElems = document.querySelectorAll('seatPickerModal');
+  // Init Materialize modal for seat picker (fix selector)
+  const modalElems = document.querySelectorAll('#seatPickerModal');
   const instances = M.Modal.init(modalElems);
   if (instances && instances.length) {
     seatPickerModalInstance = instances[0];
@@ -1188,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // Build seat layout once
   generateMultiCabinLayout();
 
-  // Cabin filter radio events
+  // Cabin filter radio events (if you add them later)
   document.querySelectorAll('input[name="cabinFilter"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
       applyCabinFilter(e.target.value);
@@ -1207,20 +1386,21 @@ document.addEventListener('DOMContentLoaded', function(){
 
   // When user clicks DONE in modal, push selection into target input
   if (seatModalDoneBtn) {
-      seatModalDoneBtn.addEventListener('click', function(){
-        if (!seatNumberTargetInput) return;
-        const chosen = Array.from(selectedSeats)[0] || '';
-        if (chosen) {
-          seatNumberTargetInput.value = chosen;
-          if (typeof M !== 'undefined' && M.updateTextFields) {
-            M.updateTextFields();
-          }
-        }
+    seatModalDoneBtn.addEventListener('click', function () {
+      if (!seatPickerTargetInput) return;
+      const chosenSeats = Array.from(selectedSeats).sort();
+      const value = chosenSeats.join(', ');
+      seatPickerTargetInput.value = value;
+
+      if (typeof M !== 'undefined' && M.updateTextFields) {
+        M.updateTextFields();
+      }
+
       if (seatPickerModalInstance && seatPickerModalInstance.close) {
-      seatPickerModalInstance.close();
-        } 
-      });
-    }
+        seatPickerModalInstance.close();
+      }
+    });
+  }
 
   // Insert at least one item
   addItem();
@@ -1283,6 +1463,53 @@ document.addEventListener('DOMContentLoaded', function(){
     saveAndOpenBtn.addEventListener('click', (e)=>{ e.preventDefault(); saveQuiz(true); });
   }
 
+  const deleteBtn = document.getElementById('deleteQuizBtn');
+  if (deleteBtn && isEditing && editQuizId) {
+    deleteBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      if (!confirm('Are you sure you want to delete this quiz? This action cannot be undone.')) {
+        return;
+      }
+
+      M.toast({html:'Deleting quiz...'});
+
+      fetch('delete_quiz.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id: editQuizId })
+      })
+      .then(r => r.json())
+      .then(data => {
+        console.log('delete_quiz response:', data);
+        if (data && data.success) {
+          M.toast({html:'Quiz deleted'});
+        } else {
+          const err = data && data.error ? data.error : 'Unknown error';
+          M.toast({html:'Delete failed: ' + err});
+        }
+      })
+      .catch(err => {
+        console.error('Error deleting quiz:', err);
+        M.toast({html:'Delete failed (network error)'});
+      });
+    });
+  }
+  function applyQuizTypeRadios(inputTypeFromDb) {
+  // Normalize to 'code-airport' or 'airport-code'
+  let quizType = (inputTypeFromDb || 'code-airport').toString().toLowerCase();
+
+  // Since your DB already stores exactly 'code-airport' / 'airport-code',
+  // this is mostly just a safety guard:
+  if (quizType !== 'code-airport' && quizType !== 'airport-code') {
+    quizType = 'code-airport';
+  }
+
+  const radios = document.querySelectorAll('input[name="quizInputType"]');
+  radios.forEach(radio => {
+    radio.checked = (radio.value.toLowerCase() === quizType);
+  });
+}
+
   // ------------------ IF EDITING, LOAD QUIZ DATA ------------------
   if(isEditing && editQuizId){
     M.toast({html:'Loading quiz data...'});
@@ -1295,28 +1522,55 @@ document.addEventListener('DOMContentLoaded', function(){
           return;
         }
 
-        const q = data.quiz || data;
+      const q = data.quiz || data;
+      window.currentQuizInputType = q.input_type || 'code-airport';
+      window.currentQuizCode = q.code || null;
 
-        const titleEl = document.getElementById('quizTitle');
-        const sectionEl = document.getElementById('sectionField');
+      const titleEl = document.getElementById('quizTitle');
+      const sectionEl = document.getElementById('sectionField');
 
-        if(titleEl){ titleEl.value = q.title || ''; }
-        if(sectionEl){ sectionEl.value = q.from || ''; }
+      if (titleEl)  titleEl.value  = q.title || '';
+      if (sectionEl) sectionEl.value = q.from || '';
 
-        // update floating labels
-        M.updateTextFields();
+      // update floating labels
+      M.updateTextFields();
 
-        const cont = document.getElementById('itemsContainer');
-        cont.innerHTML = '';
-        itemIndex = 0;
+      // Clear and rebuild items
+      const cont = document.getElementById('itemsContainer');
+      cont.innerHTML = '';
+      itemIndex = 0;
 
-        if(Array.isArray(q.items) && q.items.length){
-          q.items.forEach(item => addItem(item));
-        } else {
-          addItem();
-        }
+      if (Array.isArray(q.items) && q.items.length) {
+        q.items.forEach(item => addItem(item));
+      } else {
+        addItem();
+      }
 
-        M.toast({html:'Quiz loaded'});
+      // ✅ Normalize any old input_type values to our two radio values
+      let rawType = (q.input_type || 'code-airport').toString().toLowerCase();
+      let quizType;
+
+      if (
+        rawType === 'airport-code' ||
+        rawType === 'airport_to_iata' ||
+        rawType === 'airport-to-iata' ||
+        rawType === 'airport_to_code'
+      ) {
+        quizType = 'airport-code';
+      } else {
+        // fall back to code-airport for anything else (including old iata_to_airport)
+        quizType = 'code-airport';
+      }
+
+      const quizTypeRadios = document.querySelectorAll('input[name="quizInputType"]');
+      quizTypeRadios.forEach(r => {
+        r.checked = (r.value === quizType);
+      });
+
+      applyQuizTypeRadios(q.input_type);
+
+      M.toast({html:'Quiz loaded'});
+
       })
       .catch(err => {
         console.error('Error loading quiz:', err);
@@ -1326,5 +1580,6 @@ document.addEventListener('DOMContentLoaded', function(){
 
 }); // DOMContentLoaded
 </script>
+
 </body>
 </html>

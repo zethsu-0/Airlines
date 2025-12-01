@@ -38,6 +38,7 @@ try {
             `to`,
             `quiz_code`,
             `duration`,
+            `input_type`,
             `num_questions`,
             `created_by`,
             `created_at`
@@ -137,17 +138,17 @@ try {
 
     // --------- 3) Build JSON for quizmaker.php ---------
     $quiz = [
-        'id'           => (int)$quizRow['id'],
-        'title'        => $quizRow['title'],
-        // this feeds the Section / Course input (sectionField)
-        'from'         => $quizRow['from'],        // uses your `from` column
-        'to'           => $quizRow['to'],          // not used yet in UI, but handy
-        'quiz_code'    => $quizRow['quiz_code'],
-        'duration'     => $quizRow['duration'],
-        'num_questions'=> (int)$quizRow['num_questions'],
-        'created_by'   => $quizRow['created_by'],
-        'created_at'   => $quizRow['created_at'],
-        'items'        => $items
+    'id'            => (int)$quizRow['id'],
+    'title'         => $quizRow['title'],
+    'from'          => $quizRow['from'],
+    'to'            => $quizRow['to'],
+    'quiz_code'     => $quizRow['quiz_code'],
+    'duration'      => $quizRow['duration'],
+    'num_questions' => (int)$quizRow['num_questions'],
+    'input_type'    => $quizRow['input_type'], // ✅ FIXED
+    'created_by'    => $quizRow['created_by'],
+    'created_at'    => $quizRow['created_at'],
+    'items'         => $items
     ];
 
     echo json_encode([

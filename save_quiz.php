@@ -36,6 +36,7 @@ if (!$createdBy) {
     ]);
     exit;
 }
+$createdByInt = (int)$createdBy;
 
 // ------------------
 // READ INPUT JSON
@@ -55,13 +56,18 @@ if (!is_array($data)) {
 // ------------------
 // EXTRACT QUIZ DATA
 // ------------------
-$title = trim($data['title'] ?? 'Untitled Quiz');
-$from  = trim($data['from'] ?? '');
-$to    = trim($data['to'] ?? '');
-$code  = trim($data['code'] ?? '');
-$duration = (int)($data['duration'] ?? 0);
+$quiz_id_in = isset($data['id']) ? (int)$data['id'] : 0;   // 0 = create, >0 = update
+
+$title       = trim($data['title'] ?? 'Untitled Quiz');
+$from        = trim($data['from'] ?? '');
+$to          = trim($data['to'] ?? '');
+$code        = trim($data['code'] ?? '');
+$duration    = (int)($data['duration'] ?? 0);
 $num_questions = (int)($data['num_questions'] ?? 0);
-$items = isset($data['items']) && is_array($data['items']) ? $data['items'] : [];
+$items       = isset($data['items']) && is_array($data['items']) ? $data['items'] : [];
+
+// NEW: input_type from JS payload ('airport-code' or 'code-airport')
+$input_type  = trim($data['input_type'] ?? 'code-airport');
 
 if ($code === '') {
     $code = 'QZ-' . strtoupper(substr(bin2hex(random_bytes(5)), 0, 8));
@@ -74,39 +80,111 @@ $mysqli->begin_transaction();
 
 try {
 
-    // ------------------
-    // INSERT QUIZ
-    // ------------------
-    $stmtQuiz = $mysqli->prepare("
-        INSERT INTO quizzes
-        (title, `from`, `to`, quiz_code, duration, num_questions, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-    ");
-    if (!$stmtQuiz) {
-        throw new Exception('Prepare failed for quizzes: ' . $mysqli->error);
+    $isUpdate = $quiz_id_in > 0;
+
+    if ($isUpdate) {
+        // ------------------
+        // UPDATE EXISTING QUIZ
+        // ------------------
+        // Optional: check quiz exists & belongs to this teacher
+        $stmtCheck = $mysqli->prepare("SELECT id, created_by FROM quizzes WHERE id = ?");
+        if (!$stmtCheck) {
+            throw new Exception('Prepare failed for quiz check: ' . $mysqli->error);
+        }
+        $stmtCheck->bind_param('i', $quiz_id_in);
+        $stmtCheck->execute();
+        $res = $stmtCheck->get_result();
+        $row = $res->fetch_assoc();
+        $stmtCheck->close();
+
+        if (!$row) {
+            throw new Exception('Quiz not found for update');
+        }
+
+        // If you want to restrict edits to creator only, uncomment this:
+        // if ((int)$row['created_by'] !== $createdByInt) {
+        //     throw new Exception('You do not have permission to edit this quiz');
+        // }
+
+        $stmtQuiz = $mysqli->prepare("
+            UPDATE quizzes
+            SET title = ?, `from` = ?, `to` = ?, quiz_code = ?,
+                duration = ?, num_questions = ?, input_type = ?
+            WHERE id = ?
+        ");
+        if (!$stmtQuiz) {
+            throw new Exception('Prepare failed for quizzes UPDATE: ' . $mysqli->error);
+        }
+
+        // types: title(s), from(s), to(s), code(s),
+        //        duration(i), num_questions(i), input_type(s), id(i)
+        $stmtQuiz->bind_param(
+            'ssssii' . 'si',
+            $title,
+            $from,
+            $to,
+            $code,
+            $duration,
+            $num_questions,
+            $input_type,
+            $quiz_id_in
+        );
+
+        if (!$stmtQuiz->execute()) {
+            throw new Exception('Update quiz failed: ' . $stmtQuiz->error);
+        }
+        $stmtQuiz->close();
+
+        $quiz_id = $quiz_id_in;
+
+        // Clear old items so we can reinsert fresh ones
+        $stmtDel = $mysqli->prepare("DELETE FROM quiz_items WHERE quiz_id = ?");
+        if (!$stmtDel) {
+            throw new Exception('Prepare failed for quiz_items delete: ' . $mysqli->error);
+        }
+        $stmtDel->bind_param('i', $quiz_id);
+        if (!$stmtDel->execute()) {
+            throw new Exception('Delete quiz_items failed: ' . $stmtDel->error);
+        }
+        $stmtDel->close();
+
+    } else {
+        // ------------------
+        // INSERT NEW QUIZ
+        // ------------------
+        $stmtQuiz = $mysqli->prepare("
+            INSERT INTO quizzes
+            (title, `from`, `to`, quiz_code, duration, num_questions, input_type, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        if (!$stmtQuiz) {
+            throw new Exception('Prepare failed for quizzes INSERT: ' . $mysqli->error);
+        }
+
+        // types: title(s), from(s), to(s), code(s),
+        //        duration(i), num_questions(i), input_type(s), created_by(i)
+        $stmtQuiz->bind_param(
+            'ssssii' . 'si',
+            $title,
+            $from,
+            $to,
+            $code,
+            $duration,
+            $num_questions,
+            $input_type,
+            $createdByInt
+        );
+
+        if (!$stmtQuiz->execute()) {
+            throw new Exception('Insert quiz failed: ' . $stmtQuiz->error);
+        }
+
+        $quiz_id = $stmtQuiz->insert_id;
+        $stmtQuiz->close();
     }
 
-    $stmtQuiz->bind_param(
-        'ssssiis',
-        $title,
-        $from,
-        $to,
-        $code,
-        $duration,
-        $num_questions,
-        $createdBy
-    );
-
-    if (!$stmtQuiz->execute()) {
-        throw new Exception('Insert quiz failed: ' . $stmtQuiz->error);
-    }
-
-    $quiz_id = $stmtQuiz->insert_id;
-    $stmtQuiz->close();
-
-
     // ------------------
-    // INSERT QUIZ ITEMS
+    // INSERT QUIZ ITEMS (for both create + update)
     // ------------------
     if (!empty($items)) {
 
@@ -118,7 +196,6 @@ try {
              flight_number, seats, travel_class)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-
         if (!$stmtItem) {
             throw new Exception('Prepare failed for quiz_items: ' . $mysqli->error);
         }
@@ -139,12 +216,12 @@ try {
             $adults   = (int)($booking['adults'] ?? 0);
             $children = (int)($booking['children'] ?? 0);
             $infants  = (int)($booking['infants'] ?? 0);
-            $type     = strtoupper(trim($booking['flight_type']) ?? 'ONE-WAY');
+            $type     = strtoupper(trim($booking['flight_type'] ?? 'ONE-WAY'));
             $depart   = $booking['departure'] ?? null;
             $return   = $booking['return'] ?? null;
             $flightNo = trim($booking['flight_number'] ?? '');
-            $seats    = strtoupper(trim($booking['seats']) ?? '');
-            $class    = strtoupper(trim($booking['travel_class']) ?? '');
+            $seats    = strtoupper(trim($booking['seats'] ?? ''));
+            $class    = strtoupper(trim($booking['travel_class'] ?? ''));
 
             $stmtItem->bind_param(
                 'iissiiissssss',
@@ -178,15 +255,13 @@ try {
 
     echo json_encode([
         'success' => true,
-        'id' => $quiz_id
+        'id'      => $quiz_id,
+        'mode'    => $isUpdate ? 'update' : 'create'
     ]);
     exit;
 
 } catch (Exception $e) {
 
-    // ------------------
-    // ROLLBACK ON ERROR
-    // ------------------
     $mysqli->rollback();
 
     http_response_code(500);
