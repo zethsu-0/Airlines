@@ -238,6 +238,52 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+
+<script>
+// LOGIN HANDLER (AJAX for modal)
+document.addEventListener("DOMContentLoaded", function () {
+    const form = document.getElementById("loginForm");
+    if (!form) return;
+
+    form.addEventListener("submit", function (e) {
+        e.preventDefault(); // prevent normal form submit
+
+        // Clear old error messages
+        document.getElementById("err-acc_id").textContent = "";
+        document.getElementById("err-password").textContent = "";
+        document.getElementById("err-general").textContent = "";
+
+        const formData = new FormData(form);
+
+        fetch("login.php", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+
+                // Show error inside modal
+                document.getElementById("err-general").textContent = data.error || "Login failed.";
+                if (window.M && M.toast)
+                    M.toast({html: data.error, classes:"red"});
+
+                return;
+            }
+
+            // SUCCESS → redirect based on role
+            window.location.href = data.redirect;
+        })
+        .catch(err => {
+            document.getElementById("err-general").textContent = "Network error: " + err;
+            if (window.M && M.toast)
+                M.toast({html: "Network error: " + err, classes:"red"});
+        });
+    });
+});
+</script>
+
+
 <script>
   $(document).ready(function(){
     $('.modal').modal();

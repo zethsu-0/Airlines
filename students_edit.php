@@ -301,6 +301,8 @@ $flash_error = get_flash('flash_error');
     color: #fff;
     z-index: 10;
     position: relative;
+    margin: 36px auto; /* floating away from header and bottom */
+    max-width: 1100px;
   }
 
   /* Override Materialize card styles (many are solid white) */
@@ -457,7 +459,8 @@ $flash_error = get_flash('flash_error');
                 <label for="avatarInput" class="muted"></label><br>
                 <img id="preview" src="<?php echo htmlspecialchars($avatarPath, ENT_QUOTES); ?>" alt="preview">
                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                  <label class="file-label-btn" for="avatarInput">Choose image</label>
+                  <!-- note: using for="avatarInput" (no JS click) prevents double-open -->
+                  <label class="file-label-btn" for="avatarInput" tabindex="0">Choose image</label>
                   <input id="avatarInput" type="file" name="avatar" accept="image/*" style="display:none;">
                   <div class="muted" style="margin-left:6px;">Allowed: JPG, PNG, WEBP — max 2 MB</div>
                 </div>
@@ -483,7 +486,7 @@ $flash_error = get_flash('flash_error');
               <div class="col s12" style="margin-top:6px;">
                 <div class="controls-row">
                   <button id="saveBtn" type="submit" class="btn blue">Save changes</button>
-                  <button type="reset" class="btn-flat">Reset</button>
+                  <button type="reset" id="formResetBtn" class="btn-flat">Reset</button>
                 </div>
               </div>
             </div>
@@ -502,23 +505,45 @@ $flash_error = get_flash('flash_error');
       // preview image
       const avatarInput = document.getElementById('avatarInput');
       const preview = document.getElementById('preview');
+      const currentAvatar = document.getElementById('currentAvatar');
+
       avatarInput && avatarInput.addEventListener('change', function(){
         const f = this.files && this.files[0];
         if (!f) return;
-        if (!f.type.startsWith('image/')) { M.toast({ html: 'Please select an image file.'}); this.value = ''; return; }
+        if (!f.type.startsWith('image/')) {
+          if (M && M.toast) M.toast({ html: 'Please select an image file.'});
+          this.value = '';
+          return;
+        }
         const reader = new FileReader();
         reader.onload = e => preview.src = e.target.result;
         reader.readAsDataURL(f);
       });
 
-      // optional: improve labels for the custom file label
+      // Improve accessibility: keyboard on label triggers input click.
       const fileLabel = document.querySelector('.file-label-btn');
       if (fileLabel && avatarInput) {
         fileLabel.addEventListener('keydown', function(e){
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
         });
-        fileLabel.addEventListener('click', function(){ avatarInput.click(); });
+        // DO NOT also call avatarInput.click() on mouse click — label's for="" will open the picker once.
       }
+
+      // Reset button: restore preview to current avatar
+      const form = document.getElementById('editForm');
+      const resetBtn = document.getElementById('formResetBtn');
+      if (resetBtn && form) {
+        resetBtn.addEventListener('click', function(e){
+          // browser resets form fields automatically; just restore preview after a tiny delay
+          setTimeout(function(){
+            // if currentAvatar src is a real URL, use that; else fallback to default preview
+            preview.src = currentAvatar.src || '<?php echo addslashes($default_avatar); ?>';
+            if (avatarInput) avatarInput.value = '';
+          }, 10);
+        });
+      }
+
+      // Small enhancement: prevent double-open when user shift-clicks or similar — handled by not calling click on mouse.
     });
   </script>
 </body>

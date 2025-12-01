@@ -306,6 +306,45 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+
+<script>
+// --- LOGIN HANDLER (Fetch + Materialize toast) ---
+document.addEventListener("DOMContentLoaded", function(){
+
+    const loginForm = document.getElementById("loginForm"); 
+    if (!loginForm) return; // if no login form on page, skip
+
+    loginForm.addEventListener("submit", function(e){
+        e.preventDefault();
+
+        const formData = new FormData(loginForm);
+
+        fetch("login.php", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                if (window.M && M.toast)
+                    M.toast({ html: data.error || "Login failed", classes: "red" });
+                return;
+            }
+
+            // SUCCESS → REDIRECT TO ROLE PAGE
+            window.location.href = data.redirect;
+        })
+        .catch(err => {
+            if (window.M && M.toast)
+                M.toast({ html: "Network error: " + err, classes: "red" });
+        });
+
+    });
+});
+</script>
+
+
+
 <!-- smoother overlay transitions + native-select single chevron -->
 <style>
 /* smooth overlay transitions + slight backdrop feel */
