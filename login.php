@@ -1,147 +1,246 @@
 <?php
-// login.php (DEBUG-SAFE VERSION) -- remove/adjust debug features when finished
+// login.php - Finalized JSON login handler for accounts + admins tables
+// Works with your config/db_connect.php ($acc_conn)
+// Safe against fatal errors, missing columns, mixed roles, plain or hashed passwords.
 
-session_start();
+// Force JSON response
 header('Content-Type: application/json; charset=utf-8');
+ini_set('display_errors', 0); // hide fatal errors from output
+error_reporting(E_ALL);
 
-// Keep display_errors off so JSON stays clean in responses; enable only while debugging.
-// ini_set('display_errors', 1);
-// error_reporting(E_ALL);
-ini_set('display_errors', 0);
-error_reporting(0);
+// Capture output to avoid HTML leaking into JSON
+ob_start();
 
-// Include DB connector - must set $acc_conn (mysqli)
-@include('config/db_connect.php'); // use @ to avoid immediate warning; we'll check below
-
-// Safe dbg() implementation: logs to server error_log when DEBUG_MODE true.
-// This prevents fatal "undefined function" errors if dbg() wasn't defined elsewhere.
-if (!function_exists('dbg')) {
-    function dbg($msg) {
-        // Only write to error_log when DEBUG_MODE is true to avoid filling logs in production
-        if (!empty($GLOBALS['DEBUG_MODE'])) {
-            error_log('[login.php DEBUG] ' . $msg);
-        }
+// Convert fatal errors to JSON so fetch() never breaks
+register_shutdown_function(function() {
+    $err = error_get_last();
+    if ($err !== null) {
+        while (ob_get_level()) ob_end_clean();
+        echo json_encode([
+            'success' => false,
+            'error'   => 'Server error.',
+            'debug'   => [
+                'type'    => $err['type'] ?? null,
+                'message' => $err['message'] ?? null,
+                'file'    => $err['file'] ?? null,
+                'line'    => $err['line'] ?? null
+            ]
+        ]);
     }
-}
+});
 
-$response = ['success' => false, 'errors' => []];
+if (session_status() === PHP_SESSION_NONE) session_start();
 
-// Ensure acc_conn exists and is a mysqli instance
-if (!isset($acc_conn) || !($acc_conn instanceof mysqli)) {
-    // Include may have failed or config file didn't create $acc_conn
-    $response['errors']['general'] = 'Server configuration error (DB connection not available).';
-    // Write helpful debug message to server log
-    error_log('[login.php] DB connection missing or invalid. Check config/db_connect.php for errors.');
-    echo json_encode($response);
+// Helper to return JSON cleanly
+function json_out($arr) {
+    while (ob_get_level()) ob_end_clean();
+    echo json_encode($arr, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
     exit;
 }
 
+// Must be POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['success' => false, 'errors' => ['general' => 'Invalid request (POST required)']]);
-    exit;
+    json_out(['success' => false, 'error' => 'Invalid request method (use POST).']);
 }
 
-// Determine debug mode early so dbg() will work
-$debug = isset($_POST['debug']) && $_POST['debug'] === '1';
-$GLOBALS['DEBUG_MODE'] = $debug; // make available to dbg()
+// Load DB
+$db_path = __DIR__ . '/config/db_connect.php';
+if (!file_exists($db_path)) json_out(['success' => false, 'error' => 'DB config missing.']);
+require_once $db_path;
 
-$acc_id = trim((string)($_POST['acc_id'] ?? ''));
-$password = $_POST['password'] ?? '';
-
-dbg("Received login attempt for acc_id=" . $acc_id . " (debug=" . ($debug?1:0) . ")");
-
-if ($acc_id === '') {
-    $response['errors']['acc_id'] = 'Please enter Account ID';
-}
-if ($password === '') {
-    $response['errors']['password'] = 'Please enter password';
-}
-if (!empty($response['errors'])) {
-    if ($debug) dbg("Validation errors: " . json_encode($response['errors']));
-    echo json_encode($response);
-    exit;
-}
-
-// Prepare & execute
-$sql = "SELECT acc_id, acc_name, password FROM accounts WHERE acc_id = ? LIMIT 1";
-$stmt = mysqli_prepare($acc_conn, $sql);
-if ($stmt) {
-    // If acc_id is numeric in DB, you may change "s" to "i"
-    mysqli_stmt_bind_param($stmt, "s", $acc_id);
-    $exec = mysqli_stmt_execute($stmt);
-    if (!$exec) {
-        $err = mysqli_error($acc_conn);
-        dbg("Statement execute error: " . $err);
-        $response['errors']['general'] = 'Database error (exec).';
-        echo json_encode($response);
-        mysqli_stmt_close($stmt);
-        exit;
-    }
-
-    mysqli_stmt_store_result($stmt); 
-    $num = mysqli_stmt_num_rows($stmt);
-    dbg("Statement executed. num_rows=" . $num);
-
-    $db_acc_id = $db_acc_name = $db_password_hash = null;
-    mysqli_stmt_bind_result($stmt, $db_acc_id, $db_acc_name, $db_password_hash);
-    $fetched = mysqli_stmt_fetch($stmt);
-    dbg("mysqli_stmt_fetch returned: " . ($fetched ? 'true' : 'false'));
-
-    if ($fetched) {
-        $pw_len = is_string($db_password_hash) ? strlen($db_password_hash) : 0;
-        dbg("Found account: acc_id={$db_acc_id}, acc_name={$db_acc_name}, password_length={$pw_len}");
-
-        $is_valid = false;
-
-        // check if hash-like
-        $pw_info = password_get_info($db_password_hash);
-        $is_hash = ($pw_info && isset($pw_info['algo']) && $pw_info['algo'] !== 0);
-        dbg("password_get_info algo=" . ($pw_info['algo'] ?? 'NULL') . ", is_hash=" . ($is_hash?1:0));
-
-        if ($is_hash) {
-            $verify = password_verify($password, $db_password_hash);
-            dbg("password_verify result: " . ($verify?1:0));
-            if ($verify) $is_valid = true;
-        } else {
-            // compare raw (trim both sides to avoid trailing spaces)
-            $cmp = ($password === $db_password_hash);
-            dbg("plain compare result: " . ($cmp?1:0) . " (len input=" . strlen($password) . ", len stored=" . $pw_len . ")");
-            if ($cmp) $is_valid = true;
-        }
-
-        if ($is_valid) {
-            session_regenerate_id(true);
-            $_SESSION['acc_id'] = $db_acc_id;
-            $_SESSION['acc_name'] = $db_acc_name;
-            $response['success'] = true;
-            $response['user'] = ['acc_id' => $db_acc_id, 'acc_name' => $db_acc_name];
-            dbg("Login success for acc_id={$db_acc_id}");
-        } else {
-            $response['errors']['general'] = 'Incorrect Account ID or password.';
-            dbg("Login failed: incorrect password for acc_id={$acc_id}");
-        }
+// Your config uses $acc_conn (mysqli procedural)
+if (!isset($acc_conn) || !($acc_conn instanceof mysqli)) {
+    if (isset($conn) && ($conn instanceof mysqli)) {
+        $acc_conn = $conn;
     } else {
-        $response['errors']['general'] = 'Incorrect Account ID or password.';
-        dbg("No account found for acc_id={$acc_id}");
+        json_out(['success'=>false,'error'=>'Database connection missing.']);
+    }
+}
+
+// Read inputs
+$acc_id   = trim($_POST['acc_id'] ?? '');
+$password = (string)($_POST['password'] ?? '');
+
+if ($acc_id === '' || $password === '') {
+    json_out(['success'=>false,'error'=>'Please enter account ID and password.']);
+}
+
+// Password verification helper
+function verify_password_candidate($plain, $stored) {
+    if ($stored === null) return false;
+    if ($stored !== '' && $stored[0] === '$') {
+        return password_verify($plain, $stored); // hashed pw
+    }
+    return hash_equals((string)$stored, $plain); // plain pw
+}
+
+$account = null;
+$errors  = [];
+
+/* ---------------------------------------------------------
+   1) CHECK ACCOUNTS TABLE (STUDENTS)
+----------------------------------------------------------*/
+
+$availCols = [];
+$colCheck = @mysqli_prepare($acc_conn, "SHOW COLUMNS FROM `accounts`");
+if ($colCheck) {
+    mysqli_stmt_execute($colCheck);
+    $cols = mysqli_stmt_get_result($colCheck);
+    while ($c = mysqli_fetch_assoc($cols)) $availCols[] = $c['Field'];
+    mysqli_stmt_close($colCheck);
+} else {
+    $availCols = ['acc_id','acc_name','password','acc_role'];
+}
+
+$want = ['acc_id','acc_name'];
+if (in_array('password_hash', $availCols)) $want[] = 'password_hash';
+if (in_array('password',      $availCols)) $want[] = 'password';
+if (in_array('acc_role',      $availCols)) $want[] = 'acc_role';
+
+$sql = "SELECT " . implode(", ", array_map(fn($c)=>"`$c`", $want)) .
+       " FROM `accounts` WHERE `acc_id` = ? LIMIT 1";
+
+$stmt = @mysqli_prepare($acc_conn, $sql);
+if ($stmt) {
+    mysqli_stmt_bind_param($stmt, 's', $acc_id);
+    mysqli_stmt_execute($stmt);
+    $res = mysqli_stmt_get_result($stmt);
+
+    if ($row = mysqli_fetch_assoc($res)) {
+        $stored = $row['password_hash'] ?? $row['password'] ?? null;
+        if (verify_password_candidate($password, $stored)) {
+            $account = [
+                'source'  => 'accounts',
+                'acc_id'  => $row['acc_id'],
+                'acc_name'=> $row['acc_name'],
+                'role'    => $row['acc_role'] ?? 'student'
+            ];
+        }
     }
 
     mysqli_stmt_close($stmt);
 } else {
-    $err = mysqli_error($acc_conn);
-    dbg("Prepare failed: " . $err);
-    $response['errors']['general'] = 'Database error (prepare).';
-    echo json_encode($response);
-    exit;
+    $errors[] = 'accounts prepare failed: ' . mysqli_error($acc_conn);
 }
 
-if ($debug) {
-    // include helpful debug keys in JSON for development only
-    $response['_debug'] = [
-        'received_acc_id' => $acc_id,
-        // careful: we do not include password hash
-    ];
+/* ---------------------------------------------------------
+   2) CHECK ADMINS TABLE (INSTRUCTORS + SUPER ADMINS)
+----------------------------------------------------------*/
+
+if (!$account) {
+    $availAdmins = [];
+    $stmtCols = @mysqli_prepare($acc_conn, "SHOW COLUMNS FROM `admins`");
+    if ($stmtCols) {
+        mysqli_stmt_execute($stmtCols);
+        $rcols = mysqli_stmt_get_result($stmtCols);
+        while ($c = mysqli_fetch_assoc($rcols)) $availAdmins[] = $c['Field'];
+        mysqli_stmt_close($stmtCols);
+    } else {
+        $availAdmins = ['acc_id','name','password','role'];
+    }
+
+    $wantA = ['acc_id','name'];
+    if (in_array('password_hash', $availAdmins)) $wantA[] = 'password_hash';
+    if (in_array('password',      $availAdmins)) $wantA[] = 'password';
+    if (in_array('role',          $availAdmins)) $wantA[] = 'role';
+
+    $sql2 = "SELECT " . implode(", ", array_map(fn($c)=>"`$c`", $wantA)) .
+            " FROM `admins` WHERE `acc_id` = ? LIMIT 1";
+
+    $stmt2 = @mysqli_prepare($acc_conn, $sql2);
+    if ($stmt2) {
+        mysqli_stmt_bind_param($stmt2, 's', $acc_id);
+        mysqli_stmt_execute($stmt2);
+        $res2 = mysqli_stmt_get_result($stmt2);
+
+        if ($row = mysqli_fetch_assoc($res2)) {
+            $stored = $row['password_hash'] ?? $row['password'] ?? null;
+            if (verify_password_candidate($password, $stored)) {
+
+                // Try to load friendlier name from accounts table (optional)
+                $displayName = $row['name'] ?? $acc_id;
+                $roleRawAdmin = $row['role'] ?? null;
+
+                $q = @mysqli_prepare($acc_conn,
+                    "SELECT acc_name, acc_role FROM accounts WHERE acc_id = ? LIMIT 1"
+                );
+                if ($q) {
+                    mysqli_stmt_bind_param($q, 's', $acc_id);
+                    mysqli_stmt_execute($q);
+                    $r = mysqli_stmt_get_result($q);
+                    if ($u = mysqli_fetch_assoc($r)) {
+                        if (!empty($u['acc_name'])) $displayName = $u['acc_name'];
+                        if (!empty($u['acc_role'])) $roleRawAdmin = $u['acc_role']; // fallback
+                    }
+                    mysqli_stmt_close($q);
+                }
+
+                $account = [
+                    'source'   => 'admins',
+                    'acc_id'   => $acc_id,
+                    'acc_name' => $displayName,
+                    'role'     => $roleRawAdmin // will be normalized below
+                ];
+            }
+        }
+
+        mysqli_stmt_close($stmt2);
+    } else {
+        $errors[] = 'admins prepare failed: ' . mysqli_error($acc_conn);
+    }
 }
 
-echo json_encode($response);
-exit;
+/* ---------------------------------------------------------
+   LOGIN FAILED?
+----------------------------------------------------------*/
+
+if (!$account) {
+    $msg = 'Invalid account ID or password.';
+    if (!empty($errors)) $msg .= ' (DB: '.implode(' | ', $errors).')';
+    json_out(['success'=>false, 'error'=>$msg]);
+}
+
+/* ---------------------------------------------------------
+   NORMALIZE ROLE
+----------------------------------------------------------*/
+
+$roleRaw = strtolower((string)($account['role'] ?? ''));
+
+// remove spaces / underscores / hyphens
+$roleClean = str_replace([' ', '_', '-'], '', $roleRaw);
+
+if ($account['source'] === 'admins') {
+
+    if (strpos($roleClean, 'superadmin') !== false) {
+        $roleNorm = 'super_admin';
+    } elseif (strpos($roleClean, 'admin') !== false || strpos($roleClean, 'instructor') !== false) {
+        $roleNorm = 'admin';
+    } else {
+        $roleNorm = 'admin'; // fallback
+    }
+
+} else {
+    // accounts table = students
+    $roleNorm = 'student';
+}
+
+/* ---------------------------------------------------------
+   SET SESSION + SUCCESS
+----------------------------------------------------------*/
+
+$_SESSION['acc_id']   = $account['acc_id'];
+$_SESSION['acc_name'] = $account['acc_name'];
+$_SESSION['role']     = $roleNorm;
+
+session_regenerate_id(true);
+
+$redirect =
+    ($roleNorm === 'super_admin') ? 'super_admin.php' :
+    ($roleNorm === 'admin'       ? 'admin.php'       :
+                                   'index.php');
+
+json_out([
+    'success'  => true,
+    'role'     => $roleNorm,
+    'redirect' => $redirect
+]);

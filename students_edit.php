@@ -301,8 +301,8 @@ $flash_error = get_flash('flash_error');
     color: #fff;
     z-index: 10;
     position: relative;
-    margin-top: 36px; /* create spacing from header so it floats */
-    margin-bottom: 36px; /* spacing from bottom */
+    margin: 36px auto; /* floating away from header and bottom */
+    max-width: 1100px;
   }
 
   /* Override Materialize card styles (many are solid white) */
@@ -459,8 +459,8 @@ $flash_error = get_flash('flash_error');
                 <label for="avatarInput" class="muted"></label><br>
                 <img id="preview" src="<?php echo htmlspecialchars($avatarPath, ENT_QUOTES); ?>" alt="preview">
                 <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                  <!-- keep the native label for the input (for=) and remove extra JS 'click' to avoid double-open -->
-                  <label class="file-label-btn" for="avatarInput" tabindex="0" aria-controls="avatarInput">Choose image</label>
+                  <!-- note: using for="avatarInput" (no JS click) prevents double-open -->
+                  <label class="file-label-btn" for="avatarInput" tabindex="0">Choose image</label>
                   <input id="avatarInput" type="file" name="avatar" accept="image/*" style="display:none;">
                   <div class="muted" style="margin-left:6px;">Allowed: JPG, PNG, WEBP — max 2 MB</div>
                 </div>
@@ -486,7 +486,7 @@ $flash_error = get_flash('flash_error');
               <div class="col s12" style="margin-top:6px;">
                 <div class="controls-row">
                   <button id="saveBtn" type="submit" class="btn blue">Save changes</button>
-                  <button type="reset" class="btn-flat" id="formResetBtn">Reset</button>
+                  <button type="reset" id="formResetBtn" class="btn-flat">Reset</button>
                 </div>
               </div>
             </div>
@@ -506,58 +506,44 @@ $flash_error = get_flash('flash_error');
       const avatarInput = document.getElementById('avatarInput');
       const preview = document.getElementById('preview');
       const currentAvatar = document.getElementById('currentAvatar');
-      // remember server-provided avatar so reset can restore it
-      const serverAvatarSrc = preview ? preview.src : (currentAvatar ? currentAvatar.src : '');
 
-      if (avatarInput) {
-        avatarInput.addEventListener('change', function(){
-          const f = this.files && this.files[0];
-          if (!f) return;
-          if (!f.type.startsWith('image/')) {
-            // Use Materialize toast if available, otherwise alert
-            if (typeof M !== 'undefined' && M.toast) M.toast({ html: 'Please select an image file.'});
-            else alert('Please select an image file.');
-            this.value = '';
-            return;
-          }
-          const reader = new FileReader();
-          reader.onload = e => {
-            if (preview) preview.src = e.target.result;
-          };
-          reader.readAsDataURL(f);
-        });
-      }
+      avatarInput && avatarInput.addEventListener('change', function(){
+        const f = this.files && this.files[0];
+        if (!f) return;
+        if (!f.type.startsWith('image/')) {
+          if (M && M.toast) M.toast({ html: 'Please select an image file.'});
+          this.value = '';
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = e => preview.src = e.target.result;
+        reader.readAsDataURL(f);
+      });
 
-      // optional: improve keyboard handling on the label for accessibility
+      // Improve accessibility: keyboard on label triggers input click.
       const fileLabel = document.querySelector('.file-label-btn');
       if (fileLabel && avatarInput) {
         fileLabel.addEventListener('keydown', function(e){
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            // using label's native for= will open file picker when activated by keyboard,
-            // so we only trigger click for keyboard events (some browsers need it).
-            // NOTE: do NOT call click on label 'click' to avoid double-open.
-            avatarInput.click();
-          }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
         });
-        // DO NOT add a 'click' listener that calls avatarInput.click() — the label's for= attribute
-        // already opens the file dialog on mouse click. Calling it twice causes a double-open.
+        // DO NOT also call avatarInput.click() on mouse click — label's for="" will open the picker once.
       }
 
-      // restore preview when the form is reset
+      // Reset button: restore preview to current avatar
       const form = document.getElementById('editForm');
       const resetBtn = document.getElementById('formResetBtn');
-      if (form) {
-        form.addEventListener('reset', function(){
-          // Clear file input value (some browsers keep it)
-          if (avatarInput) {
-            try { avatarInput.value = ''; } catch(e){}
-          }
-          // Restore preview to server image
-          if (preview) preview.src = serverAvatarSrc || '<?php echo htmlspecialchars($avatarPath, ENT_QUOTES); ?>';
+      if (resetBtn && form) {
+        resetBtn.addEventListener('click', function(e){
+          // browser resets form fields automatically; just restore preview after a tiny delay
+          setTimeout(function(){
+            // if currentAvatar src is a real URL, use that; else fallback to default preview
+            preview.src = currentAvatar.src || '<?php echo addslashes($default_avatar); ?>';
+            if (avatarInput) avatarInput.value = '';
+          }, 10);
         });
       }
 
+      // Small enhancement: prevent double-open when user shift-clicks or similar — handled by not calling click on mouse.
     });
   </script>
 </body>

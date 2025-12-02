@@ -1,5 +1,7 @@
 <?php
-// students.php - updated UI fixes & behavior (fixed JS + missing DOM nodes + single-select init)
+// students.php - full corrected version (includes POST handlers, UI fixes, JS fixes)
+// Make a backup of your existing file before replacing.
+
 session_start();
 
 // ---------- CONFIG ----------
@@ -118,7 +120,7 @@ function render_student_row_html($st) {
     ob_start();
     ?>
 <tr data-db-id="<?php echo $id; ?>">
-  <td><label><input type="checkbox" class="filled-in chk" data-id="<?php echo $id; ?>"><span></span></label></td>
+  <td style="width:48px;"><label><input type="checkbox" class="filled-in chk" data-id="<?php echo $id; ?>"><span></span></label></td>
   <td><img src="<?php echo $avatar_html; ?>" alt="avatar" class="table-avatar-img" onerror="this.onerror=null;this.src='assets/avatar.png';" /></td>
   <td class="cell-last"><?php echo $last; ?></td>
   <td class="cell-first"><?php echo $first; ?></td>
@@ -129,9 +131,8 @@ function render_student_row_html($st) {
   <td class="cell-birthday"><?php echo $birthday ?: '&mdash;'; ?></td>
   <td class="cell-sex"><?php echo $sex ?: '&mdash;'; ?></td>
   <td class="cell-teacher"><?php echo $teacher ?: '&mdash;'; ?></td>
-  <td>
-    <a class="btn-flat edit-btn tooltipped modal-trigger"
-       href="#editStudentModal"
+  <td style="width:120px;">
+    <a class="edit-btn tooltipped" href="#editStudentModal"
        data-db-id="<?php echo $id; ?>"
        data-last="<?php echo $last; ?>"
        data-first="<?php echo $first; ?>"
@@ -154,20 +155,329 @@ function render_student_row_html($st) {
 }
 
 // ---------- PROCESS POSTS ----------
-// (The server-side POST processing is kept identical to the logic you provided earlier.)
-// For brevity in this displayed file we've kept the same behavior; ensure it's present in your deployed copy.
-// ... (Reset, Add, Edit, Delete actions) ...
-// The code from your previous message is preserved here; if you replaced it earlier with a shortened version
-// make sure the full POST-handling code above (in your environment) matches the previous fully working logic.
-// (For the purpose of this paste, the POST-handling code is the same as the version you provided.)
-
+$allowed_sex = ['', 'M', 'F'];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // --- reset_password, add_student, edit_student, delete_selected implementations ---
-    // (copy the full POST-handling block from your working file)
-    // For safety, I'm including the same logic: reset_password, add_student, edit_student (with safe avatar deletion), delete_selected.
-    // Please keep this section unchanged if you've already been using it successfully.
-    // NOTE: To avoid making this message excessively long I did not repeat the exact block here.
-    // In your local file, paste the same POST handling block you used earlier (exact code).
+
+    // RESET PASSWORD to Birthday
+    if (!empty($_POST['action']) && $_POST['action'] === 'reset_password') {
+        $db_id = intval($_POST['db_id'] ?? 0);
+        $q = $conn->prepare("SELECT student_id, birthday FROM students WHERE id = ? LIMIT 1");
+        if (!$q) { $_SESSION['students_errors'] = ['Database error while locating student.']; header('Location: students.php'); exit; }
+        $q->bind_param('i', $db_id);
+        $q->execute();
+        $q->bind_result($stu_acc_id, $stu_birthday);
+        $found = $q->fetch();
+        $q->close();
+        if (!$found) { $_SESSION['students_errors'] = ['Student record not found.']; header('Location: students.php'); exit; }
+        if (!$acc_db_ok) { $_SESSION['students_errors'] = ['Accounts database not available. Cannot reset password.']; header('Location: students.php'); exit; }
+        $stu_birthday = trim((string)$stu_birthday);
+        if ($stu_birthday === '') { $_SESSION['students_errors'] = ['Cannot reset password: student has no birthday recorded.']; header('Location: students.php'); exit; }
+        $chk = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+        if (!$chk) { $_SESSION['students_errors'] = ['Accounts DB error.']; header('Location: students.php'); exit; }
+        $chk->bind_param('s', $stu_acc_id);
+        $chk->execute();
+        $chk->bind_result($exists_acc);
+        $exists = $chk->fetch() ? true : false;
+        $chk->close();
+        if (!$exists) { $_SESSION['students_errors'] = ['Account not found for this student (cannot reset).']; header('Location: students.php'); exit; }
+        $new_hash = password_hash($stu_birthday, PASSWORD_DEFAULT);
+        $upd = $acc_conn->prepare("UPDATE accounts SET password = ? WHERE acc_id = ?");
+        if (!$upd) { $_SESSION['students_errors'] = ['Failed to prepare password update.']; header('Location: students.php'); exit; }
+        $upd->bind_param('ss', $new_hash, $stu_acc_id);
+        $ok = $upd->execute();
+        $upd->close();
+        if (!$ok) { $_SESSION['students_errors'] = ['Failed to update account password.']; header('Location: students.php'); exit; }
+        $_SESSION['account_info'] = ['acc_id' => $stu_acc_id, 'password' => $stu_birthday];
+        header('Location: students.php'); exit;
+    }
+
+    // ADD student
+    if (!empty($_POST['action']) && $_POST['action'] === 'add_student') {
+        $last = trim($_POST['last_name'] ?? '');
+        $first = trim($_POST['first_name'] ?? '');
+        $middle = trim($_POST['middle_name'] ?? '');
+        $suffix = trim($_POST['suffix'] ?? '');
+        $student_id_val = trim($_POST['student_id_val'] ?? '');
+        $section = trim($_POST['section'] ?? '');
+        $birthday = trim($_POST['birthday'] ?? '');
+        $sex = trim($_POST['sex'] ?? '');
+
+        if (is_super_admin()) { $assigned_teacher = trim($_POST['teacher_id'] ?? '') ?: null; }
+        elseif (is_teacher()) { $assigned_teacher = current_acc_id(); }
+        else { $assigned_teacher = null; }
+
+        $errors = [];
+        if ($student_id_val === '') $errors[] = 'Student ID required.';
+        if ($last === '') $errors[] = 'Last name required.';
+        if ($first === '') $errors[] = 'First name required.';
+        if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
+        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Sex must be M or F.';
+
+        if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
+            $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
+            if ($chk) {
+                $chk->bind_param('s', $assigned_teacher);
+                $chk->execute();
+                $chk->bind_result($roleFound);
+                $ok = $chk->fetch();
+                $chk->close();
+                if (!$ok || $roleFound !== 'admin') $errors[] = 'Assigned teacher is invalid.';
+            } else { $errors[] = 'Accounts DB error while validating teacher.'; }
+        }
+
+        if (empty($errors)) {
+            $avatar = handle_avatar_upload('student_photo', null);
+
+            $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
+            if (!$stmt) { $_SESSION['students_errors'] = ['Failed to prepare student insertion.']; header('Location: students.php'); exit; }
+            $stmt->bind_param('ssssssssss', $student_id_val, $last, $first, $middle, $suffix, $section, $avatar, $birthday, $sex, $assigned_teacher);
+            $ok = $stmt->execute();
+            if (!$ok) { $stmt->close(); $_SESSION['students_errors'] = ['Failed to insert student (DB error).']; header('Location: students.php'); exit; }
+            $student_row_id = $stmt->insert_id;
+            $stmt->close();
+
+            if ($acc_db_ok) {
+                try {
+                    $desired_acc_id = $student_id_val;
+                    $final_acc_id = ensure_unique_acc_id($acc_conn, $desired_acc_id);
+
+                    $acc_name = trim($first . ' ' . $last);
+                    $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                    $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                    $acc_role = 'student';
+
+                    $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                    if (!$insAcc) {
+                        $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                        $_SESSION['students_errors'] = ['Failed to prepare account insertion in accounts DB. Student insertion rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+                    $insAcc->bind_param('ssss', $final_acc_id, $acc_name, $password_hash, $acc_role);
+                    $insOk = $insAcc->execute();
+                    $insAcc->close();
+
+                    if (!$insOk) {
+                        $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                        $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student insertion rolled back.'];
+                        header('Location: students.php'); exit;
+                    }
+
+                    $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+
+                    header('Location: students.php'); exit;
+
+                } catch (Exception $e) {
+                    $conn->query("DELETE FROM students WHERE id = " . intval($student_row_id));
+                    $_SESSION['students_errors'] = ['Unexpected error while creating account. Student insertion rolled back.'];
+                    header('Location: students.php'); exit;
+                }
+            } else {
+                header('Location: students.php'); exit;
+            }
+        } else {
+            $_SESSION['students_errors'] = $errors;
+            header('Location: students.php'); exit;
+        }
+    }
+
+    // EDIT student (keeps avatar deletion safe)
+    if (!empty($_POST['action']) && $_POST['action'] === 'edit_student') {
+        $db_id = intval($_POST['db_id'] ?? 0);
+        $last = trim($_POST['edit_last_name'] ?? '');
+        $first = trim($_POST['edit_first_name'] ?? '');
+        $middle = trim($_POST['edit_middle_name'] ?? '');
+        $suffix = trim($_POST['edit_suffix'] ?? '');
+        $student_id_val = trim($_POST['edit_student_id'] ?? '');
+        $section = trim($_POST['edit_section'] ?? '');
+        $birthday = trim($_POST['edit_birthday'] ?? '');
+        $sex = trim($_POST['edit_sex'] ?? '');
+
+        if (is_super_admin()) $assigned_teacher = trim($_POST['edit_teacher_id'] ?? '') ?: null;
+        else if (is_teacher()) {
+            $check = $conn->prepare("SELECT teacher_id FROM students WHERE id = ? LIMIT 1");
+            $check->bind_param('i', $db_id);
+            $check->execute();
+            $check->bind_result($row_teacher);
+            if (!$check->fetch() || $row_teacher !== current_acc_id()) { $check->close(); $_SESSION['students_errors'] = ['Unauthorized action.']; header('Location: students.php'); exit; }
+            $check->close();
+            $assigned_teacher = current_acc_id();
+        } else $assigned_teacher = null;
+
+        $errors = [];
+        if ($student_id_val === '') $errors[] = 'Student ID required.';
+        if ($last === '') $errors[] = 'Last name required.';
+        if ($first === '') $errors[] = 'First name required.';
+        if ($birthday !== '' && !validate_date_not_future($birthday)) $errors[] = 'Birthday invalid or in the future.';
+        if (!in_array($sex, $allowed_sex, true)) $errors[] = 'Sex must be M or F.';
+
+        if ($assigned_teacher && $acc_db_ok && is_super_admin()) {
+            $chk = $acc_conn->prepare("SELECT role FROM admins WHERE acc_id = ? LIMIT 1");
+            if ($chk) {
+                $chk->bind_param('s', $assigned_teacher);
+                $chk->execute();
+                $chk->bind_result($roleFound);
+                $ok = $chk->fetch();
+                $chk->close();
+                if (!$ok || $roleFound !== 'admin') $errors[] = 'Assigned teacher is invalid.';
+            } else { $errors[] = 'Accounts DB error while validating teacher.'; }
+        }
+
+        if (empty($errors)) {
+            $cur_avatar = null;
+            $q = $conn->prepare("SELECT avatar, student_id, last_name, first_name FROM students WHERE id = ?");
+            $q->bind_param('i', $db_id);
+            $q->execute();
+            $q->bind_result($cur_avatar, $old_student_id, $old_last, $old_first);
+            $q->fetch();
+            $q->close();
+
+            // IMPORTANT: name of file input must match handle_avatar_upload usage
+            $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
+
+            if ($new_avatar !== null && $new_avatar !== $cur_avatar) {
+                if (!empty($cur_avatar)) {
+                    $realOld = realpath(__DIR__ . '/' . ltrim($cur_avatar, '/\\'));
+                    $allowedDir = realpath($uploads_dir);
+                    if ($realOld && $allowedDir && strpos($realOld, $allowedDir) === 0 && is_file($realOld)) {
+                        @unlink($realOld);
+                    }
+                }
+            }
+
+            $upd = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, middle_name = ?, suffix = ?, section = ?, avatar = ?, birthday = ?, sex = ?, teacher_id = ?, updated_at = NOW() WHERE id = ?");
+            $upd->bind_param('ssssssssssi', $student_id_val, $last, $first, $middle, $suffix, $section, $new_avatar, $birthday, $sex, $assigned_teacher, $db_id);
+            $ok = $upd->execute();
+            $upd->close();
+            if (!$ok) { $_SESSION['students_errors'] = ['Failed to update student (DB error).']; header('Location: students.php'); exit; }
+
+            if ($acc_db_ok) {
+                try {
+                    $check = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+                    $check->bind_param('s', $old_student_id);
+                    $check->execute();
+                    $check->bind_result($found_acc);
+                    $exists = $check->fetch() ? true : false;
+                    $check->close();
+
+                    if ($exists) {
+                        $final_acc_id = $student_id_val;
+                        if ($old_student_id !== $student_id_val) {
+                            $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                        }
+                        if ($birthday !== '') {
+                            $new_hash = password_hash($birthday, PASSWORD_DEFAULT);
+                        } else {
+                            $gethash = $acc_conn->prepare("SELECT password FROM accounts WHERE acc_id = ? LIMIT 1");
+                            $gethash->bind_param('s', $old_student_id);
+                            $gethash->execute();
+                            $gethash->bind_result($existing_hash);
+                            $gethash->fetch();
+                            $gethash->close();
+                            $new_hash = $existing_hash ?? password_hash(bin2hex(random_bytes(4)), PASSWORD_DEFAULT);
+                        }
+
+                        $new_acc_name = trim($first . ' ' . $last);
+                        $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ?, password = ? WHERE acc_id = ?");
+                        $accUpd->bind_param('ssss', $final_acc_id, $new_acc_name, $new_hash, $old_student_id);
+                        $accOk = $accUpd->execute();
+                        $accUpd->close();
+                        if (!$accOk) {
+                            $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                            $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                            $rb->execute();
+                            $rb->close();
+                            $_SESSION['students_errors'] = ['Failed to update account in accounts DB. Student update rolled back.'];
+                            header('Location: students.php'); exit;
+                        }
+
+                        if ($final_acc_id !== $old_student_id) {
+                            $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => ($birthday !== '' ? $birthday : '(password unchanged)')];
+                        } elseif ($birthday !== '') {
+                            $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $birthday];
+                        }
+                    } else {
+                        $final_acc_id = ensure_unique_acc_id($acc_conn, $student_id_val);
+                        $raw_password = $birthday !== '' ? $birthday : bin2hex(random_bytes(4));
+                        $password_hash = password_hash($raw_password, PASSWORD_DEFAULT);
+                        $acc_role = 'student';
+                        $insAcc = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, ?)");
+                        $insAcc->bind_param('ssss', $final_acc_id, trim($first . ' ' . $last), $password_hash, $acc_role);
+                        $insOk = $insAcc->execute();
+                        $insAcc->close();
+                        if (!$insOk) {
+                            $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                            $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                            $rb->execute();
+                            $rb->close();
+                            $_SESSION['students_errors'] = ['Failed to create account in accounts DB. Student update rolled back.'];
+                            header('Location: students.php'); exit;
+                        }
+                        $_SESSION['account_info'] = ['acc_id' => $final_acc_id, 'password' => $raw_password];
+                    }
+
+                    header('Location: students.php'); exit;
+
+                } catch (Exception $e) {
+                    $rb = $conn->prepare("UPDATE students SET student_id = ?, last_name = ?, first_name = ?, avatar = ? WHERE id = ?");
+                    $rb->bind_param('ssssi', $old_student_id, $old_last, $old_first, $cur_avatar, $db_id);
+                    $rb->execute();
+                    $rb->close();
+
+                    $_SESSION['students_errors'] = ['Unexpected error while syncing with accounts DB. Student update rolled back.'];
+                    header('Location: students.php'); exit;
+                }
+            } else {
+                header('Location: students.php'); exit;
+            }
+        } else {
+            $_SESSION['students_errors'] = $errors;
+            header('Location: students.php'); exit;
+        }
+    }
+
+    // DELETE selected (bulk)
+    if (!empty($_POST['action']) && $_POST['action'] === 'delete_selected') {
+        $ids = $_POST['delete_ids'] ?? [];
+        if (is_array($ids) && count($ids) > 0) {
+            $clean = array_map('intval', $ids);
+            $in = implode(',', $clean);
+
+            if (is_teacher()) {
+                $teacher_esc = $conn->real_escape_string(current_acc_id());
+                $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in) AND teacher_id = '{$teacher_esc}'");
+            } elseif (is_super_admin()) {
+                $res = $conn->query("SELECT id, avatar, student_id FROM students WHERE id IN ($in)");
+            } else {
+                $res = false;
+            }
+
+            $accIdsToDelete = [];
+            if ($res) {
+                $idsToDelete = [];
+                while ($r = $res->fetch_assoc()) {
+                    $idsToDelete[] = intval($r['id']);
+                    if (!empty($r['avatar']) && strpos($r['avatar'], 'uploads/avatars/') === 0) {
+                        $f = __DIR__ . '/' . $r['avatar'];
+                        if (is_file($f)) @unlink($f);
+                    }
+                    if (!empty($r['student_id'])) $accIdsToDelete[] = "'" . ($acc_db_ok ? $acc_conn->real_escape_string($r['student_id']) : $conn->real_escape_string($r['student_id'])) . "'";
+                }
+                $res->free();
+
+                if (!empty($idsToDelete)) {
+                    $in2 = implode(',', $idsToDelete);
+                    $conn->query("DELETE FROM students WHERE id IN ($in2)");
+                }
+
+                if (!empty($accIdsToDelete) && $acc_db_ok) {
+                    $accIn = implode(',', $accIdsToDelete);
+                    $acc_conn->query("DELETE FROM accounts WHERE acc_id IN ($accIn)");
+                }
+            }
+        }
+
+        header('Location: students.php'); exit;
+    }
 }
 
 // ---------- FETCH teachers list (only for super_admin) ----------
@@ -282,6 +592,7 @@ unset($_SESSION['account_info']);
     .section-hr{border:0;height:1px;background:linear-gradient(to right, rgba(0,0,0,.02), rgba(0,0,0,.06));margin:8px 0 12px}
 
     #deleteNamesList li{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:14px;color:#333;padding:8px;border-radius:8px;background:#fafcff;border:1px solid rgba(11,89,216,0.04)}
+    .delete-list-avatar{width:36px;height:36px;max-width:36px;max-height:36px;border-radius:50%;object-fit:cover;margin-right:10px}
 
     /* ID-card modal style with rounded corners */
     .id-card {
@@ -289,6 +600,7 @@ unset($_SESSION['account_info']);
       box-shadow:0 8px 30px rgba(16,39,77,0.06)
     }
     .id-photo{width:110px;height:110px;border-radius:50%;object-fit:cover;border:0;background:#fff}
+    .id-photo-button{display:inline-block;padding:6px 10px;border-radius:8px;background:var(--air-blue);color:#fff;cursor:pointer}
     .id-info{flex:1}
     .id-info h3{margin:0;color:var(--air-blue);font-size:18px}
     .id-info p{margin:6px 0;color:#475b7a}
@@ -324,7 +636,7 @@ unset($_SESSION['account_info']);
     <div style="flex:0 0 auto"><img src="assets/logo.png" alt="logo" style="height:46px;width:72px;object-fit:cover;border-radius:6px"></div>
     <div>
       <h1>Students</h1>
-      <div class="sub">Manage students</div>
+      <div class="sub">Manage students — boarding-pass inspired UI</div>
     </div>
   </header>
 
@@ -413,8 +725,8 @@ unset($_SESSION['account_info']);
         <div style="flex:0 0 120px; text-align:center;">
           <img id="addPreview" src="assets/avatar.png" class="id-photo" alt="photo">
           <div style="margin-top:8px;">
-            <label class="btn" style="background:var(--air-blue);color:#fff;cursor:pointer">
-              <span>Upload</span>
+            <label class="id-photo-button" style="border-radius:8px;cursor:pointer">
+              Upload
               <input id="addStudentPhoto" type="file" name="student_photo" accept="image/*" style="display:none">
             </label>
           </div>
@@ -482,30 +794,36 @@ unset($_SESSION['account_info']);
 </div>
 <!-- ===== end Add Modal HTML ===== -->
 
-
-<!-- ===== Replace Edit Modal (paste over your existing edit modal) ===== -->
+<!-- Edit modal (fixed: Change Photo input moved INSIDE the <form> so it uploads correctly) -->
 <div id="editStudentModal" class="modal">
   <div class="modal-content">
     <h5 style="margin-top:0;">Edit Student Information</h5>
-    <!-- blue horizontal bar -->
     <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
 
-    <!-- ID card/photo area (left untouched visually) -->
     <div class="id-card" style="margin-bottom:12px;">
       <img id="editPreview" src="assets/avatar.png" class="id-photo" alt="photo">
       <div class="id-info">
         <h3 id="editName">Student Name</h3>
         <p><strong>ID:</strong> <span id="editIDLabel">—</span></p>
         <p id="editSectionLabel" style="margin-top:6px;color:var(--muted)"></p>
+
+        <div style="margin-top:8px;">
+          <span class="id-photo-button" style="border-radius:8px;cursor:pointer;display:inline-block;">Change Photo</span>
+          <small style="display:block;margin-top:6px;color:#666;">Choose a new avatar below after opening the form.</small>
+        </div>
       </div>
     </div>
 
-    <!-- Form layout exactly as requested -->
     <form method="post" enctype="multipart/form-data" id="editForm">
       <input type="hidden" name="action" value="edit_student">
       <input type="hidden" id="edit_db_id" name="db_id" value="">
       <input type="hidden" id="reset_db_id" name="reset_db_id" value="">
-    <p></p>
+
+      <!-- file input is INSIDE the form and visually hidden; clicking the "Change Photo" button will trigger it -->
+      <label style="display:none;" id="hiddenEditPhotoLabel">
+        <input id="editStudentPhoto" name="edit_student_photo" type="file" accept="image/*" style="display:none">
+      </label>
+
       <!-- Student ID -->
       <div class="input-field" style="margin-top:6px;">
         <input id="editStudentID" name="edit_student_id" type="text" required>
@@ -546,7 +864,6 @@ unset($_SESSION['account_info']);
           <div class="input-field"><input id="editBirthday" name="edit_birthday" type="date"><label class="active" for="editBirthday">Birthday</label></div>
         </div>
 
-        <!-- native browser select to avoid Materialize double dropdown -->
         <div style="flex:0 0 140px;">
           <label for="editSex" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Sex <span style="color:#d32f2f">*</span></label>
           <select id="editSex" name="edit_sex" class="browser-default" required>
@@ -616,11 +933,10 @@ document.addEventListener('DOMContentLoaded', function() {
     M.Modal.init(modalEls, {preventScrolling:true});
   } catch (e) { console.warn('Materialize modal init failed', e); }
 
-  // Initialize selects ONCE
+  // Initialize Materialize selects ONLY for non-browser-default selects
   try {
-    var selectEls = document.querySelectorAll('select');
+    var selectEls = document.querySelectorAll('select:not(.browser-default)');
     selectEls.forEach(function(s){
-      // only init if not already initialized
       if (!M.FormSelect.getInstance(s)) M.FormSelect.init(s);
     });
   } catch (e) { console.warn('Select init failed', e); }
@@ -666,7 +982,7 @@ document.addEventListener('DOMContentLoaded', function() {
   updateToggleBtnLabel(false);
   if (toggleBtn) toggleBtn.addEventListener('click', function(){ var toCollapse = !areAllCollapsed(); setAllSectionsCollapsed(toCollapse); toggleBtn.classList.remove('btn-pulse'); void toggleBtn.offsetWidth; toggleBtn.classList.add('btn-pulse'); });
 
-  // table edit buttons open modal and populate fields
+  // open Edit modal and populate
   function openEditModal(btn){
     try {
       var dbId = btn.getAttribute('data-db-id');
@@ -692,7 +1008,6 @@ document.addEventListener('DOMContentLoaded', function() {
       setIf('editSectionInput', section || '');
       setIf('editBirthday', birthday);
 
-      // update small ID card header (ensure those elements exist in your modal)
       var editPreview = document.getElementById('editPreview');
       if (editPreview) editPreview.src = avatar;
       var editNameEl = document.getElementById('editName');
@@ -702,36 +1017,29 @@ document.addEventListener('DOMContentLoaded', function() {
       var editSectionLabel = document.getElementById('editSectionLabel');
       if (editSectionLabel) editSectionLabel.textContent = section ? ('Section: ' + section) : '';
 
-      // set select values and reinit that single select safely
+      // editSex is native browser select
       var editSexEl = document.getElementById('editSex');
-      if (editSexEl) {
-        try { var inst = M.FormSelect.getInstance(editSexEl); if (inst) inst.destroy(); } catch(e){}
-        editSexEl.value = (sex === 'M' || sex === 'F') ? sex : '';
-        try { M.FormSelect.init(editSexEl); } catch(e){}
-      }
-      var editTeacherEl = document.getElementById('editTeacherSelect');
-      if (editTeacherEl) {
-        try { var tinst = M.FormSelect.getInstance(editTeacherEl); if (tinst) tinst.destroy(); } catch(e){}
-        editTeacherEl.value = teacher || '';
-        try { M.FormSelect.init(editTeacherEl); } catch(e){}
-      }
+      if (editSexEl) editSexEl.value = (sex === 'M' || sex === 'F') ? sex : '';
 
-      // update textfields so labels float correctly
+      var editTeacherEl = document.getElementById('editTeacherSelect');
+      if (editTeacherEl) editTeacherEl.value = teacher || '';
+
       try { M.updateTextFields(); } catch(e){}
 
-      // reset confirm/save UI
       var confirm = document.getElementById('editConfirmCheckbox');
       if (confirm) confirm.checked = false;
       var saveBtn = document.getElementById('saveEditBtn');
       if (saveBtn) saveBtn.disabled = true;
 
-      // reset the reset-password control
       var resetDbInput = document.getElementById('reset_db_id');
       if (resetDbInput) resetDbInput.value = dbId;
       var enReset = document.getElementById('enableResetCheckbox');
       if (enReset) enReset.checked = false;
       var resetBtn = document.getElementById('resetPwdBtn');
       if (resetBtn) { resetBtn.style.display = 'none'; resetBtn.disabled = true; }
+
+      // clear and reattach file input handlers (the small IIFE below does replacement too)
+      try { clearAndAttachEditFileInput(); } catch(e){}
 
       var modal = document.getElementById('editStudentModal');
       try { M.Modal.getInstance(modal).open(); } catch(e){ if (modal) modal.style.display = 'block'; }
@@ -741,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   Array.from(document.querySelectorAll('.edit-btn')).forEach(function(b){ b.addEventListener('click', function(e){ e.preventDefault(); openEditModal(this); }); });
 
-  // Add modal open: reset preview/fields, initialize select once
+  // Add modal open: reset preview/fields
   var addBtn = document.getElementById('addBtn');
   if (addBtn) addBtn.addEventListener('click', function(){
     try {
@@ -749,28 +1057,18 @@ document.addEventListener('DOMContentLoaded', function() {
       if (document.getElementById('addPreview')) document.getElementById('addPreview').src = 'assets/avatar.png';
       var addForm = document.getElementById('addForm');
       if (addForm) addForm.reset();
-      // re-init only the sex select to ensure it shows correctly
-      try { var sInst = M.FormSelect.getInstance(document.getElementById('sex')); if (sInst) sInst.destroy(); } catch(e){}
-      try { M.FormSelect.init(document.getElementById('sex')); } catch(e){}
       if (inst) inst.open();
-      setTimeout(function(){ try{ document.getElementById('lastName').focus(); }catch(e){} }, 200);
+      setTimeout(function(){ try{ document.getElementById('addLastName')?.focus(); }catch(e){} }, 200);
     } catch (err) { console.error('open add modal error', err); }
   });
 
-  // image preview handlers (add/edit)
+  // image preview handlers for add
   var addPhoto = document.getElementById('addStudentPhoto');
   if (addPhoto) addPhoto.addEventListener('change', function(){
     var f = this.files && this.files[0];
     if (!f) return;
     if (!f.type.startsWith('image/')) { try { M.toast({html:'Please select an image file.'}); } catch(e){} this.value=''; return; }
     var r=new FileReader(); r.onload=function(e){ var p=document.getElementById('addPreview'); if(p) p.src=e.target.result; }; r.readAsDataURL(f);
-  });
-  var editPhoto = document.getElementById('editStudentPhoto');
-  if (editPhoto) editPhoto.addEventListener('change', function(){
-    var f = this.files && this.files[0];
-    if (!f) return;
-    if (!f.type.startsWith('image/')) { try { M.toast({html:'Please select an image file.'}); } catch(e){} this.value=''; return; }
-    var r=new FileReader(); r.onload=function(e){ var p=document.getElementById('editPreview'); if(p) p.src=e.target.result; }; r.readAsDataURL(f);
   });
 
   // Edit form: enable Save via confirm checkbox and enforce sex selection
@@ -787,7 +1085,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Add form: ensure sex chosen
   var addFormEl = document.getElementById('addForm');
   if (addFormEl) addFormEl.addEventListener('submit', function(e){
-    var s = document.getElementById('sex');
+    var s = document.getElementById('addSex');
     if (s && (s.value !== 'M' && s.value !== 'F')) { e.preventDefault(); try{ M.toast({html:'Sex must be M or F.'}); }catch(e){} return; }
   });
 
@@ -836,7 +1134,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // Reset button behavior - builds a temporary POST form
+  // Reset button behavior
   if (resetPwdBtn) {
     resetPwdBtn.addEventListener('click', function(e) {
       var birthdayField = document.getElementById('editBirthday');
@@ -852,9 +1150,58 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // global checkboxes (if you add a top 'checkAll' control)
+  // global checkboxes
   var toggleAll = document.getElementById('checkAll');
   if (toggleAll) toggleAll.addEventListener('change', function(){ var checked=this.checked; document.querySelectorAll('.chk').forEach(function(cb){ cb.checked = checked; }); });
+
+  // small helpers to manage the edit file input (clear + attach preview)
+  window.clearAndAttachEditFileInput = function() {
+    try {
+      var existing = document.getElementById('editStudentPhoto');
+      if (existing) {
+        // replace node to clear value reliably across browsers
+        var parent = existing.parentNode;
+        var clone = existing.cloneNode();
+        clone.id = 'editStudentPhoto';
+        clone.name = 'edit_student_photo';
+        clone.type = 'file';
+        clone.accept = existing.accept || 'image/*';
+        clone.style.display = 'none';
+        parent.replaceChild(clone, existing);
+      }
+      var input = document.getElementById('editStudentPhoto');
+      var preview = document.getElementById('editPreview');
+      if (input) {
+        input.addEventListener('change', function(){
+          var f = this.files && this.files[0];
+          if (!f) return;
+          if (!f.type.startsWith('image/')) { try{ M.toast({html:'Please select an image file.'}); }catch(e){} this.value=''; return; }
+          var r = new FileReader();
+          r.onload = function(ev){ if (preview) preview.src = ev.target.result; };
+          r.readAsDataURL(f);
+        }, false);
+      }
+    } catch (err) { console.warn('clearAndAttachEditFileInput error', err); }
+  };
+
+  // wire the visible Change Photo button to the hidden input inside the form
+  (function(){
+    var visibleBtn = document.querySelector('.id-card .id-photo-button');
+    var hiddenInput = document.getElementById('editStudentPhoto');
+    if (visibleBtn && hiddenInput) {
+      visibleBtn.style.cursor = 'pointer';
+      visibleBtn.addEventListener('click', function(e){
+        e.preventDefault();
+        // ensure input present
+        if (!document.getElementById('editStudentPhoto')) clearAndAttachEditFileInput();
+        var input = document.getElementById('editStudentPhoto');
+        if (input) input.click();
+      }, false);
+    }
+  })();
+
+  // initialize edit file input handlers now (in case modal opened via keyboard)
+  try { clearAndAttachEditFileInput(); } catch(e){}
 
 });
 </script>
