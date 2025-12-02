@@ -136,7 +136,7 @@ $logged_in = !empty($_SESSION['acc_id']);
 
         <div class="input-field col s12 m6" style="display:flex;align-items:center;gap:10px;">
           <input id="seat_number" name="seat_number" type="text" placeholder="Seat Number (optional)" readonly>
-          <button type="button" id="pickSeatBtn" class="btn-flat" title="Pick seat">Pick Seat</button>
+          <button type="button" id="pickSeatBtn" class="btn-flat" title="Pick seat"></button>
         </div>
       </div>
 
@@ -625,3 +625,4 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 </body>
 </html>
+
