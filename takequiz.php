@@ -298,7 +298,7 @@ function h($s){ return htmlspecialchars((string)$s); }
       <div class="card" style="margin-top:12px; padding:12px">
         <div style="font-weight:700; margin-bottom:8px">Quick actions</div>
         <div style="display:flex; flex-direction:column; gap:8px">
-          <a class="btn-small btn" href="Quizzes.php">View All Quizzes</a>
+          <a class="btn-small btn" href="submissions.php">View All Quizzes</a>
           <a class="btn-small btn" href="logout.php">Logout</a>
         </div>
       </div>
