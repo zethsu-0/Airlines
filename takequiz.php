@@ -172,6 +172,28 @@ if ($currentAccId !== null && $currentAccId !== '') {
     }
     $res->free();
 }
+// ---------------------------------------------
+// Load submitted_flights per quiz for this student
+// ---------------------------------------------
+$submissionsByQuiz = [];
+
+if ($currentAccId !== null && $currentAccId !== '') {
+    $subStmt = $conn->prepare("SELECT * FROM submitted_flights WHERE acc_id = ?");
+    if ($subStmt) {
+        $subStmt->bind_param('s', $currentAccId);
+        $subStmt->execute();
+        $subRes = $subStmt->get_result();
+        while ($row = $subRes->fetch_assoc()) {
+            // Make sure quiz_id is treated as string (consistent with $q['quiz_id'])
+            $qid = (string)$row['quiz_id'];
+            if (!isset($submissionsByQuiz[$qid])) {
+                $submissionsByQuiz[$qid] = [];
+            }
+            $submissionsByQuiz[$qid][] = $row;
+        }
+        $subStmt->close();
+    }
+}
 
 // Stats
 $total = count($quizzes);
@@ -248,8 +270,20 @@ function h($s){ return htmlspecialchars((string)$s); }
                     <?php else: ?>
                       <div class="small-note">&nbsp;</div>
                     <?php endif; ?>
+                      <?php
+                          $quizIdStr = (string)$q['quiz_id'];
+                          $flightsForQuiz = $submissionsByQuiz[$quizIdStr] ?? [];
+                          $dataFlightsAttr = htmlspecialchars(json_encode($flightsForQuiz), ENT_QUOTES, 'UTF-8');
+                      ?>
                     <div style="margin-top:8px">
-                      <a class="btn-flat" href="ticket.php?id=<?php echo urlencode($q['quiz_id']); ?>">View</a>
+                      <button
+                        type="button"
+                        class="btn-flat view-submissions-btn"
+                        data-quiz-id="<?php echo h($q['quiz_id']); ?>"
+                        data-flights="<?php echo $dataFlightsAttr; ?>"
+                      >
+                        View
+                      </button>
                     </div>
                   <?php else: ?>
                     <div style="color:#d32f2f; font-weight:700">Not submitted</div>
@@ -305,9 +339,18 @@ function h($s){ return htmlspecialchars((string)$s); }
     </div>
   </div>
 </div>
-
-<!-- footer include -->
-<?php include('templates/footer.php'); ?>
+<!-- Modal for submitted flights -->
+<div id="submissionsModal" class="modal">
+  <div class="modal-content">
+    <h4>Submitted Flights</h4>
+    <div id="submissionsContent">
+      <!-- JS will populate this -->
+    </div>
+  </div>
+  <div class="modal-footer">
+    <a href="#!" class="modal-close btn-flat">Close</a>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 </body>
@@ -317,3 +360,77 @@ function h($s){ return htmlspecialchars((string)$s); }
 // close DB connection
 $conn->close();
 ?>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Init all Materialize modals
+  var elems = document.querySelectorAll('.modal');
+  M.Modal.init(elems);
+
+  var submissionsModal = document.getElementById('submissionsModal');
+  var submissionsContent = document.getElementById('submissionsContent');
+
+  // Handle "View" buttons
+  document.querySelectorAll('.view-submissions-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var flightsJson = btn.getAttribute('data-flights') || '[]';
+      var flights = [];
+
+      try {
+        flights = JSON.parse(flightsJson);
+      } catch (e) {
+        console.error('Invalid flights JSON', e);
+      }
+
+      if (!flights || !flights.length) {
+        submissionsContent.innerHTML = '<p>No submission details found for this quiz.</p>';
+      } else {
+        // Build table from keys dynamically
+        var keys = Object.keys(flights[0] || {});
+        // Optionally hide some technical columns:
+        var hiddenCols = ['id', 'acc_id', 'quiz_id'];
+
+        var visibleKeys = keys.filter(function(k) {
+          return hiddenCols.indexOf(k) === -1;
+        });
+
+        var html = '<table class="striped responsive-table">';
+        html += '<thead><tr>';
+
+        visibleKeys.forEach(function(k) {
+          html += '<th>' + k.replace(/_/g, ' ').toUpperCase() + '</th>';
+        });
+
+        html += '</tr></thead><tbody>';
+
+        flights.forEach(function(row) {
+          html += '<tr>';
+          visibleKeys.forEach(function(k) {
+            var val = (row[k] === null || row[k] === undefined) ? '' : String(row[k]);
+            html += '<td>' + escapeHtml(val) + '</td>';
+          });
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+
+        submissionsContent.innerHTML = html;
+      }
+
+      var instance = M.Modal.getInstance(submissionsModal);
+      instance.open();
+    });
+  });
+
+  // Simple HTML escaper for safety
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+});
+</script>
+<!-- footer include -->
+<?php include('templates/footer.php'); ?>

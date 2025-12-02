@@ -325,259 +325,259 @@ $flight = [
 ];
 ?>
 <!DOCTYPE html>
-<html lang="en">
-<?php include('templates/header.php'); ?>
-<link rel="stylesheet" href="css/ticket.css">
-<body>
-  <h4 class="center-align">🎫 Plane Ticket Booking</h4>
-  <div class="container">
-    <div class="card center">
-      <h4>PROMPT</h4>
+  <html lang="en">
+  <?php include('templates/header.php'); ?>
+  <link rel="stylesheet" href="css/ticket.css">
+  <body>
+    <h4 class="center-align">🎫 Plane Ticket Booking</h4>
+    <div class="container">
+      <div class="card center">
+        <h4>PROMPT</h4>
 
-      <?php if ($descObj): ?>
-        <div style="padding:14px; max-width:980px; margin:10px auto; text-align:left;">
-          <div style="font-weight:700; margin-bottom:8px;">Student prompt (description)</div>
-          <div style="margin-bottom:8px; font-size:15px;"><?php echo htmlspecialchars($descObj['description']); ?></div>
+        <?php if ($descObj): ?>
+          <div style="padding:14px; max-width:980px; margin:10px auto; text-align:left;">
+            <div style="font-weight:700; margin-bottom:8px;">Student prompt (description)</div>
+            <div style="margin-bottom:8px; font-size:15px;"><?php echo htmlspecialchars($descObj['description']); ?></div>
 
-          <div style="color:#555;">
-            <strong>Items:</strong> <?php echo intval($descObj['itemsCount']); ?> &nbsp;•&nbsp;
-            <strong>First deadline:</strong> <?php echo htmlspecialchars($descObj['firstDeadline'] ?: '—'); ?>
-          </div>
-
-          <?php if (!empty($quiz['title'])): ?>
-            <div style="margin-top:10px; font-size:0.95em;" class="muted">
-              Quiz: <?php echo htmlspecialchars($quiz['title']); ?>
-              (Code: <?php echo htmlspecialchars($quiz['code'] ?? '—'); ?>)
+            <div style="color:#555;">
+              <strong>Items:</strong> <?php echo intval($descObj['itemsCount']); ?> &nbsp;•&nbsp;
+              <strong>First deadline:</strong> <?php echo htmlspecialchars($descObj['firstDeadline'] ?: '—'); ?>
             </div>
-          <?php endif; ?>
-        </div>
-      <?php else: ?>
-        <div style="padding:12px; color:#666;">
-          No quiz prompt available. Open this page with <code>?id=&lt;quiz_id&gt;</code> to see the prompt.
-        </div>
-      <?php endif; ?>
 
+            <?php if (!empty($quiz['title'])): ?>
+              <div style="margin-top:10px; font-size:0.95em;" class="muted">
+                Quiz: <?php echo htmlspecialchars($quiz['title']); ?>
+                (Code: <?php echo htmlspecialchars($quiz['code'] ?? '—'); ?>)
+              </div>
+            <?php endif; ?>
+          </div>
+        <?php else: ?>
+          <div style="padding:12px; color:#666;">
+            No quiz prompt available. Open this page with <code>?id=&lt;quiz_id&gt;</code> to see the prompt.
+          </div>
+        <?php endif; ?>
+
+      </div>
     </div>
-  </div>
 
-  <div class="bg-container container center">
-    <form id="flightForm" action="ticket.php" method="POST" name="form_submit" autocomplete="off" class="card">
-      <p>
-        <label>
-          <input name="flight_type" type="radio" value="ONE-WAY" <?php echo ($flight_type !== 'ROUND-TRIP') ? 'checked' : ''; ?> />
-          <span>ONE-WAY</span>
-        </label>
-        <label>
-          <input name="flight_type" type="radio" value="ROUND-TRIP" <?php echo ($flight_type === 'ROUND-TRIP') ? 'checked' : ''; ?> />
-          <span>ROUND-TRIP</span>
-        </label>
-      </p>
-      <div class="row">
-        <!-- ORIGIN -->
-        <div class="col s4 md3">
-          <div class="input-field" style="position:relative;">
-            <i class="material-icons prefix">flight_takeoff</i>
-            <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
-              placeholder="e.g. MNL"
-              value="<?php 
-                if (!empty($origin)) {
-                  echo htmlspecialchars(format_airport_display($origin, $iataMap));
-                } else {
-                  echo '';
-                }
-              ?>">
-            <label for="origin_autocomplete">ORIGIN</label>
-            <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
-            <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
+    <div class="bg-container container center">
+      <form id="flightForm" action="ticket.php" method="POST" name="form_submit" autocomplete="off" class="card">
+        <p>
+          <label>
+            <input name="flight_type" type="radio" value="ONE-WAY" <?php echo ($flight_type !== 'ROUND-TRIP') ? 'checked' : ''; ?> />
+            <span>ONE-WAY</span>
+          </label>
+          <label>
+            <input name="flight_type" type="radio" value="ROUND-TRIP" <?php echo ($flight_type === 'ROUND-TRIP') ? 'checked' : ''; ?> />
+            <span>ROUND-TRIP</span>
+          </label>
+        </p>
+        <div class="row">
+          <!-- ORIGIN -->
+          <div class="col s4 md3">
+            <div class="input-field" style="position:relative;">
+              <i class="material-icons prefix">flight_takeoff</i>
+              <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
+                placeholder="e.g. MNL"
+                value="<?php 
+                  if (!empty($origin)) {
+                    echo htmlspecialchars(format_airport_display($origin, $iataMap));
+                  } else {
+                    echo '';
+                  }
+                ?>">
+              <label for="origin_autocomplete">ORIGIN</label>
+              <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
+              <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
+            </div>
           </div>
-        </div>
 
-        <!-- DESTINATION -->
-        <div class="col s4 md3">
-          <div class="input-field" style="position:relative;">
-            <i class="material-icons prefix">flight_land</i>
-            <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
-              placeholder="e.g. CEB"
-              value="<?php 
-                if (!empty($destination)) {
-                  echo htmlspecialchars(format_airport_display($destination, $iataMap));
-                } else {
-                  echo '';
-                }
-              ?>">
-            <label for="destination_autocomplete">DESTINATION</label>
-            <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
-            <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
+          <!-- DESTINATION -->
+          <div class="col s4 md3">
+            <div class="input-field" style="position:relative;">
+              <i class="material-icons prefix">flight_land</i>
+              <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
+                placeholder="e.g. CEB"
+                value="<?php 
+                  if (!empty($destination)) {
+                    echo htmlspecialchars(format_airport_display($destination, $iataMap));
+                  } else {
+                    echo '';
+                  }
+                ?>">
+              <label for="destination_autocomplete">DESTINATION</label>
+              <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
+              <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
+            </div>
           </div>
-        </div>
 
-        <!-- DATES -->
-        <div class="col s4 md3">
-          <div class="center">
+          <!-- DATES -->
+          <div class="col s4 md3">
+            <div class="center">
+              <div class="row">
+                <div class="input-field col s6">
+                  <i class="material-icons prefix">calendar_today</i>
+                  <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
+                  <label for="flight-date">DEPARTURE</label>
+                  <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+                </div>
+                <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'ROUND-TRIP') ? '' : 'display:none;'; ?>">
+                  <i class="material-icons prefix">calendar_today</i>
+                  <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
+                  <label for="return-date">RETURN</label>
+                  <div class="red-text"><?php echo $errors['return_date'] ?? ''; ?></div>
+                </div>              
+              </div>
+            </div>
+          </div>
+
+          <div class="col s3 md3"></div>
+        </div>
+      </form>
+    </div>
+
+    <div class="container">
+      <form id="bookingForm" method="POST" action="save_booking.php">
+        <input type="hidden" name="quiz_id" value="<?php echo htmlspecialchars($quizId); ?>">
+        <input type="hidden" name="origin" id="booking_origin" value="">
+        <input type="hidden" name="destination" id="booking_destination" value="">
+        <input type="hidden" name="flight_date" id="booking_flight_date" value="">
+        <input type="hidden" name="return_date" id="booking_return_date" value="">
+        <input type="hidden" name="flight_type" id="booking_flight_type" value="">
+        <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
+        <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
+
+        <div id="ticketContainer">
+          <div class="ticket-card">
+            <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
+            <div class="counter">Passenger 1</div>
+
+            <div class="input-field">
+              <input type="text" name="name[]" required autocomplete="false">
+              <label>Full Name</label>
+            </div>
+
             <div class="row">
               <div class="input-field col s6">
-                <i class="material-icons prefix">calendar_today</i>
-                <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
-                <label for="flight-date">DEPARTURE</label>
-                <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+                <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)">
+                <label>Age</label>
               </div>
-              <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'ROUND-TRIP') ? '' : 'display:none;'; ?>">
-                <i class="material-icons prefix">calendar_today</i>
-                <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
-                <label for="return-date">RETURN</label>
-                <div class="red-text"><?php echo $errors['return_date'] ?? ''; ?></div>
-              </div>              
+              <div class="input-field col s2">
+                <input type="text" name="special[]" readonly placeholder="Adult/Child/Infant">
+                <label>Passenger Type</label>
+              </div>
             </div>
+
+            <div class="row">
+              <div class="col s6">
+                <span class="field-title">Gender</span><br>
+                <label class="custom-radio-inline">
+                  <input type="radio" name="gender[0]" value="Male" required>
+                  <span class="checkmark"></span> Male
+                </label>
+                <label class="custom-radio-inline">
+                  <input type="radio" name="gender[0]" value="Female">
+                  <span class="checkmark"></span> Female
+                </label>
+                <label class="custom-radio-inline">
+                  <input type="radio" name="gender[0]" value="Prefer not to say">
+                  <span class="checkmark"></span> Prefer not to say
+                </label>
+              </div>
+
+              <div class="col s6 pwd-group">
+                <span class="field-title">Disability</span><br>
+                <label class="custom-checkbox-inline">
+                  <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
+                  <span class="checkmark"></span>
+                </label>
+                <input type="text" name="impairment[]" class="impairment-field" placeholder="Specify" disabled style="display:none;">
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="input-field col s6">
+                <input type="text" name="seat[]" class="dropdown-trigger seat-input" data-target="dropdown_1" readonly required>
+                <label>Seat Type</label>
+
+                <ul id="dropdown_1" class="dropdown-content seat-options">
+                  <li><a data-value="Economy">Economy</a></li>
+                  <li><a data-value="Premium">Premium</a></li>
+                  <li><a data-value="Business">Business</a></li>
+                  <li><a data-value="First Class">First Class</a></li>
+                </ul>
+              </div>
+              <div class="input-field col s6">
+                <label for="">SEAT NUMBER</label>
+                <input type="text" name="seat_number[]" class="seat-number-input" placeholder="Seat (e.g., 12A)" required>
+              </div>
+            </div>
+
           </div>
         </div>
 
-        <div class="col s3 md3"></div>
+        <div class="add-btn">
+          <button type="button" id="addTicketBtn" class="btn-floating blue">+</button>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" id="openSummary" class="btn waves-effect waves-light">
+            Confirm Booking
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div id="summaryModal" class="modal">
+      <div class="modal-content">
+        <h4>Booking Summary</h4>
+        <div id="summaryContent"></div>
+        <div id="summaryError" style="color:#c62828; display:none; margin-top:10px;"></div>
       </div>
-    </form>
-  </div>
+      <div class="modal-footer">
+        <button id="modalConfirmBtn" type="button" class="btn green">Confirm Booking</button>
+        <button id="modalCancelBtn" type="button" class="btn red">Cancel</button>
+      </div>
+    </div>
 
-  <div class="container">
-    <form id="bookingForm" method="POST" action="save_booking.php">
-      <input type="hidden" name="quiz_id" value="<?php echo htmlspecialchars($quizId); ?>">
-      <input type="hidden" name="origin" id="booking_origin" value="">
-      <input type="hidden" name="destination" id="booking_destination" value="">
-      <input type="hidden" name="flight_date" id="booking_flight_date" value="">
-      <input type="hidden" name="return_date" id="booking_return_date" value="">
-      <input type="hidden" name="flight_type" id="booking_flight_type" value="">
-      <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
-      <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
+    <!-- Seat Picker Modal -->
+    <div id="seatPickerModal" class="modal modal-fixed-footer">
+      <div class="modal-content">
+        <h5>Seat Picker</h5>
+        <p class="grey-text text-darken-1" style="margin-top:-4px;">
+          First: rows 1–6 (1–2–1), Business: 7–20 (1–2–1), Premium: 25–27 (2–4–2), Economy: 30–40 (3–4–3)
+        </p>
 
-      <div id="ticketContainer">
-        <div class="ticket-card">
-          <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
-          <div class="counter">Passenger 1</div>
+        <div id="cabinContainer"></div>
+        <div id="seatMap" class="seat-map" aria-label="Seat map" role="application"></div>
 
-          <div class="input-field">
-            <input type="text" name="name[]" required autocomplete="false">
-            <label>Full Name</label>
-          </div>
+        <div class="legend">
+          <span><span class="box selected"></span> Selected</span>
+          <span><span class="box disabled"></span> Taken / Unavailable</span>
+        </div>
+        <div class="legend">
+          <span><span class="box" style="background:#1e88e5"></span> First Class</span>
+          <span><span class="box" style="background:#fb8c00"></span> Business Class</span>
+          <span><span class="box" style="background:#7e57c2"></span> Premium Economy</span>
+          <span><span class="box" style="background:#43a047"></span> Economy</span>
+        </div>
 
-          <div class="row">
-            <div class="input-field col s6">
-              <input type="number" name="age[]" min="0" max="130" required oninput="checkAge(this)">
-              <label>Age</label>
-            </div>
-            <div class="input-field col s2">
-              <input type="text" name="special[]" readonly placeholder="Adult/Child/Infant">
-              <label>Passenger Type</label>
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="col s6">
-              <span class="field-title">Gender</span><br>
-              <label class="custom-radio-inline">
-                <input type="radio" name="gender[0]" value="Male" required>
-                <span class="checkmark"></span> Male
-              </label>
-              <label class="custom-radio-inline">
-                <input type="radio" name="gender[0]" value="Female">
-                <span class="checkmark"></span> Female
-              </label>
-              <label class="custom-radio-inline">
-                <input type="radio" name="gender[0]" value="Prefer not to say">
-                <span class="checkmark"></span> Prefer not to say
-              </label>
-            </div>
-
-            <div class="col s6 pwd-group">
-              <span class="field-title">Disability</span><br>
-              <label class="custom-checkbox-inline">
-                <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
-                <span class="checkmark"></span>
-              </label>
-              <input type="text" name="impairment[]" class="impairment-field" placeholder="Specify" disabled style="display:none;">
-            </div>
-          </div>
-
-          <div class="row">
-            <div class="input-field col s6">
-              <input type="text" name="seat[]" class="dropdown-trigger seat-input" data-target="dropdown_1" readonly required>
-              <label>Seat Type</label>
-
-              <ul id="dropdown_1" class="dropdown-content seat-options">
-                <li><a data-value="Economy">Economy</a></li>
-                <li><a data-value="Premium">Premium</a></li>
-                <li><a data-value="Business">Business</a></li>
-                <li><a data-value="First Class">First Class</a></li>
-              </ul>
-            </div>
-            <div class="input-field col s6">
-              <label for="">SEAT NUMBER</label>
-              <input type="text" name="seat_number[]" class="seat-number-input" placeholder="Seat (e.g., 12A)" required>
-            </div>
-          </div>
-
+        <div class="selection-summary">
+          <h6>Selected seat</h6>
+          <div id="selectedChips" class="chips"></div>
+          <p id="summaryText" class="grey-text text-darken-1"></p>
         </div>
       </div>
 
-      <div class="add-btn">
-        <button type="button" id="addTicketBtn" class="btn-floating blue">+</button>
-      </div>
-
-      <div class="form-actions">
-        <button type="button" id="openSummary" class="btn waves-effect waves-light">
-          Confirm Booking
-        </button>
-      </div>
-    </form>
-  </div>
-
-  <div id="summaryModal" class="modal">
-    <div class="modal-content">
-      <h4>Booking Summary</h4>
-      <div id="summaryContent"></div>
-      <div id="summaryError" style="color:#c62828; display:none; margin-top:10px;"></div>
-    </div>
-    <div class="modal-footer">
-      <button id="modalConfirmBtn" type="button" class="btn green">Confirm Booking</button>
-      <button id="modalCancelBtn" type="button" class="btn red">Cancel</button>
-    </div>
-  </div>
-
-  <!-- Seat Picker Modal -->
-  <div id="seatPickerModal" class="modal modal-fixed-footer">
-    <div class="modal-content">
-      <h5>Seat Picker</h5>
-      <p class="grey-text text-darken-1" style="margin-top:-4px;">
-        First: rows 1–6 (1–2–1), Business: 7–20 (1–2–1), Premium: 25–27 (2–4–2), Economy: 30–40 (3–4–3)
-      </p>
-
-      <div id="cabinContainer"></div>
-      <div id="seatMap" class="seat-map" aria-label="Seat map" role="application"></div>
-
-      <div class="legend">
-        <span><span class="box selected"></span> Selected</span>
-        <span><span class="box disabled"></span> Taken / Unavailable</span>
-      </div>
-      <div class="legend">
-        <span><span class="box" style="background:#1e88e5"></span> First Class</span>
-        <span><span class="box" style="background:#fb8c00"></span> Business Class</span>
-        <span><span class="box" style="background:#7e57c2"></span> Premium Economy</span>
-        <span><span class="box" style="background:#43a047"></span> Economy</span>
-      </div>
-
-      <div class="selection-summary">
-        <h6>Selected seat</h6>
-        <div id="selectedChips" class="chips"></div>
-        <p id="summaryText" class="grey-text text-darken-1"></p>
+      <div class="modal-footer">
+        <a id="clearSeatSelectionBtn" class="btn-flat">Clear</a>
+        <a class="modal-close btn" id="seatModalDoneBtn">Done</a>
       </div>
     </div>
 
-    <div class="modal-footer">
-      <a id="clearSeatSelectionBtn" class="btn-flat">Clear</a>
-      <a class="modal-close btn" id="seatModalDoneBtn">Done</a>
-    </div>
-  </div>
+<script>const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;</script>
 
-  <script>const IATA_DATA = <?php echo json_encode($iataData, JSON_UNESCAPED_UNICODE); ?>;</script>
-
-  <script>
+<script>
   // 🔹 Make the PHP-generated student prompt available in JS
   const QUIZ_PROMPT = <?php echo json_encode($descObj['description'] ?? null); ?>;
   const QUIZ_TYPE   = <?php echo json_encode($quiz['input_type'] ?? null); ?>;

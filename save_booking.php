@@ -171,13 +171,21 @@ if ($passengerCount > 0) {
     $classes = [];
     for ($i = 0; $i < $passengerCount; $i++) {
         $cls = isset($seats_class[$i]) ? trim($seats_class[$i]) : '';
-        if ($cls !== '') $classes[$cls] = true;
+        if ($cls !== '') {
+            // normalize to uppercase once
+            $cls = strtoupper($cls);
+            $classes[$cls] = true;
+        }
     }
+
     $distinct = array_keys($classes);
+
     if (count($distinct) === 1) {
-        $travel_class = strtoupper($distinct[0]);
+        // single class, e.g. "ECONOMY"
+        $travel_class = $distinct[0];
     } elseif (count($distinct) > 1) {
-        $travel_class = 'MIXED';
+        // multiple => "ECONOMY, PREMIUM", "ECONOMY, BUSINESS, FIRST", etc.
+        $travel_class = implode(', ', $distinct);
     } else {
         $travel_class = '';
     }
@@ -237,5 +245,6 @@ if (!$stmt->execute()) {
 
 $stmt->close();
 
-echo "<h3>Flight submission saved to submitted_flights!</h3>";
-echo "<p><a href=\"ticket.php?id=" . htmlspecialchars($quiz_id) . "\">Back to ticket</a></p>";
+header("refresh:2;url=takequiz.php");
+echo "<h3>Flight submitted</h3>";
+// echo "<p><a href=\"ticket.php?id=" . htmlspecialchars($quiz_id) . "\">Back to ticket</a></p>";

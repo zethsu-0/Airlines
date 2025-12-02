@@ -13,15 +13,20 @@ $airportList = []; // array of objects for JS autocomplete
 
 $conn = new mysqli($host, $user, $pass, $db);
 if (!$conn->connect_error) {
-    $sql = "SELECT IATACode, COALESCE(City,'') AS City, COALESCE(AirportName,'') AS AirportName 
-            FROM airports 
-            ORDER BY IATACode ASC";
+    $sql = "SELECT 
+          IATACode, 
+          COALESCE(City,'') AS City, 
+          COALESCE(AirportName,'') AS AirportName,
+          COALESCE(CountryRegion,'') AS CountryRegion
+        FROM airports 
+        ORDER BY IATACode ASC";
     if ($res = $conn->query($sql)) {
         while ($row = $res->fetch_assoc()) {
             $iata = strtoupper(trim($row['IATACode']));
             if ($iata === '') continue;
             $city = trim($row['City']);
             $name = trim($row['AirportName']);
+            $country = trim($row['CountryRegion']);
             $labelParts = [];
             if ($city !== '') $labelParts[] = $city;
             if ($name !== '' && stripos($name, $city) === false) $labelParts[] = $name;
@@ -31,20 +36,38 @@ if (!$conn->connect_error) {
             $airportOptionsHtml .= $opt;
 
             $airportList[] = [
-                'iata'  => $iata,
-                'city'  => strtoupper($city ?: $name ?: ''),
-                'label' => $iata . ' — ' . $label,
-                'name'  => $name
+                'iata'          => $iata,
+                'city'          => strtoupper($city ?: $name ?: ''),
+                'label'         => $iata . ' — ' . $label,
+                'name'          => $name,
+                'country'       => strtoupper($country),
+                'countryRegion' => strtoupper($country)
             ];
+
         }
         $res->free();
     } else {
         $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
         $airportOptionsHtml .= '<option value="LAX" data-city="LOS ANGELES">LAX — LOS ANGELES</option>';
         $airportList = [
-            ['iata'=>'MNL','city'=>'MANILA','label'=>'MNL — MANILA','name'=>'Manila Airport'],
-            ['iata'=>'LAX','city'=>'LOS ANGELES','label'=>'LAX — LOS ANGELES','name'=>'Los Angeles Intl']
+            [
+                'iata'=>'MNL',
+                'city'=>'MANILA',
+                'label'=>'MNL — MANILA',
+                'name'=>'Ninoy Aquino International Airport',
+                'country'=>'PHILIPPINES',
+                'countryRegion'=>'PHILIPPINES'
+            ],
+            [
+                'iata'=>'NRT',
+                'city'=>'TOKYO',
+                'label'=>'NRT - TOKYO',
+                'name'=>'Narita International Airport',
+                'country'=>'JAPAN',
+                'countryRegion'=>'JAPAN'
+            ]
         ];
+
     }
 } else {
     $airportOptionsHtml .= '<option value="MNL" data-city="MANILA">MNL — MANILA</option>';
@@ -471,17 +494,26 @@ const editQuizId = <?php echo $editing ? (int)$editId : 'null'; ?>;
 
 /* Simple matching function */
 function matchAirports(query){
-  if(!query) return [];
+  if (!query) return [];
   const q = query.trim().toUpperCase();
   const results = [];
-  for(const a of airportList){
-    if(results.length >= 50) break;
-    if(a.iata && a.iata.startsWith(q)) { results.push(a); continue; }
-    if(a.city && a.city.startsWith(q)) { results.push(a); continue; }
-    if(a.name && a.name.toUpperCase().startsWith(q)) { results.push(a); continue; }
-    if(a.iata && a.iata.includes(q)) { results.push(a); continue; }
-    if(a.city && a.city.includes(q)) { results.push(a); continue; }
-    if(a.name && a.name.toUpperCase().includes(q)) { results.push(a); continue; }
+  for (const a of airportList) {
+    if (results.length >= 50) break;
+
+    const iata    = (a.iata || '').toUpperCase();
+    const city    = (a.city || '').toUpperCase();
+    const name    = (a.name || '').toUpperCase();
+    const country = (a.country || a.countryRegion || '').toUpperCase();
+
+    if (iata && iata.startsWith(q))    { results.push(a); continue; }
+    if (city && city.startsWith(q))    { results.push(a); continue; }
+    if (name && name.startsWith(q))    { results.push(a); continue; }
+    if (country && country.startsWith(q)) { results.push(a); continue; }
+
+    if (iata && iata.includes(q))      { results.push(a); continue; }
+    if (city && city.includes(q))      { results.push(a); continue; }
+    if (name && name.includes(q))      { results.push(a); continue; }
+    if (country && country.includes(q)){ results.push(a); continue; }
   }
   return results;
 }
@@ -911,40 +943,82 @@ function createItemBlock(prefill = null){
     refreshItemLabels();
   });
 
-  function attachAutocompleteTo(inputEl){
-    if(!inputEl) return;
-    const container = inputEl.closest('.iata-autocomplete');
-    const localSugg = container ? container.querySelector('.iata-suggestions') : null;
+function attachAutocompleteTo(inputEl){
+  if (!inputEl) return;
+  const container = inputEl.closest('.iata-autocomplete');
+  const localSugg = container ? container.querySelector('.iata-suggestions') : null;
 
-    inputEl.addEventListener('input', function(){
-      const q = this.value || '';
-      if(q.trim().length === 0){
-        if(localSugg) { localSugg.style.display='none'; localSugg.innerHTML=''; }
-        return;
+  inputEl.addEventListener('input', function(){
+    const q = this.value || '';
+    if (q.trim().length === 0) {
+      if (localSugg) {
+        localSugg.style.display = 'none';
+        localSugg.innerHTML = '';
       }
-      const matches = matchAirports(q);
-      if(!localSugg) return;
-      localSugg.innerHTML = matches.map(a=>{
-        const small = a.city ? `<small>${a.city}</small>` : `<small>${(a.name||'').toUpperCase()}</small>`;
-        return `<div class="iata-suggestion" data-iata="${a.iata}" data-city="${a.city||''}">${a.label}${small}</div>`;
-      }).join('');
-      localSugg.style.display = 'block';
+      return;
+    }
 
-      localSugg.querySelectorAll('.iata-suggestion').forEach(node=>{
-        node.addEventListener('click', ()=>{
-          const iata = node.dataset.iata || '';
-          const city = node.dataset.city || '';
+    const matches = matchAirports(q);
+    if (!localSugg) return;
+
+    localSugg.innerHTML = matches.map(a => {
+      const small = a.city
+        ? `<small>${a.city}</small>`
+        : `<small>${(a.name || '').toUpperCase()}</small>`;
+
+      const country = (a.country || a.countryRegion || '');
+      return `
+        <div class="iata-suggestion"
+             data-iata="${a.iata}"
+             data-city="${a.city || ''}"
+             data-name="${a.name || ''}"
+             data-country="${country}">
+          ${a.label}${small}
+        </div>`;
+    }).join('');
+    localSugg.style.display = 'block';
+
+    localSugg.querySelectorAll('.iata-suggestion').forEach(node => {
+      node.addEventListener('click', () => {
+        // read current quiz type
+        const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
+        const quizType = quizTypeRadio
+          ? quizTypeRadio.value            // 'code-airport' or 'airport-code'
+          : (window.currentQuizInputType || 'code-airport');
+
+        const iata    = (node.dataset.iata || '').toUpperCase();
+        const city    = (node.dataset.city || '').toUpperCase();
+        const name    = (node.dataset.name || '').toUpperCase();
+        const country = (node.dataset.country || '').toUpperCase();
+
+        if (quizType === 'airport-code') {
+          // AirportName - City - CountryRegion
+          const parts = [];
+          if (name)    parts.push(name);
+          if (city)    parts.push(city);
+          if (country) parts.push(country);
+          const display = parts.join(' - ') || iata;
+          inputEl.value = display;
+        } else {
+          // code-airport => just the IATA code
           inputEl.value = iata;
-          inputEl.dataset.city = (city||'').toUpperCase();
-          localSugg.style.display='none';
-        });
+        }
+
+        inputEl.dataset.city = city;
+        localSugg.style.display = 'none';
+
+        if (typeof M !== 'undefined' && M.updateTextFields) {
+          M.updateTextFields();
+        }
       });
     });
+  });
 
-    inputEl.addEventListener('blur', function(){
-      setTimeout(()=>{ if(localSugg) localSugg.style.display='none'; },120);
-    });
-  }
+  inputEl.addEventListener('blur', function(){
+    setTimeout(() => { if (localSugg) localSugg.style.display = 'none'; }, 120);
+  });
+}
+
 
   // autogenerate flight number for this item
   const flightNumEl = wrapper.querySelector('.flightNumberInner');
@@ -1428,14 +1502,41 @@ document.addEventListener('DOMContentLoaded', function(){
       const {description, itemsCount} = buildDescription();
 
       const firstItem = collectItems()[0] || null;
+
+      // respect quiz type: show codes vs names
+      const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
+      const quizType = quizTypeRadio
+        ? quizTypeRadio.value
+        : (window.currentQuizInputType || 'code-airport');
+
       let repFrom = '---', repTo = '---';
-      if(firstItem){
-        repFrom = (firstItem.booking && firstItem.booking.origin) ? firstItem.booking.origin : (firstItem.iata || '---');
-        repTo   = (firstItem.booking && firstItem.booking.destination) ? firstItem.booking.destination : (firstItem.city || '---');
+      let repFromSub = 'Origin';
+      let repToSub   = 'Destination';
+
+      if (firstItem) {
+        const b0 = firstItem.booking || {};
+        const originInfo = resolveAirportInfo(b0.origin || firstItem.iata || '');
+        const destInfo   = resolveAirportInfo(b0.destination || firstItem.city || '');
+
+        if (quizType === 'airport-code') {
+          // show big airport name, small IATA
+          repFrom    = originInfo.airportText;
+          repTo      = destInfo.airportText;
+          repFromSub = originInfo.iataText || 'Origin';
+          repToSub   = destInfo.iataText   || 'Destination';
+        } else {
+          // show big IATA, small airport name
+          repFrom    = originInfo.iataText;
+          repTo      = destInfo.iataText;
+          repFromSub = originInfo.airportText || 'Origin';
+          repToSub   = destInfo.airportText   || 'Destination';
+        }
       }
 
-      document.getElementById('bpFrom').textContent = repFrom;
-      document.getElementById('bpTo').textContent   = repTo;
+      document.getElementById('bpFrom').textContent    = repFrom;
+      document.getElementById('bpTo').textContent      = repTo;
+      document.getElementById('bpFromName').textContent= repFromSub;
+      document.getElementById('bpToName').textContent  = repToSub;
       document.getElementById('bpTitle').textContent= title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
       document.getElementById('bpDeadline').textContent = 'Multiple / see description';
