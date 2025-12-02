@@ -1,6 +1,7 @@
 <?php
 // super_admin.php - standalone (no templates). Airline-blue theme.
 // Provides: Add/Edit/Delete Instructors (admins) + Add/Edit/Delete Students
+// Added: Super Admin profile edit, image validation (client + server).
 // Backup before replacing.
 
 session_start();
@@ -15,6 +16,12 @@ $acc_db_name = 'account'; // accounts + admins tables
 // upload dir for avatars (students & teachers share same directory)
 $uploads_dir = __DIR__ . '/uploads/avatars';
 if (!is_dir($uploads_dir)) mkdir($uploads_dir, 0755, true);
+
+// maximum allowed avatar size (bytes)
+define('MAX_AVATAR_BYTES', 2 * 1024 * 1024); // 2 MB
+
+// allowed MIME types
+$ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 // ---------- CONNECT ----------
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
@@ -41,20 +48,57 @@ require_login();
 if (!is_super_admin()) { header('Location: index.php'); exit; }
 
 // ---------- UTIL ----------
+/**
+ * Handle avatar upload with server-side validation.
+ *
+ * Returns:
+ *  - string (relative path) on success
+ *  - null if no file uploaded (keeps existing)
+ *  - false if a file was uploaded but invalid (caller should abort action)
+ */
 function handle_avatar_upload($input_name, $existing = null) {
-    global $uploads_dir;
-    if (empty($_FILES[$input_name]) || empty($_FILES[$input_name]['tmp_name'])) return $existing;
+    global $uploads_dir, $ALLOWED_IMAGE_MIMES;
+    if (empty($_FILES[$input_name]) || empty($_FILES[$input_name]['tmp_name']) || $_FILES[$input_name]['error'] === UPLOAD_ERR_NO_FILE) {
+        return $existing; // no file uploaded -> keep existing
+    }
     $f = $_FILES[$input_name];
-    if ($f['error'] !== UPLOAD_ERR_OK) return $existing;
+    if ($f['error'] !== UPLOAD_ERR_OK) {
+        $_SESSION['super_admin_errors'] = [ 'File upload error (code: ' . $f['error'] . ')' ];
+        return false;
+    }
+
+    // server-side size check
+    if ($f['size'] > MAX_AVATAR_BYTES) {
+        $_SESSION['super_admin_errors'] = [ 'Avatar too large. Max allowed is ' . (MAX_AVATAR_BYTES / (1024*1024)) . ' MB.' ];
+        return false;
+    }
+
+    // verify image type using getimagesize
+    $info = @getimagesize($f['tmp_name']);
+    if (!$info || empty($info['mime'])) {
+        $_SESSION['super_admin_errors'] = [ 'Uploaded file is not a valid image.' ];
+        return false;
+    }
+    $mime = $info['mime'];
+    if (!in_array($mime, $ALLOWED_IMAGE_MIMES, true)) {
+        $_SESSION['super_admin_errors'] = [ 'Unsupported image type. Allowed types: JPEG, PNG, GIF, WEBP.' ];
+        return false;
+    }
+
     if (!is_dir($uploads_dir)) @mkdir($uploads_dir, 0755, true);
-    $ext = pathinfo($f['name'], PATHINFO_EXTENSION);
+    $ext_map = ['image/jpeg'=>'jpg', 'image/png'=>'png', 'image/gif'=>'gif', 'image/webp'=>'webp'];
+    $ext = isset($ext_map[$mime]) ? $ext_map[$mime] : pathinfo($f['name'], PATHINFO_EXTENSION);
     $safe_ext = preg_replace('/[^a-z0-9]/i', '', $ext);
     $filename = uniqid('avatar_', true) . '.' . ($safe_ext ?: 'jpg');
     $dest = $uploads_dir . '/' . $filename;
     if (move_uploaded_file($f['tmp_name'], $dest)) {
+        // optionally set permissions
+        @chmod($dest, 0644);
         return 'uploads/avatars/' . $filename;
     }
-    return $existing;
+
+    $_SESSION['super_admin_errors'] = [ 'Failed to move uploaded file.' ];
+    return false;
 }
 
 function ensure_unique_acc_id($dbconn, $desired) {
@@ -85,6 +129,103 @@ if ($acc_db_ok) {
 $allowed_sex = ['', 'M', 'F'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
+    // ---------- EDIT SUPER ADMIN PROFILE ----------
+    if (!empty($_POST['action']) && $_POST['action'] === 'edit_super') {
+        $cur_acc = current_acc_id();
+        if (!$cur_acc) { $_SESSION['super_admin_errors'] = ['Session missing account id.']; header('Location: super_admin.php'); exit; }
+
+        $new_name = trim($_POST['super_name'] ?? '');
+        $new_password = $_POST['super_password'] ?? '';
+
+        if ($new_name === '') {
+            $_SESSION['super_admin_errors'] = ['Display name is required.'];
+            header('Location: super_admin.php'); exit;
+        }
+
+        // fetch existing avatar (from admins if present)
+        $existing_avatar = null;
+        if ($acc_db_ok) {
+            $s = $acc_conn->prepare("SELECT avatar FROM admins WHERE acc_id = ? LIMIT 1");
+            if ($s) {
+                $s->bind_param('s', $cur_acc);
+                $s->execute();
+                $s->bind_result($existing_avatar);
+                $s->fetch();
+                $s->close();
+            }
+        }
+
+        $uploaded = handle_avatar_upload('super_avatar', $existing_avatar);
+        if ($uploaded === false) {
+            // handle_avatar_upload placed an error message into session
+            header('Location: super_admin.php'); exit;
+        }
+        // proceed to update accounts + admins
+        if ($acc_db_ok) {
+            // update accounts table name + password if provided
+            if ($new_password !== '') {
+                $new_hash = password_hash($new_password, PASSWORD_DEFAULT);
+                $upd = $acc_conn->prepare("UPDATE accounts SET acc_name = ?, password = ? WHERE acc_id = ?");
+                $upd->bind_param('sss', $new_name, $new_hash, $cur_acc);
+            } else {
+                $upd = $acc_conn->prepare("UPDATE accounts SET acc_name = ? WHERE acc_id = ?");
+                $upd->bind_param('ss', $new_name, $cur_acc);
+            }
+            if (!$upd->execute()) {
+                $_SESSION['super_admin_errors'] = ['Failed to update accounts table: ' . $acc_conn->error];
+                $upd->close();
+                header('Location: super_admin.php'); exit;
+            }
+            $upd->close();
+
+            // update or insert admins row for super admin
+            $chk = $acc_conn->prepare("SELECT id FROM admins WHERE acc_id = ? LIMIT 1");
+            $chk->bind_param('s', $cur_acc);
+            $chk->execute();
+            $chk->store_result();
+            if ($chk->num_rows > 0) {
+                // exists -> update
+                $chk->bind_result($admin_row_id);
+                $chk->fetch();
+                if ($admins_has_avatar) {
+                    $u = $acc_conn->prepare("UPDATE admins SET name = ?, avatar = ? WHERE id = ?");
+                    $u->bind_param('ssi', $new_name, $uploaded, $admin_row_id);
+                } else {
+                    $u = $acc_conn->prepare("UPDATE admins SET name = ? WHERE id = ?");
+                    $u->bind_param('si', $new_name, $admin_row_id);
+                }
+                if (!$u->execute()) {
+                    $_SESSION['super_admin_errors'] = ['Failed to update admins table: ' . $acc_conn->error];
+                    $u->close();
+                    header('Location: super_admin.php'); exit;
+                }
+                $u->close();
+            } else {
+                // insert a new admins row
+                if ($admins_has_avatar) {
+                    $ins = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role, avatar) VALUES (?, ?, 'super_admin', ?)");
+                    $ins->bind_param('sss', $cur_acc, $new_name, $uploaded);
+                } else {
+                    $ins = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role) VALUES (?, ?, 'super_admin')");
+                    $ins->bind_param('ss', $cur_acc, $new_name);
+                }
+                if (!$ins->execute()) {
+                    $_SESSION['super_admin_errors'] = ['Failed to create super_admin row in admins table: ' . $acc_conn->error];
+                    $ins->close();
+                    header('Location: super_admin.php'); exit;
+                }
+                $ins->close();
+            }
+            $chk->close();
+        } else {
+            $_SESSION['super_admin_errors'] = ['Accounts DB unavailable - cannot update profile.'];
+            header('Location: super_admin.php'); exit;
+        }
+
+        $_SESSION['super_admin_success'] = 'Your profile has been updated.';
+        header('Location: super_admin.php'); exit;
+    }
 
     // RESET PASSWORD to Birthday (student)
     if (!empty($_POST['action']) && $_POST['action'] === 'reset_password') {
@@ -147,7 +288,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $q->close();
         }
+
+        // handle avatar upload - if invalid -> abort
         $avatar = handle_avatar_upload('instructor_avatar', null);
+        if ($avatar === false) { header('Location: super_admin.php'); exit; }
+
         $hash = password_hash($password, PASSWORD_DEFAULT);
         if ($acc_db_ok) {
             // ===== NOTE: removed created_at from accounts INSERT =====
@@ -215,8 +360,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $chk->close();
         }
 
-        // handle avatar upload
+        // handle avatar upload - if invalid -> abort
         $new_avatar = handle_avatar_upload('edit_instructor_avatar', $old_avatar);
+        if ($new_avatar === false) { header('Location: super_admin.php'); exit; }
 
         // Update admins table (name, avatar, acc_id if admins has acc_id column)
         // Check if admins has 'acc_id' column
@@ -350,7 +496,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: super_admin.php'); exit;
         }
 
+        // handle optional avatar; if present but invalid -> abort
         $avatar = handle_avatar_upload('student_photo', null);
+        if ($avatar === false) { header('Location: super_admin.php'); exit; }
 
         $stmt = $conn->prepare("INSERT INTO students (student_id, last_name, first_name, middle_name, suffix, section, avatar, birthday, sex, teacher_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())");
         if (!$stmt) { $_SESSION['super_admin_errors'] = ['Failed to prepare student insertion.']; header('Location: super_admin.php'); exit; }
@@ -430,7 +578,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $q = $conn->prepare("SELECT avatar, student_id, first_name, last_name FROM students WHERE id = ? LIMIT 1");
         $q->bind_param('i', $db_id); $q->execute(); $q->bind_result($cur_avatar, $old_student_id, $old_first, $old_last); $q->fetch(); $q->close();
 
+        // handle avatar upload; if invalid -> abort
         $new_avatar = handle_avatar_upload('edit_student_photo', $cur_avatar);
+        if ($new_avatar === false) { header('Location: super_admin.php'); exit; }
+
         if ($new_avatar !== null && $new_avatar !== $cur_avatar) {
             if (!empty($cur_avatar)) {
                 $realOld = realpath(__DIR__ . '/' . ltrim($cur_avatar, '/\\'));
@@ -538,6 +689,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
 } // POST end
+
+// ---------- FETCH Super Admin info ----------
+$super_admin = ['acc_id' => current_acc_id(), 'name' => '', 'avatar' => 'assets/avatar.png'];
+if ($acc_db_ok && $super_admin['acc_id']) {
+    // get name from accounts table
+    $s = $acc_conn->prepare("SELECT acc_name FROM accounts WHERE acc_id = ? LIMIT 1");
+    if ($s) {
+        $s->bind_param('s', $super_admin['acc_id']);
+        $s->execute();
+        $s->bind_result($acc_name_tmp);
+        if ($s->fetch()) $super_admin['name'] = $acc_name_tmp;
+        $s->close();
+    }
+    // try to get avatar from admins table if available
+    $t = $acc_conn->prepare("SELECT name, avatar FROM admins WHERE acc_id = ? LIMIT 1");
+    if ($t) {
+        $t->bind_param('s', $super_admin['acc_id']);
+        $t->execute();
+        $t->bind_result($adm_name, $adm_avatar);
+        if ($t->fetch()) {
+            if (!empty($adm_name)) $super_admin['name'] = $adm_name;
+            if (!empty($adm_avatar) && is_file(__DIR__ . '/' . $adm_avatar)) $super_admin['avatar'] = $adm_avatar;
+        }
+        $t->close();
+    }
+}
 
 // ---------- FETCH instructors (admins) - exclude super_admin role ----------
 $teachers = [];
@@ -744,6 +921,9 @@ unset($_SESSION['account_info']);
     .field-row{display:flex;gap:10px;flex-wrap:wrap}
     .input-field .required-star:after{content:" *";color:#d32f2f}
 
+    /* small inline validation message for file inputs */
+    .file-note { font-size:12px;color:#b71c1c;margin-top:6px;display:none; }
+
     /* collapse animation */
     .section-body { transition: max-height .28s cubic-bezier(.4,0,.2,1), opacity .22s; overflow: hidden; max-height: 2000px; opacity:1; }
     .section-body.collapsed { max-height: 0 !important; opacity:0; padding:0; margin:0; }
@@ -764,19 +944,34 @@ unset($_SESSION['account_info']);
 </head>
 <body>
 <nav class="blue">
-  <div class="nav-wrapper">
-    <a href="#" class="brand-logo center" style="display:flex;align-items:center;gap:8px;padding-left:12px;">
-      <img src="assets/logo.png" alt="logo" style="height:34px;vertical-align:middle;margin-right:4px">Account Management
+  <div class="nav-wrapper" style="padding:0 12px;">
+    
+    <!-- Left side (logo) -->
+    <a href="super_admin.php" class="brand-logo center" style="display:flex;align-items:center;gap:8px;">
+      <img src="assets/logo.png" alt="logo" style="height:34px;vertical-align:middle;"> 
+      Account Management
     </a>
+
+    <!-- Right side -->
+    <ul id="nav-mobile" class="right">
+      <li>
+        <a href="logout.php" style="display:flex;align-items:center;gap:6px;">
+          <i class="material-icons">exit_to_app</i>
+          Logout
+        </a>
+      </li>
+    </ul>
+
   </div>
 </nav>
+
 
 <div class="container page-wrap">
   <header class="banner">
     <div style="flex:0 0 auto"><img src="assets/logo.png" alt="logo" style="height:46px;width:72px;object-fit:cover;border-radius:6px"></div>
     <div>
       <h1>Instructors & Students</h1>
-      <div class="sub">Manage instructors (admins) and students — boarding-pass inspired UI</div>
+      <div class="sub">Manage instructors and students</div>
     </div>
   </header>
 
@@ -805,6 +1000,21 @@ unset($_SESSION['account_info']);
       <small class="grey-text">Shown only once — password is stored hashed in the DB.</small>
     </div>
   <?php endif; ?>
+
+  <!-- Super Admin profile card -->
+  <div style="margin-bottom:18px;">
+    <h5 style="margin:6px 0 8px;">Admin Information</h5>
+    <div class="teacher-card" style="align-items:center;">
+      <img src="<?php echo htmlspecialchars($super_admin['avatar']); ?>" onerror="this.onerror=null;this.src='assets/avatar.png';" class="teacher-avatar" alt="avatar">
+      <div style="flex:1;">
+        <div style="font-weight:700;color:var(--air-blue)"><?php echo htmlspecialchars($super_admin['name'] ?: $super_admin['acc_id']); ?></div>
+        <div style="color:var(--muted);font-size:13px"><?php echo htmlspecialchars($super_admin['acc_id']); ?></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-flat" onclick="try{ M.Modal.getInstance(document.getElementById('modalEditSuper')).open(); }catch(e){ document.getElementById('modalEditSuper').style.display='block'; }"><i class="material-icons">edit</i></button>
+      </div>
+    </div>
+  </div>
 
   <!-- Instructors list -->
   <div style="margin-bottom:18px;">
@@ -893,12 +1103,46 @@ unset($_SESSION['account_info']);
 
 </div>
 
+<!-- Modal: Edit Super Admin -->
+<div id="modalEditSuper" class="modal">
+  <div class="modal-content">
+    <h5 style="margin-top:0;">Edit Your Profile</h5>
+    <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
+    <form method="post" enctype="multipart/form-data" id="formEditSuper">
+      <input type="hidden" name="action" value="edit_super">
+      <div class="field-row" style="align-items:center;margin-bottom:10px;">
+        <div style="flex:0 0 120px; text-align:center;">
+          <img id="superPreview" src="<?php echo htmlspecialchars($super_admin['avatar']); ?>" class="id-photo" alt="photo" style="width:90px;height:90px;border-radius:50%;">
+          <div style="margin-top:8px;">
+            <label class="id-photo-button" style="border-radius:8px;">
+              Upload
+              <input id="super_avatar" name="super_avatar" type="file" accept="image/*">
+            </label>
+            <div id="superFileNote" class="file-note">Allowed: JPG, PNG, GIF, WEBP — max 2 MB.</div>
+          </div>
+        </div>
+        <div style="flex:1;">
+          <div class="input-field">
+            <input id="super_name" name="super_name" value="<?php echo htmlspecialchars($super_admin['name']); ?>" required>
+            <label class="active" for="super_name">Display Name</label>
+          </div>
+          <div class="input-field">
+            <input id="super_password" name="super_password" type="password" autocomplete="new-password">
+            <label for="super_password">New Password (leave blank to keep)</label>
+          </div>
+        </div>
+      </div>
+      <div class="right-align"><button class="btn-air" type="submit" id="saveSuperBtn">Save Profile</button></div>
+    </form>
+  </div>
+</div>
+
 <!-- Add Instructor Modal -->
 <div id="modalAddInstructor" class="modal">
   <div class="modal-content">
     <h5 style="margin-top:0;">Add Instructor</h5>
     <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" id="formAddInstructor">
       <input type="hidden" name="action" value="add_instructor">
       <div class="field-row" style="align-items:center;margin-bottom:10px;">
         <div style="flex:0 0 120px; text-align:center;">
@@ -908,6 +1152,7 @@ unset($_SESSION['account_info']);
               Upload
               <input id="instructor_avatar" name="instructor_avatar" type="file" accept="image/*">
             </label>
+            <div id="inFileNote" class="file-note">Allowed: JPG, PNG, GIF, WEBP — max 2 MB.</div>
           </div>
         </div>
         <div style="flex:1;">
@@ -930,12 +1175,12 @@ unset($_SESSION['account_info']);
   </div>
 </div>
 
-<!-- Edit Instructor Modal -->
+<!-- Edit Instructor Modal (unchanged except file-note) -->
 <div id="modalEditInstructor" class="modal">
   <div class="modal-content">
     <h5 style="margin-top:0;">Edit Instructor</h5>
     <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
-    <form method="post" enctype="multipart/form-data">
+    <form method="post" enctype="multipart/form-data" id="formEditInstructor">
       <input type="hidden" name="action" value="edit_instructor">
       <input type="hidden" name="admin_id" id="edit_admin_id">
       <div class="field-row" style="align-items:center;margin-bottom:10px;">
@@ -946,6 +1191,7 @@ unset($_SESSION['account_info']);
               Change
               <input id="edit_instructor_avatar" name="edit_instructor_avatar" type="file" accept="image/*">
             </label>
+            <div id="editInFileNote" class="file-note">Allowed: JPG, PNG, GIF, WEBP — max 2 MB.</div>
           </div>
         </div>
         <div style="flex:1;">
@@ -987,6 +1233,7 @@ unset($_SESSION['account_info']);
               Upload
               <input id="addStudentPhoto" type="file" name="student_photo" accept="image/*">
             </label>
+            <div id="addFileNote" class="file-note">Allowed: JPG, PNG, GIF, WEBP — max 2 MB.</div>
           </div>
         </div>
         <div style="flex:0 0 240px; margin-left:8px;">
@@ -1043,7 +1290,7 @@ unset($_SESSION['account_info']);
   </div>
 </div>
 
-<!-- Edit Student Modal -->
+<!-- Edit Student Modal (unchanged except file-note) -->
 <div id="editStudentModal" class="modal">
   <div class="modal-content">
     <h5 style="margin-top:0;">Edit Student Information</h5>
@@ -1059,6 +1306,7 @@ unset($_SESSION['account_info']);
             Change Photo
             <input id="editStudentPhoto" name="edit_student_photo" type="file" accept="image/*">
           </span>
+          <div id="editStudentFileNote" class="file-note">Allowed: JPG, PNG, GIF, WEBP — max 2 MB.</div>
           <small style="display:block;margin-top:6px;color:#666;">Choose a new avatar below after opening the form.</small>
         </div>
       </div>
@@ -1106,7 +1354,7 @@ unset($_SESSION['account_info']);
       </div>
 
       <div class="input-field" style="margin-top:12px;">
-        <label for="editTeacherSelect" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Assign Teacher</label>
+        <label class="active" for="editTeacherSelect" style="display:block;margin-bottom:10px;color:#475b7a;font-weight:600">Assign Teacher</label>
         <select id="editTeacherSelect" name="edit_teacher_id" class="browser-default">
           <option value="">Unassigned</option>
           <?php foreach ($teachers_list as $t): ?>
@@ -1204,21 +1452,64 @@ document.addEventListener('DOMContentLoaded', function() {
     try { M.Modal.getInstance(document.getElementById('addStudentModal')).open(); } catch(e){ document.getElementById('addStudentModal').style.display='block'; }
   });
 
-  // instructor avatar preview handlers
-  var inAvatar = document.getElementById('instructor_avatar');
-  if (inAvatar) inAvatar.addEventListener('change', function(){
-    var f = this.files && this.files[0]; if (!f) return; if (!f.type.startsWith('image/')) { this.value=''; return; }
-    var r = new FileReader(); r.onload = function(e){ document.getElementById('instructorAddPreview').src = e.target.result; }; r.readAsDataURL(f);
-  });
-  var editInAvatar = document.getElementById('edit_instructor_avatar');
-  if (editInAvatar) editInAvatar.addEventListener('change', function(){
-    var f = this.files && this.files[0]; if (!f) return; if (!f.type.startsWith('image/')) { this.value=''; return; }
-    var r = new FileReader(); r.onload = function(e){ document.getElementById('instructorEditPreview').src = e.target.result; }; r.readAsDataURL(f);
-  });
+  // CLIENT-SIDE IMAGE VALIDATION SETTINGS (mirrors server)
+  var MAX_BYTES = <?php echo MAX_AVATAR_BYTES; ?>;
+  var ALLOWED_PREFIX = ['image/']; // accept any image/* but server limits to types
 
-  // Add Student image preview
+  function clientValidateFile(file) {
+    if (!file) return { ok: true }; // no file -> okay
+    if (file.size > MAX_BYTES) return { ok: false, msg: 'File is too large. Max ' + (MAX_BYTES/(1024*1024)) + ' MB.' };
+    if (!file.type || !ALLOWED_PREFIX.some(function(p){ return file.type.indexOf(p) === 0; })) return { ok:false, msg: 'File is not an image.' };
+    // allow, but note server restricts to certain image types (jpeg/png/gif/webp)
+    return { ok: true };
+  }
+
+  // preview + validation helper
+  function attachPreviewAndValidation(fileInputId, previewImgId, noteId, submitBtnSelector) {
+    var fi = document.getElementById(fileInputId);
+    var preview = document.getElementById(previewImgId);
+    var note = document.getElementById(noteId);
+    var submitBtn = submitBtnSelector ? document.querySelector(submitBtnSelector) : null;
+    if (!fi) return;
+    fi.addEventListener('change', function(){
+      var f = this.files && this.files[0];
+      var res = clientValidateFile(f);
+      if (!res.ok) {
+        if (note) { note.style.display = 'block'; note.textContent = res.msg; }
+        try { M.toast({html: res.msg}); } catch(e) {}
+        this.value = '';
+        if (preview) preview.src = preview.getAttribute('data-original') || 'assets/avatar.png';
+        if (submitBtn) submitBtn.disabled = true;
+        return;
+      } else {
+        if (note) { note.style.display = 'none'; }
+        if (submitBtn) submitBtn.disabled = false;
+      }
+      if (!f) return;
+      if (!f.type.startsWith('image/')) { this.value=''; if (note){note.style.display='block'; note.textContent='Not an image';} return; }
+      var r = new FileReader();
+      r.onload = function(e){
+        if (preview) preview.src = e.target.result;
+      };
+      r.readAsDataURL(f);
+    }, false);
+  }
+
+  // Setup previews + validation for all avatar inputs
+  attachPreviewAndValidation('super_avatar', 'superPreview', 'superFileNote', '#saveSuperBtn');
+  attachPreviewAndValidation('instructor_avatar', 'instructorAddPreview', 'inFileNote', null);
+  attachPreviewAndValidation('edit_instructor_avatar', 'instructorEditPreview', 'editInFileNote', null);
+  attachPreviewAndValidation('addStudentPhoto', 'addPreview', 'addFileNote', null);
+  attachPreviewAndValidation('editStudentPhoto', 'editPreview', 'editStudentFileNote', null);
+
+  // instructor avatar preview handlers (redundant safe)
+  var inAvatar = document.getElementById('instructor_avatar');
+  if (inAvatar) inAvatar.addEventListener('change', function(){ /* handled above */ });
+  var editInAvatar = document.getElementById('edit_instructor_avatar');
+  if (editInAvatar) editInAvatar.addEventListener('change', function(){ /* handled above */ });
+
+  // Add Student image preview (handled above)
   var addPhoto = document.getElementById('addStudentPhoto');
-  if (addPhoto) addPhoto.addEventListener('change', function(){ var f=this.files&&this.files[0]; if(!f)return; if(!f.type.startsWith('image/')){ this.value=''; return; } var r=new FileReader(); r.onload=function(e){var p=document.getElementById('addPreview'); if(p)p.src=e.target.result;}; r.readAsDataURL(f); });
 
   // edit student open/populate
   function openEditModal(btn){
@@ -1272,9 +1563,6 @@ document.addEventListener('DOMContentLoaded', function() {
       var resetDbInput = document.getElementById('reset_db_id'); if (resetDbInput) resetDbInput.value = dbId;
       var enReset = document.getElementById('enableResetCheckbox'); if (enReset) enReset.checked = false;
       var resetBtn = document.getElementById('resetPwdBtn'); if (resetBtn) { resetBtn.style.display = 'none'; resetBtn.disabled = true; }
-
-      // ensure Change Photo visible button input is present (already embedded input)
-      try { clearAndAttachEditFileInput(); } catch(e){}
 
       var modal = document.getElementById('editStudentModal');
       try { M.Modal.getInstance(modal).open(); } catch(e){ if (modal) modal.style.display = 'block'; }
@@ -1375,6 +1663,8 @@ document.addEventListener('DOMContentLoaded', function() {
         existing.addEventListener('change', function(){
           var f = this.files && this.files[0];
           if (!f) return;
+          var validation = clientValidateFile(f);
+          if (!validation.ok) { this.value=''; try { M.toast({html:validation.msg}); } catch(e){} return; }
           if (!f.type.startsWith('image/')) { this.value=''; return; }
           var r = new FileReader();
           r.onload = function(ev){ var preview = document.getElementById('editPreview'); if (preview) preview.src = ev.target.result; };
