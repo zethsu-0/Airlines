@@ -164,7 +164,7 @@ try {
         // types: title(s), from(s), to(s), code(s),
         //        duration(i), num_questions(i), input_type(s), created_by(i)
         $stmtQuiz->bind_param(
-            'ssssii' . 'si',
+            'ssssii' . 'ss',
             $title,
             $from,
             $to,
@@ -172,7 +172,7 @@ try {
             $duration,
             $num_questions,
             $input_type,
-            $createdByInt
+            $createdBy
         );
 
         if (!$stmtQuiz->execute()) {
