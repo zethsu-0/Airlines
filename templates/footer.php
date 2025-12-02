@@ -1,36 +1,103 @@
-<footer class="page-footer blue">
-  <div class="footer-main container">
-    <div class="row">
-      <div class="col l6 s12">
-        <h5>What's TOURS</h5>
-        <p>This website is intended to be used as a place to practice flight booking while also serving as an interactive learning platform.</p>
-      </div>
-      <div class="col l4 offset-l2 s12">
-        <h5>Official Links</h5>
-        <ul class="footer-links">
-          <li>URS Website</li>
-          <li>URS Official Page </li>
-          <li>Official Link</li>
-        </ul>
-      </div>
-    </div>
-  </div>
+<footer class="tours-footer">
+    <div class="footer-content container">
+        <div class="row">
+            
+            <!-- Left Section -->
+            <div class="col l6 s12 footer-section">
+                <h5 class="footer-title">What's TOURS</h5>
+                <p class="footer-text">
+                    This platform is designed for practicing flight booking simulations while also serving
+                    as an interactive learning environment.
+                </p>
+            </div>
 
-  <div class="footer-bottom center light-blue bold" style="padding: 5px;">
-    TOURS @ URSAC2025
-  </div>
+            <!-- Right Section -->
+            <div class="col l4 offset-l2 s12 footer-section">
+                <h5 class="footer-title">Official Links</h5>
+                <ul class="footer-links">
+                    <li><a href="#" class="footer-link">URS Website</a></li>
+                    <li><a href="#" class="footer-link">URS Official Page</a></li>
+                    <li><a href="#" class="footer-link">Official Link</a></li>
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="footer-bottom">
+        TOURS @ URSAC2025
+    </div>
 </footer>
 
 
+<!-- STYLE -->
+<style>
+/* MAIN FOOTER WRAPPER */
+.tours-footer {
+    background: #0d47a1;
+    background: linear-gradient(90deg, #0d47a1, #1565c0);
+    color: #e3f2fd;
+    padding-top: 35px;
+    margin-top: 40px;
+    box-shadow: 0 -3px 8px rgba(0,0,0,0.2);
+}
+
+/* TEXT + TITLES */
+.footer-title {
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: #fff;
+}
+
+.footer-text {
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+/* LINKS */
+.footer-links {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.footer-link {
+    color: #bbdefb;
+    text-decoration: none;
+    display: block;
+    padding: 4px 0;
+    transition: color 0.2s ease;
+}
+
+.footer-link:hover {
+    color: #ffffff;
+}
+
+/* BOTTOM BAR */
+.footer-bottom {
+    width: 100%;
+    text-align: center;
+    padding: 10px 0;
+    margin-top: 30px;
+    background: rgba(0,0,0,0.18);
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: #e3f2fd;
+}
+
+/* RESPONSIVE */
+@media (max-width: 600px) {
+    .footer-section { margin-bottom: 25px; }
+}
+</style>
+
+
+<!-- LOGIN MODAL LOGIC (unchanged but cleaned a bit) -->
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('loginForm');
-    if (!loginForm) {
-        console.error("Login form not found");
-        return;
-    }
+    if (!loginForm) return;
 
-    // Make sure Materialize modal exists
     const loginModalElem = document.getElementById('loginModal');
     const loginModalInstance = M.Modal.getInstance(loginModalElem) || M.Modal.init(loginModalElem);
 
@@ -45,22 +112,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     loginForm.addEventListener('submit', async function (e) {
-        e.preventDefault();  // <<<< THIS PREVENTS NAVIGATION TO login.php
+        e.preventDefault();
         clearErrors();
 
         const formData = new FormData(loginForm);
 
-        const accIdVal = formData.get('acc_id').trim();
-        const pwVal = formData.get('password').trim();
-
-        if (!accIdVal) {
-            errAccId.textContent = "Please enter Account ID.";
-            return;
-        }
-        if (!pwVal) {
-            errPassword.textContent = "Please enter password.";
-            return;
-        }
+        // Validation
+        if (!formData.get('acc_id').trim()) return errAccId.textContent = "Please enter Account ID.";
+        if (!formData.get('password').trim()) return errPassword.textContent = "Please enter password.";
 
         try {
             const response = await fetch("login.php", {
@@ -73,30 +132,20 @@ document.addEventListener('DOMContentLoaded', function () {
             const data = await response.json();
 
             if (data.success) {
-              // Close modal (robust)
-              try {
-                const modalElem = document.getElementById('loginModal');
-                if (modalElem && window.M) {
-                  let inst = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem);
-                  if (inst && typeof inst.close === 'function') inst.close();
-                }
-              } catch (err) {
-                console.warn('Modal close failed:', err);
-              }
+                try {
+                    let inst = M.Modal.getInstance(loginModalElem) || M.Modal.init(loginModalElem);
+                    inst.close();
+                } catch (err) {}
 
-              // Force a full reload so PHP re-renders header with the new session
-              // This prevents duplicate nav items and makes server-side checks see the logged-in user.
-              window.location.reload();
-              return;
+                window.location.reload();
+                return;
             }
 
-            // Show backend validation errors
-            if (data.errors.acc_id) errAccId.textContent = data.errors.acc_id;
-            if (data.errors.password) errPassword.textContent = data.errors.password;
-            if (data.errors.general) errGeneral.textContent = data.errors.general;
+            if (data.errors?.acc_id) errAccId.textContent = data.errors.acc_id;
+            if (data.errors?.password) errPassword.textContent = data.errors.password;
+            if (data.errors?.general) errGeneral.textContent = data.errors.general;
 
         } catch (err) {
-            console.error("Fetch error:", err);
             errGeneral.textContent = "Network/server error.";
         }
     });
