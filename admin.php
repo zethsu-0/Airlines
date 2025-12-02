@@ -1,5 +1,5 @@
 <?php
-// admin_quizzes.php — robust, auto-detecting column names (paste to server)
+// admin.php — robust, auto-detecting column names (paste to server)
 
 include('templates/header_admin.php');
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
