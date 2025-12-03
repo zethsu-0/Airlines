@@ -8,10 +8,12 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
+// ---------- CONFIG: enable exact legs-sequence matching ----------
+$requireLegsSequenceMatch = true; // set to false to disable the exact-sequence requirement
+
 // ---------- Helper normalizers ----------
 function norm_type_quiz($type) {
     $t = strtoupper(trim((string)$type));
-    // quiz_items uses 'oneway' / 'roundtrip'
     if ($t === 'ONEWAY' || $t === 'ONE-WAY') return 'ONEWAY';
     if ($t === 'ROUNDTRIP' || $t === 'ROUND-TRIP' || $t === 'TWOWAY') return 'ROUNDTRIP';
     return $t;
@@ -19,7 +21,6 @@ function norm_type_quiz($type) {
 
 function norm_type_sub($type) {
     $t = strtoupper(trim((string)$type));
-    // submissions uses 'ONE-WAY' / 'ROUND-TRIP'
     if ($t === 'ONEWAY' || $t === 'ONE-WAY') return 'ONEWAY';
     if ($t === 'ROUND-TRIP' || $t === 'TWOWAY' || $t === 'ROUNDTRIP') return 'ROUNDTRIP';
     return $t;
@@ -35,6 +36,19 @@ function norm_code($c) {
 
 function norm_label($s) {
     return strtoupper(trim((string)$s));
+}
+
+/**
+ * Normalize a date string to YYYY-MM-DD if possible.
+ * Returns normalized date string or original trimmed string if not valid.
+ */
+function norm_date($d) {
+    $d = trim((string)$d);
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
+        $dt = DateTime::createFromFormat('Y-m-d', $d);
+        if ($dt && $dt->format('Y-m-d') === $d) return $d;
+    }
+    return $d;
 }
 
 // ---------- 1. Load airports for code <-> label mapping ----------
@@ -78,11 +92,64 @@ function code_to_label($code, $map) {
 }
 
 function label_to_code($label, $map) {
-    $l = norm_label($label);
+    $l = strtoupper(trim((string)$label));
     return $map[$l] ?? $l;
 }
 
-// 2) Get ONE quiz_items row per quiz_id (first item), plus quizzes.input_type
+/**
+ * Normalize a legs array to a canonical list of legs with origin/destination as IATA codes (when possible)
+ * Input: array of ['origin'=>..., 'destination'=>..., 'date'=>...]
+ * Returns: array of ['origin'=>'MNL','destination'=>'CEB','date'=>'2025-12-01'] (codes uppercase, date normalized)
+ */
+function normalize_legs_to_codes(array $legs, array $labelToCode, array $codeToLabel) {
+    $out = [];
+    foreach ($legs as $lg) {
+        $rawO = isset($lg['origin']) ? trim((string)$lg['origin']) : '';
+        $rawD = isset($lg['destination']) ? trim((string)$lg['destination']) : '';
+        $rawDate = isset($lg['date']) ? trim((string)$lg['date']) : '';
+
+        $o = strtoupper($rawO);
+        $d = strtoupper($rawD);
+
+        // If looks like a 3-letter code, keep it
+        if (!preg_match('/^[A-Z]{3}$/', $o)) {
+            // try map label->code
+            $mapped = $labelToCode[$o] ?? null;
+            if ($mapped) $o = $mapped;
+            // else keep uppercase label fallback (won't match codes)
+        }
+        if (!preg_match('/^[A-Z]{3}$/', $d)) {
+            $mapped = $labelToCode[$d] ?? null;
+            if ($mapped) $d = $mapped;
+        }
+
+        $dateNorm = norm_date($rawDate);
+
+        $out[] = ['origin' => $o, 'destination' => $d, 'date' => $dateNorm];
+    }
+    return $out;
+}
+
+/**
+ * Compare two legs sequences for exact match (order, origin,destination,date).
+ * Both $a and $b should be arrays of normalized legs (origin/destination codes uppercased, date normalized).
+ * Returns true if exact equal.
+ */
+function compare_legs_sequence(array $a, array $b) {
+    if (count($a) !== count($b)) return false;
+    for ($i = 0; $i < count($a); $i++) {
+        $la = $a[$i];
+        $lb = $b[$i];
+        if ((($la['origin'] ?? '') !== ($lb['origin'] ?? '')) ||
+            ((($la['destination'] ?? '') !== ($lb['destination'] ?? '')) ||
+            ((($la['date'] ?? '') !== ($lb['date'] ?? ''))))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 2) Get ONE quiz_items row per quiz_id (first item), plus quizzes.input_type and quiz legs_json if present
 $quizSql = "
     SELECT
         qi.quiz_id,
@@ -97,7 +164,9 @@ $quizSql = "
         qi.return_date,
         qi.flight_number,
         qi.seats,
-        qi.travel_class
+        qi.travel_class,
+        -- try to fetch legs_json if present in quiz_items (may be NULL)
+        qi.legs_json
     FROM quiz_items qi
     INNER JOIN (
         SELECT quiz_id, MIN(id) AS min_id
@@ -122,7 +191,7 @@ if ($quizResult->num_rows === 0) {
     exit;
 }
 
-// 3) Prepare submissions query (reused for each quiz)
+// 3) Prepare submissions query (reused for each quiz) - include legs_json
 $subSql = "
     SELECT 
         sf.id AS submission_id,
@@ -137,6 +206,7 @@ $subSql = "
         sf.seat_number,
         sf.departure,
         sf.return_date,
+        sf.legs_json,
         sf.submitted_at
     FROM submitted_flights sf
     WHERE sf.quiz_id = ?
@@ -173,21 +243,28 @@ while ($quiz = $quizResult->fetch_assoc()) {
     $quizTypeNorm  = norm_type_quiz($quiz['flight_type']);
     $quizClassNorm = norm_class($quiz['travel_class']);
 
+    // Quiz legs_json (if present)
+    $quizLegsJsonRaw = $quiz['legs_json'] ?? '';
+    $quizLegsNormalized = null;
+    if (!empty($quizLegsJsonRaw)) {
+        $decodedQuizLegs = json_decode($quizLegsJsonRaw, true);
+        if (is_array($decodedQuizLegs) && count($decodedQuizLegs) > 0) {
+            // normalize quiz legs to codes (attempt mapping)
+            $quizLegsNormalized = normalize_legs_to_codes($decodedQuizLegs, $labelToCode, $codeToLabel);
+        }
+    }
+
     // Origin / destination comparison values depend on input_type:
     //  - airport-code:   student answers CODE, so we compare by CODE
-    //                    -> quiz is stored as LABEL, convert LABEL -> CODE
     //  - code-airport:   student answers LABEL, so we compare by LABEL
-    //                    -> quiz is stored as CODE, convert CODE -> LABEL
-
+    // We'll still derive a quizOriginCmp/quizDestCmp for fallback comparisons
     $quizOriginRaw = $quiz['origin'];
     $quizDestRaw   = $quiz['destination'];
 
     if ($quizInputType === 'airport-code') {
-        // Expect code answers -> convert quiz label back to code
         $quizOriginCmp = label_to_code($quizOriginRaw, $labelToCode);
         $quizDestCmp   = label_to_code($quizDestRaw,   $labelToCode);
-    } else { // default: code-airport
-        // Expect label answers -> convert quiz code to label
+    } else {
         $quizOriginCmp = code_to_label($quizOriginRaw, $codeToLabel);
         $quizDestCmp   = code_to_label($quizDestRaw,   $codeToLabel);
     }
@@ -212,19 +289,61 @@ while ($quiz = $quizResult->fetch_assoc()) {
         $subTypeNorm  = norm_type_sub($row['flight_type']);
         $subClassNorm = norm_class($row['travel_class']);
 
-        // Submission raw origin/destination
+        // Default: submission raw origin/destination (legacy)
         $subOriginRaw = $row['origin'];
         $subDestRaw   = $row['destination'];
 
-        // Transform submission values depending on quiz input_type
+        // If submission has legs_json, decode and derive first/last legs and normalized legs
+        $legsJson = $row['legs_json'] ?? '';
+        $submissionLegs = null;
+        $submissionLegsNormalized = null;
+        if (!empty($legsJson)) {
+            $decoded = json_decode($legsJson, true);
+            if (is_array($decoded) && count($decoded) > 0) {
+                $submissionLegs = [];
+                foreach ($decoded as $lg) {
+                    $o = isset($lg['origin']) ? trim((string)$lg['origin']) : '';
+                    $d = isset($lg['destination']) ? trim((string)$lg['destination']) : '';
+                    $dt = isset($lg['date']) ? trim((string)$lg['date']) : '';
+                    $submissionLegs[] = ['origin' => $o, 'destination' => $d, 'date' => $dt];
+                }
+                // derive default raw origin/destination from the legs
+                $firstLeg = $submissionLegs[0];
+                $lastLeg  = $submissionLegs[count($submissionLegs)-1];
+                $subOriginRaw = $firstLeg['origin'];
+                $subDestRaw   = $lastLeg['destination'];
+
+                // normalize submission legs into codes (attempt mapping)
+                $submissionLegsNormalized = normalize_legs_to_codes($submissionLegs, $labelToCode, $codeToLabel);
+            }
+        }
+
+        // If quiz has legs sequence and the matching option is enabled, compare sequences
+        $legsExactMatch = null; // null = not applicable, true/false = result
+        if ($requireLegsSequenceMatch && $quizLegsNormalized !== null) {
+            // If submission provided legs -> compare normalized sequences
+            if ($submissionLegsNormalized !== null) {
+                $legsExactMatch = compare_legs_sequence($quizLegsNormalized, $submissionLegsNormalized);
+            } else {
+                // submission has no legs -> cannot match an exact legs-sequence
+                $legsExactMatch = false;
+            }
+        }
+
+        // Transform submission values depending on quiz input_type for fallback origin/destination comparison
         if ($quizInputType === 'airport-code') {
-            // Student typed CODE directly -> compare as CODE
             $subOriginCmp = norm_code($subOriginRaw);
             $subDestCmp   = norm_code($subDestRaw);
         } else {
-            // code-airport: student typed LABEL -> compare as LABEL
-            $subOriginCmp = norm_label($subOriginRaw);
-            $subDestCmp   = norm_label($subDestRaw);
+            // code-airport: if submission has codes, convert to label; otherwise normalize label
+            $maybeCodeOrigin = norm_code($subOriginRaw);
+            $maybeCodeDest   = norm_code($subDestRaw);
+
+            $convertedOriginLabel = isset($codeToLabel[$maybeCodeOrigin]) ? $codeToLabel[$maybeCodeOrigin] : $subOriginRaw;
+            $convertedDestLabel   = isset($codeToLabel[$maybeCodeDest]) ? $codeToLabel[$maybeCodeDest] : $subDestRaw;
+
+            $subOriginCmp = norm_label($convertedOriginLabel);
+            $subDestCmp   = norm_label($convertedDestLabel);
         }
 
         // Quiz comparison values also normalized
@@ -236,8 +355,8 @@ while ($quiz = $quizResult->fetch_assoc()) {
             $quizDestCmpNorm   = norm_label($quizDestCmp);
         }
 
-        // Compare submission with reference quiz item
-        $is_match = (
+        // Final comparison: if legs-exact-match is required and applicable, include it in match criteria
+        $baseMatch = (
             $subAdults    === $quizAdults &&
             $subChildren  === $quizChildren &&
             $subInfants   === $quizInfants &&
@@ -247,6 +366,14 @@ while ($quiz = $quizResult->fetch_assoc()) {
             $subClassNorm === $quizClassNorm
         );
 
+        if ($requireLegsSequenceMatch && $quizLegsNormalized !== null) {
+            // require legsExactMatch to be true in addition to baseMatch
+            $is_match = ($baseMatch && $legsExactMatch === true);
+        } else {
+            $is_match = $baseMatch;
+        }
+
+        // Output
         echo "<div style='margin-bottom:14px;'>";
         echo "<strong>Submission ID:</strong> " . (int)$row['submission_id'] . "<br>";
         echo "Account ID: " . htmlspecialchars($row['acc_id']) . "<br>";
@@ -255,9 +382,19 @@ while ($quiz = $quizResult->fetch_assoc()) {
            . $subAdults   . " Adults, "
            . $subChildren . " Children, "
            . $subInfants  . " Infants, "
-           . htmlspecialchars($row['flight_type']) . ", "
-           . htmlspecialchars($row['origin']) . " → " . htmlspecialchars($row['destination']) . ", "
-           . htmlspecialchars($row['travel_class']) . "<br>";
+           . htmlspecialchars($row['flight_type']) . ", ";
+
+        if ($submissionLegs) {
+            $legsParts = [];
+            foreach ($submissionLegs as $l) {
+                $legsParts[] = htmlspecialchars($l['origin']) . "→" . htmlspecialchars($l['destination']) . " (" . htmlspecialchars($l['date']) . ")";
+            }
+            echo "Legs: " . implode(" • ", $legsParts) . ", ";
+        } else {
+            echo htmlspecialchars($row['origin']) . " → " . htmlspecialchars($row['destination']) . ", ";
+        }
+
+        echo htmlspecialchars($row['travel_class']) . "<br>";
 
         if (!empty($row['seat_number'])) {
             echo "Seats: " . htmlspecialchars($row['seat_number']) . "<br>";
@@ -270,7 +407,7 @@ while ($quiz = $quizResult->fetch_assoc()) {
             echo "<br>";
         }
 
-        // Show what the checker considered "correct"
+        // Show reference comparison basis
         echo "Correct (reference comparison basis): ";
         if ($quizInputType === 'airport-code') {
             echo "Expect CODE • Origin: " . htmlspecialchars($quizOriginCmpNorm)
@@ -280,6 +417,20 @@ while ($quiz = $quizResult->fetch_assoc()) {
                . " → Destination: " . htmlspecialchars($quizDestCmpNorm);
         }
         echo "<br>";
+
+        // If quiz has a legs reference, show it (friendly)
+        if ($quizLegsNormalized !== null) {
+            $parts = [];
+            foreach ($quizLegsNormalized as $ql) {
+                $parts[] = htmlspecialchars($ql['origin']) . "→" . htmlspecialchars($ql['destination']) . " (" . htmlspecialchars($ql['date']) . ")";
+            }
+            echo "Quiz reference legs: " . implode(" • ", $parts) . "<br>";
+        }
+
+        if ($legsExactMatch !== null) {
+            echo "Exact legs-sequence match required: " . ($requireLegsSequenceMatch ? "YES" : "NO (config)") . "<br>";
+            echo "Exact legs-sequence match result: " . ($legsExactMatch ? "YES ✅" : "NO ❌") . "<br>";
+        }
 
         echo "<strong>Result: " . ($is_match ? "MATCH ✅" : "NOT MATCH ❌") . "</strong>";
         echo "</div><hr>";

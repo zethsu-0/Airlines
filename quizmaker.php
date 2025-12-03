@@ -287,6 +287,10 @@ if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
       right:0;
       top:32px;
     }
+    .input-error {
+      border-bottom: 2px solid #e53935 !important;
+      box-shadow: 0 1px 0 0 #e53935 !important;
+    }
   </style>
 </head>
 <body>
@@ -867,11 +871,6 @@ function createItemBlock(prefill = null){
         <a class="btn-flat remove-item" title="Remove item"><i class="material-icons">delete</i></a>
       </div>
     </div>
-    <div class="flight-row">
-      <div style="width:120px; display:flex; align-items:center;">
-        <span class="muted">Item controls</span>
-      </div>
-    </div>
 
     <div class="card-section" style="margin-top:10px; padding:10px; background:#fcfeff;">
       <div style="font-weight:700; margin-bottom:8px">Booking Details (Item ${idx+1})</div>
@@ -885,31 +884,65 @@ function createItemBlock(prefill = null){
       <div style="margin-bottom:8px">
         <label style="display:block; margin-bottom:6px">Flight type</label>
         <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="ONE-WAY" checked /><span>One-way</span></label>
-        <label><input name="flightTypeInner${idx}" type="radio" value="ROUND-TRIP" /><span>Round-trip</span></label>
+        <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="ROUND-TRIP" /><span>Round-trip</span></label>
+        <label><input name="flightTypeInner${idx}" type="radio" value="MULTI-CITY" /><span>Multi-city</span></label>
       </div>
-      
-      <div class="flight-row" style="margin-bottom:8px">
-        <div class="flight-field input-field iata-autocomplete">
+
+      <!-- SINGLE ORIGIN/DESTINATION (used for ONE-WAY / ROUND-TRIP) -->
+      <div class="flight-row single-origin-dest" style="margin-bottom:8px;">
+        <div class="flight-field input-field iata-autocomplete" style="flex:1;">
           <input type="text" class="originAirportInner" data-idx="${idx}" placeholder="Origin IATA / city" autocomplete="off" />
           <label>Origin Airport</label>
           <div class="iata-suggestions" style="display:none"></div>
         </div>
 
-        <div class="flight-field input-field iata-autocomplete">
+        <div class="flight-field input-field iata-autocomplete" style="flex:1;">
           <input type="text" class="destinationAirportInner" data-idx="${idx}" placeholder="Dest IATA / city" autocomplete="off" />
           <label>Destination Airport</label>
           <div class="iata-suggestions" style="display:none"></div>
         </div>
       </div>
 
-      <div class="flight-row" style="margin-bottom:8px">
-        <div class="flight-field input-field">
+      <!-- MULTI-CITY legs area (hidden for ONE-WAY / ROUND-TRIP by default) -->
+      <div class="multi-legs" data-idx="${idx}" style="margin-bottom:8px; display:none;">
+        <div class="legs-list">
+          <div class="leg-row" data-leg-index="0" style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+            <div class="flight-field input-field iata-autocomplete" style="flex:1;">
+              <input type="text" class="legOrigin" data-idx="${idx}" data-leg="0" placeholder="Origin IATA / city" autocomplete="off" />
+              <label>Origin</label>
+              <div class="iata-suggestions" style="display:none"></div>
+            </div>
+            <div class="flight-field input-field iata-autocomplete" style="flex:1;">
+              <input type="text" class="legDestination" data-idx="${idx}" data-leg="0" placeholder="Dest IATA / city" autocomplete="off" />
+              <label>Destination</label>
+              <div class="iata-suggestions" style="display:none"></div>
+            </div>
+            <div style="width:160px;">
+              <div class="input-field">
+                <input type="date" class="legDate" data-idx="${idx}" data-leg="0" />
+                <label>Date</label>
+              </div>
+            </div>
+            <a class="btn-flat remove-leg" title="Remove leg" style="display:none;"><i class="material-icons">remove_circle</i></a>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+          <a class="btn-flat add-leg" style="display:none;"><i class="material-icons">add_circle</i> Add leg</a>
+          <span class="muted" style="margin-left:auto;">Multi-city: each leg has its own datepicker.</span>
+        </div>
+      </div>
+
+      <!-- SINGLE-LEG DATES (used for ONE-WAY and ROUND-TRIP).
+           Note: for MULTI-CITY we will use per-leg .legDate inputs and hide this row. -->
+      <div class="flight-row single-leg-dates" style="margin-bottom:8px">
+        <div class="flight-field input-field" style="flex:1;">
           <input type="date" class="departureDateInner" data-idx="${idx}" />
           <label>Departure date</label>
         </div>
-        <div class="flight-field input-field">
+        <div class="flight-field input-field" style="flex:1;">
           <input type="date" class="returnDateInner" data-idx="${idx}" />
-          <label>Return date (if RT)</label>
+          <label>Return date (used for Round-trip)</label>
         </div>
       </div>
 
@@ -943,108 +976,33 @@ function createItemBlock(prefill = null){
     refreshItemLabels();
   });
 
-function attachAutocompleteTo(inputEl){
-  if (!inputEl) return;
-  const container = inputEl.closest('.iata-autocomplete');
-  const localSugg = container ? container.querySelector('.iata-suggestions') : null;
-
-  inputEl.addEventListener('input', function(){
-    const q = this.value || '';
-    if (q.trim().length === 0) {
-      if (localSugg) {
-        localSugg.style.display = 'none';
-        localSugg.innerHTML = '';
-      }
-      return;
-    }
-
-    const matches = matchAirports(q);
-    if (!localSugg) return;
-
-    localSugg.innerHTML = matches.map(a => {
-      const small = a.city
-        ? `<small>${a.city}</small>`
-        : `<small>${(a.name || '').toUpperCase()}</small>`;
-
-      const country = (a.country || a.countryRegion || '');
-      return `
-        <div class="iata-suggestion"
-             data-iata="${a.iata}"
-             data-city="${a.city || ''}"
-             data-name="${a.name || ''}"
-             data-country="${country}">
-          ${a.label}${small}
-        </div>`;
-    }).join('');
-    localSugg.style.display = 'block';
-
-    localSugg.querySelectorAll('.iata-suggestion').forEach(node => {
-      node.addEventListener('click', () => {
-        // read current quiz type
-        const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
-        const quizType = quizTypeRadio
-          ? quizTypeRadio.value            // 'code-airport' or 'airport-code'
-          : (window.currentQuizInputType || 'code-airport');
-
-        const iata    = (node.dataset.iata || '').toUpperCase();
-        const city    = (node.dataset.city || '').toUpperCase();
-        const name    = (node.dataset.name || '').toUpperCase();
-        const country = (node.dataset.country || '').toUpperCase();
-
-        if (quizType === 'airport-code') {
-          // AirportName - City - CountryRegion
-          const parts = [];
-          if (name)    parts.push(name);
-          if (city)    parts.push(city);
-          if (country) parts.push(country);
-          const display = parts.join(' - ') || iata;
-          inputEl.value = display;
-        } else {
-          // code-airport => just the IATA code
-          inputEl.value = iata;
-        }
-
-        inputEl.dataset.city = city;
-        localSugg.style.display = 'none';
-
-        if (typeof M !== 'undefined' && M.updateTextFields) {
-          M.updateTextFields();
-        }
-      });
-    });
-  });
-
-  inputEl.addEventListener('blur', function(){
-    setTimeout(() => { if (localSugg) localSugg.style.display = 'none'; }, 120);
-  });
-}
-
-
-  // autogenerate flight number for this item
-  const flightNumEl = wrapper.querySelector('.flightNumberInner');
-  if(flightNumEl && !flightNumEl.value){ 
-    flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase(); 
-  }
-
-  // attach autocomplete to origin/destination
+  // ----------------- AUTOCOMPLETE ATTACH -----------------
+  // Attach to single origin/dest (ONE-WAY / ROUND-TRIP)
   attachAutocompleteTo(wrapper.querySelector('.originAirportInner'));
   attachAutocompleteTo(wrapper.querySelector('.destinationAirportInner'));
 
-  // ===== wire seat picker "Pick" button for THIS item =====
+  // Attach to initial leg origin/destination (if user switches to MULTI-CITY)
+  attachAutocompleteTo(wrapper.querySelector('.legOrigin'));
+  attachAutocompleteTo(wrapper.querySelector('.legDestination'));
+
+  // ----------------- FLIGHT NUMBER -----------------
+  const flightNumEl = wrapper.querySelector('.flightNumberInner');
+  if(flightNumEl && !flightNumEl.value){
+    flightNumEl.value = 'FL-' + Math.random().toString(36).substring(2,7).toUpperCase();
+  }
+
+  // ----------------- SEAT PICKER HOOKUP -----------------
   const seatInput = wrapper.querySelector('.seatNumbersInner');
   if (seatInput) {
-
     function openSeatPickerForThisItem() {
       seatPickerTargetInput = seatInput;
 
-      // 1) Determine cabin from class dropdown
       const travelSelect = wrapper.querySelector('.travelClassInner');
       const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
 
       activeCabinKeyForSelection = travelClass;
       applyCabinFilter(travelClass);
 
-      // 2) Compute how many seats are allowed for THIS item
       const adultsEl   = wrapper.querySelector('.adultCountInner');
       const childrenEl = wrapper.querySelector('.childCountInner');
       const infantsEl  = wrapper.querySelector('.infantCountInner');
@@ -1053,23 +1011,13 @@ function attachAutocompleteTo(inputEl){
       const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
       const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
 
-      // If you don't want infants to count as seats, use (adults + children) instead.
       let totalPeople = adults + children;
-
-      // Safety: at least 1 seat
       if (totalPeople <= 0) totalPeople = 1;
-
       maxSeatsForCurrentItem = totalPeople;
 
-      // 3) Clear previous selection
       clearSeatSelections();
 
-      // 4) Preselect any seats already in the input (but only in this cabin)
-      const existing = (seatInput.value || '')
-        .split(',')
-        .map(s => s.trim().toUpperCase())
-        .filter(s => s.length > 0);
-
+      const existing = (seatInput.value || '').split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
       if (existing.length) {
         const allSeats = document.querySelectorAll('.seat');
         allSeats.forEach(seatEl => {
@@ -1082,7 +1030,6 @@ function attachAutocompleteTo(inputEl){
         updateSeatSummary();
       }
 
-      // 5) Open the modal
       if (seatPickerModalInstance) {
         seatPickerModalInstance.open();
       } else if (typeof M !== 'undefined' && M.Modal) {
@@ -1093,12 +1040,11 @@ function attachAutocompleteTo(inputEl){
       }
     }
 
-    // Open modal when clicking OR focusing the input
     seatInput.addEventListener('click', openSeatPickerForThisItem);
     seatInput.addEventListener('focus', openSeatPickerForThisItem);
   }
 
-  // ------------ PREFILL (EDIT MODE) ------------
+  // ----------------- PREFILL (EDIT MODE) -----------------
   if(prefill && prefill.booking){
     const b = prefill.booking;
 
@@ -1117,14 +1063,35 @@ function attachAutocompleteTo(inputEl){
     if(childrenEl) childrenEl.value = b.children != null ? b.children : 0;
     if(infantsEl)  infantsEl.value  = b.infants  != null ? b.infants  : 0;
 
-    const originVal = b.origin || prefill.iata || '';
-    const destVal   = b.destination || prefill.city || '';
+    if (Array.isArray(b.legs) && b.legs.length && (b.flight_type || '').toUpperCase() === 'MULTI-CITY') {
+      // populate legs
+      const legsList = wrapper.querySelector('.legs-list');
+      legsList.innerHTML = '';
+      b.legs.forEach((lg, li) => {
+        addLegRowToItem(wrapper, idx);
+        const rows = legsList.querySelectorAll('.leg-row');
+        const last = rows[rows.length - 1];
+        if (last) {
+          const orig = last.querySelector('.legOrigin');
+          const dest = last.querySelector('.legDestination');
+          const date = last.querySelector('.legDate');
+          if (orig) orig.value = (lg.origin || '').toUpperCase();
+          if (dest) dest.value = (lg.destination || '').toUpperCase();
+          if (date) date.value = lg.date || '';
+        }
+      });
+    } else {
+      // fill single origin/destination and dates
+      if(originEl){ originEl.value = b.origin || (prefill.iata || ''); }
+      if(destEl){   destEl.value   = b.destination || (prefill.city || ''); }
 
-    if(originEl){ originEl.value = originVal; }
-    if(destEl){   destEl.value   = destVal; }
+      if(depEl) depEl.value = b.departure || '';
+      if(retEl) retEl.value = b.return || '';
 
-    if(depEl) depEl.value = b.departure || '';
-    if(retEl) retEl.value = b.return || '';
+      // also copy departure into first leg date for compatibility
+      const firstLegDate = wrapper.querySelector('.legs-list .leg-row .legDate');
+      if (firstLegDate && b.departure) firstLegDate.value = b.departure;
+    }
 
     if(flightNumEl && b.flight_number){
       flightNumEl.value = b.flight_number;
@@ -1139,12 +1106,723 @@ function attachAutocompleteTo(inputEl){
       if(r.value.toUpperCase() === ft) r.checked = true;
     });
 
-    // (Optional) legacy per-item direction handling could be wired here if needed
   }
+    if (prefill) {
+      wrapper._loadedFromEdit = true;
+  }
+  // wire flight-type controls (handles toggling single/multi and showing/hiding return date)
+    wireItemFlightTypeControls(wrapper);
+    if (typeof wireItemFlightTypeControls === 'function') {
+    try { wireItemFlightTypeControls(block); } catch(e) { console.warn(e); }
+  }
+  // ensure autocomplete attached after prefill too (covers dynamic inputs)
+  wrapper.querySelectorAll('input.iata-autocomplete, input.legOrigin, input.legDestination, input.originAirportInner, input.destinationAirportInner').forEach(inp => {
+    if (inp) attachAutocompleteTo(inp);
+  });
 
   return wrapper;
 }
 
+
+function addLegRowToItem(itemBlock, idx){
+  if (!itemBlock) {
+    console.error('addLegRowToItem: missing itemBlock');
+    return null;
+  }
+  const legsList = itemBlock.querySelector('.legs-list');
+  if (!legsList) {
+    console.error('addLegRowToItem: legs-list not found in itemBlock', itemBlock);
+    return null;
+  }
+
+  const legIndex = legsList.querySelectorAll('.leg-row').length;
+  const legRow = document.createElement('div');
+  legRow.className = 'leg-row';
+  legRow.dataset.legIndex = legIndex;
+  legRow.style = 'display:flex; gap:8px; align-items:center; margin-bottom:6px;';
+
+  legRow.innerHTML = `
+    <div class="flight-field input-field iata-autocomplete" style="flex:1;">
+      <input type="text" class="legOrigin" data-idx="${idx}" data-leg="${legIndex}" placeholder="Origin IATA / city" autocomplete="off" />
+      <label>Origin</label>
+      <div class="iata-suggestions" style="display:none"></div>
+    </div>
+    <div class="flight-field input-field iata-autocomplete" style="flex:1;">
+      <input type="text" class="legDestination" data-idx="${idx}" data-leg="${legIndex}" placeholder="Dest IATA / city" autocomplete="off" />
+      <label>Destination</label>
+      <div class="iata-suggestions" style="display:none"></div>
+    </div>
+    <div style="width:160px;">
+      <div class="input-field">
+        <input type="date" class="legDate" data-idx="${idx}" data-leg="${legIndex}" />
+        <label>Date</label>
+      </div>
+    </div>
+    <a class="btn-flat remove-leg" title="Remove leg"><i class="material-icons">remove_circle</i></a>
+  `;
+
+  legsList.appendChild(legRow);
+
+  // attach autocomplete to the newly created inputs
+  const lo = legRow.querySelector('.legOrigin');
+  const ld = legRow.querySelector('.legDestination');
+  if (lo) attachAutocompleteTo(lo);
+  if (ld) attachAutocompleteTo(ld);
+
+  // update Materialize floating labels if available
+  if (typeof M !== 'undefined' && M.updateTextFields) {
+    try { M.updateTextFields(); } catch(e) {}
+  }
+
+  return legRow;
+}
+
+
+// Delegated click handlers + improved wireItemFlightTypeControls
+function wireItemFlightTypeControls(wrapper){
+  if (!wrapper) return;
+  const idx = wrapper.dataset.idx;
+  const radios = wrapper.querySelectorAll(`input[name="flightTypeInner${idx}"]`);
+  const addLegBtn = wrapper.querySelector('.add-leg');
+  const legsContainer = wrapper.querySelector('.multi-legs');
+  const singleDatesRow = wrapper.querySelector('.single-leg-dates');
+  const singleOriginDest = wrapper.querySelector('.single-origin-dest');
+  const returnDateEl = wrapper.querySelector('.returnDateInner');
+
+  // remember previous mode to avoid repeating resets
+  wrapper._lastFlightType = wrapper._lastFlightType || null;
+
+  function show(el){ if(el) el.style.display = ''; }
+  function hide(el){ if(el) el.style.display = 'none'; }
+
+  function refreshUI(forceNoReset = false){
+    const chosen = Array.from(radios).find(r => r.checked);
+    const mode = chosen ? (chosen.value || '').toUpperCase() : 'ONE-WAY';
+    const prev = wrapper._lastFlightType;
+
+    // reset fields if mode changed and not coming from edit/prefill
+    if (!forceNoReset && prev && prev !== mode && !wrapper._loadedFromEdit) {
+      // only reset when switching between types (avoid clearing on initial set)
+      try {
+        // reset only the fields relevant to the switch direction
+        if (mode === 'MULTI-CITY') {
+          // clear single inputs when moving to multi
+          const origin = wrapper.querySelector('.originAirportInner');
+          const dest = wrapper.querySelector('.destinationAirportInner');
+          const dep = wrapper.querySelector('.departureDateInner');
+          const ret = wrapper.querySelector('.returnDateInner');
+          if (origin) origin.value = '';
+          if (dest) dest.value = '';
+          if (dep) dep.value = '';
+          if (ret) ret.value = '';
+          // clear legs then create single blank leg
+          const legsList = wrapper.querySelector('.legs-list');
+          if (legsList) {
+            legsList.innerHTML = '';
+            addLegRowToItem(wrapper, idx);
+          }
+        } else {
+          // mode is ONE-WAY or ROUND-TRIP: remove multi legs
+          const legsList = wrapper.querySelector('.legs-list');
+          if (legsList) {
+            legsList.innerHTML = '';
+            // recreate single blank leg for compatibility (keeps the DOM stable)
+            addLegRowToItem(wrapper, idx);
+          }
+          // clear return if switching to ONE-WAY
+          if (mode === 'ONE-WAY') {
+            const retEl = wrapper.querySelector('.returnDateInner');
+            if (retEl) retEl.value = '';
+          }
+        }
+      } catch (err) {
+        console.warn('Error resetting fields when switching flight type', err);
+      }
+    }
+
+    wrapper._lastFlightType = mode;
+
+    // UI switch
+    if (mode === 'MULTI-CITY') {
+      hide(singleOriginDest);
+      hide(singleDatesRow);
+      if (legsContainer) show(legsContainer);
+      if (addLegBtn) show(addLegBtn);
+
+      // show remove buttons for extras, hide for first
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach((el, i) => {
+        el.style.display = (i === 0) ? 'none' : '';
+      });
+    } else if (mode === 'ROUND-TRIP') {
+      if (singleOriginDest) show(singleOriginDest);
+      if (singleDatesRow) show(singleDatesRow);
+      if (addLegBtn) hide(addLegBtn);
+      if (legsContainer) hide(legsContainer);
+      // show return
+      if (returnDateEl) {
+        const wrap = returnDateEl.closest('.flight-field') || returnDateEl;
+        show(wrap);
+      }
+      // hide remove buttons
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach(el => el.style.display = 'none');
+    } else {
+      // ONE-WAY
+      if (singleOriginDest) show(singleOriginDest);
+      if (singleDatesRow) show(singleDatesRow);
+      if (addLegBtn) hide(addLegBtn);
+      if (legsContainer) hide(legsContainer);
+      if (returnDateEl) {
+        const wrap = returnDateEl.closest('.flight-field') || returnDateEl;
+        hide(wrap);
+      }
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach(el => el.style.display = 'none');
+    }
+
+    if (typeof M !== 'undefined' && M.updateTextFields) M.updateTextFields();
+  }
+
+  // bind radio changes
+  radios.forEach(r => r.addEventListener('change', () => refreshUI(false)));
+
+  // Delegated click handler on wrapper for add-leg and remove-leg
+  // This ensures it works for dynamically created buttons.
+  // Remove existing delegated handler if present
+  if (wrapper._delegatedHandler) wrapper.removeEventListener('click', wrapper._delegatedHandler);
+
+  const delegated = function(e){
+    const target = e.target;
+    // find closest .add-leg or .remove-leg
+    const addBtn = target.closest ? target.closest('.add-leg') : null;
+    if (addBtn && wrapper.contains(addBtn)) {
+      e.preventDefault();
+      // ensure visible and not disabled
+      if (getComputedStyle(addBtn).display === 'none') return;
+      addLegRowToItem(wrapper, idx);
+      // make sure remove icons visibility updated
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach((el, i) => {
+        el.style.display = (i === 0) ? 'none' : '';
+      });
+      return;
+    }
+
+    const remBtn = target.closest ? target.closest('.remove-leg') : null;
+    if (remBtn && wrapper.contains(remBtn)) {
+      e.preventDefault();
+      // remove the parent leg-row
+      const legRow = remBtn.closest('.leg-row');
+      if (legRow) {
+        legRow.remove();
+        // reindex remaining legs
+        const legs = wrapper.querySelectorAll('.legs-list .leg-row');
+        legs.forEach((lr, i) => {
+          lr.dataset.legIndex = i;
+          lr.querySelectorAll('input').forEach(inp => inp.dataset.leg = i);
+        });
+        // update remove button visibility
+        wrapper.querySelectorAll('.legs-list .remove-leg').forEach((el, i) => {
+          el.style.display = (i === 0) ? 'none' : '';
+        });
+      }
+      return;
+    }
+  };
+
+  wrapper.addEventListener('click', delegated);
+  wrapper._delegatedHandler = delegated;
+
+  // initial call (don't reset fields right away when wiring — pass true)
+  refreshUI(true);
+}
+
+// ====== Delegated Add/Remove Leg handler (global) ======
+// This ensures Add leg always works even if per-item delegated wiring failed.
+(function(){
+  // Avoid adding multiple times
+  if (window.__LEG_DELEGATION_ADDED) return;
+  window.__LEG_DELEGATION_ADDED = true;
+
+  document.addEventListener('click', function delegatedLegHandler(e){
+    // Find clicked add-leg or remove-leg button (works when clicking icon or anchor)
+    const addBtn = e.target.closest ? e.target.closest('.add-leg') : null;
+    if (addBtn) {
+      // find the item-row parent
+      const item = addBtn.closest('.item-row');
+      if (!item) {
+        console.warn('Add leg clicked but .item-row parent not found');
+        return;
+      }
+
+      // visible check
+      if (getComputedStyle(addBtn).display === 'none') {
+        console.warn('Add leg clicked but button is hidden.');
+        return;
+      }
+
+      console.log('Add leg clicked for item idx=', item.dataset.idx);
+
+      // call your function to actually add a leg row
+      try {
+        addLegRowToItem(item, item.dataset.idx);
+        // show remove buttons correctly
+        item.querySelectorAll('.legs-list .remove-leg').forEach((el, i) => {
+          el.style.display = (i === 0) ? 'none' : '';
+        });
+      } catch (err) {
+        console.error('Error in addLegRowToItem:', err);
+      }
+
+      return;
+    }
+
+    const remBtn = e.target.closest ? e.target.closest('.remove-leg') : null;
+    if (remBtn) {
+      const item = remBtn.closest('.item-row');
+      if (!item) {
+        console.warn('Remove leg clicked but .item-row parent not found');
+        return;
+      }
+      console.log('Remove leg clicked for item idx=', item.dataset.idx);
+      const legRow = remBtn.closest('.leg-row');
+      if (legRow) {
+        legRow.remove();
+        // reindex
+        const legs = item.querySelectorAll('.legs-list .leg-row');
+        legs.forEach((lr, i) => {
+          lr.dataset.legIndex = i;
+          lr.querySelectorAll('input').forEach(inp => inp.dataset.leg = i);
+        });
+        // update remove button visibility
+        item.querySelectorAll('.legs-list .remove-leg').forEach((el, i) => {
+          el.style.display = (i === 0) ? 'none' : '';
+        });
+      }
+      return;
+    }
+  }, false);
+
+})();
+
+
+// ----------------- wireItemFlightTypeControls -----------------
+// Shows/hides single-origin/dates vs multi-legs depending on flight type radios
+// wrapper: the .item-row element
+function resetItemFields(wrapper){
+  // SINGLE inputs
+  const origin = wrapper.querySelector('.originAirportInner');
+  const dest   = wrapper.querySelector('.destinationAirportInner');
+  const dep    = wrapper.querySelector('.departureDateInner');
+  const ret    = wrapper.querySelector('.returnDateInner');
+
+  if (origin) origin.value = '';
+  if (dest) dest.value = '';
+  if (dep) dep.value = '';
+  if (ret) ret.value = '';
+
+  // MULTI-CITY legs
+  const legsList = wrapper.querySelector('.legs-list');
+  if (legsList) {
+    legsList.innerHTML = ''; // remove all legs
+    // recreate the first blank leg row
+    addLegRowToItem(wrapper, wrapper.dataset.idx);
+  }
+
+  if (typeof M !== 'undefined' && M.updateTextFields) M.updateTextFields();
+}
+
+function resetBoardingPassPreview() {
+  const bpFrom       = document.getElementById('bpFrom');
+  const bpFromName   = document.getElementById('bpFromName');
+  const bpTo         = document.getElementById('bpTo');
+  const bpToName     = document.getElementById('bpToName');
+  const bpTitle      = document.getElementById('bpTitle');
+  const bpCode       = document.getElementById('bpCode');
+  const bpDeadline   = document.getElementById('bpDeadline');
+  const bpDescription= document.getElementById('bpDescription');
+  const bpDescRight  = document.getElementById('bpDescriptionRight');
+  const bpMeta       = document.getElementById('bpMeta');
+  const bpContainer  = document.getElementById('boardingPass');
+  const previewWrap  = document.getElementById('previewDescriptionWrap');
+
+  // Reset primary fields
+  if (bpFrom)       bpFrom.textContent = '---';
+  if (bpFromName)   bpFromName.textContent = 'Origin';
+  if (bpTo)         bpTo.textContent = '---';
+  if (bpToName)     bpToName.textContent = 'Destination';
+  if (bpTitle)      bpTitle.textContent = 'QUIZ / EXAM';
+  if (bpCode)       bpCode.textContent = 'REF: ----';
+  if (bpDeadline)   bpDeadline.textContent = '---';
+  if (bpMeta)       bpMeta.textContent = '---';
+
+  if (bpDescription) bpDescription.textContent = '';
+  if (bpDescRight)   bpDescRight.textContent = '';
+
+  // Hide preview blocks
+  if (bpContainer)  bpContainer.style.display = 'none';
+  if (previewWrap)  previewWrap.style.display = 'none';
+
+  console.log('%c[RESET] Boarding Pass Preview cleared.', 'color:#cc2222');
+}
+
+
+function wireItemFlightTypeControls(wrapper){
+  const idx = wrapper.dataset.idx;
+  const radios = wrapper.querySelectorAll(`input[name="flightTypeInner${idx}"]`);
+
+  const singleOriginDest = wrapper.querySelector('.single-origin-dest');
+  const singleDatesRow   = wrapper.querySelector('.single-leg-dates');
+  const returnDateEl     = wrapper.querySelector('.returnDateInner');
+  const addLegBtn        = wrapper.querySelector('.add-leg');
+  const legsContainer    = wrapper.querySelector('.multi-legs');
+
+  // track previous mode to prevent double-reset
+  wrapper._lastFlightType = wrapper._lastFlightType || 'ONE-WAY';
+
+  function show(el){ if(el) el.style.display=''; }
+  function hide(el){ if(el) el.style.display='none'; }
+
+  function refreshUI(){
+    const selected = Array.from(radios).find(r => r.checked);
+    const mode = selected ? selected.value.toUpperCase() : 'ONE-WAY';
+
+    const wasMode = wrapper._lastFlightType;
+    wrapper._lastFlightType = mode;
+
+    // ---------------------------------------------------------
+    // AUTO-RESET FIELDS WHEN SWITCHING FLIGHT TYPE
+    // (skip reset if same mode OR if wrapper has data via EDIT MODE)
+    // ---------------------------------------------------------
+    const hasPrefilledData = wrapper._loadedFromEdit === true;
+
+    if (!hasPrefilledData && mode !== wasMode) {
+      resetItemFields(wrapper);
+    }
+
+    // ---------------------------------------------------------
+    // UI MODE SWITCHING
+    // ---------------------------------------------------------
+
+    if (mode === 'MULTI-CITY') {
+      hide(singleOriginDest);
+      hide(singleDatesRow);
+      show(legsContainer);
+      if (addLegBtn) show(addLegBtn);
+
+      // show remove buttons (except first)
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach((el, i)=>{
+        el.style.display = (i === 0 ? 'none' : 'inline-flex');
+      });
+
+    } else if (mode === 'ROUND-TRIP') {
+      show(singleOriginDest);
+      show(singleDatesRow);
+      hide(legsContainer);
+      if (addLegBtn) hide(addLegBtn);
+
+      // show return date
+      if (returnDateEl) show(returnDateEl.closest('.flight-field'));
+
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach(el=>{
+        el.style.display='none';
+      });
+
+    } else { // ONE-WAY
+      show(singleOriginDest);
+      show(singleDatesRow);
+      hide(legsContainer);
+      if (addLegBtn) hide(addLegBtn);
+
+      // hide return date
+      if (returnDateEl) hide(returnDateEl.closest('.flight-field'));
+
+      wrapper.querySelectorAll('.legs-list .remove-leg').forEach(el=>{
+        el.style.display='none';
+      });
+    }
+
+    if (typeof M !== 'undefined' && M.updateTextFields) M.updateTextFields();
+  }
+
+  radios.forEach(r =>
+    r.addEventListener('change', refreshUI)
+  );
+
+  // initial render
+  refreshUI();
+}
+
+function attachAutocompleteTo(inputEl) {
+  if (!inputEl) return;
+  // Friendly debug label
+  const debug = (msg, ...args) => { if (window.console) console.debug('[iata-autocomplete]', msg, ...args); };
+
+  // ensure container wrapper exists (prefer a wrapper with .iata-autocomplete, else use parent)
+  let container = inputEl.closest('.iata-autocomplete');
+  if (!container) {
+    debug('No .iata-autocomplete wrapper found; using input.parentNode and creating wrapper class.');
+    container = inputEl.parentNode;
+    if (container) container.classList.add('iata-autocomplete');
+  }
+
+  // ensure suggestion container exists (create if needed)
+  let localSugg = container ? container.querySelector('.iata-suggestions') : null;
+  if (!localSugg) {
+    debug('Creating .iata-suggestions element because none was found.');
+    localSugg = document.createElement('div');
+    localSugg.className = 'iata-suggestions';
+    // minimal inline styles to make it visible by default for debugging; you can remove/replace with CSS
+    localSugg.style.position = 'absolute';
+    localSugg.style.zIndex = 9999;
+    localSugg.style.background = '#fff';
+    localSugg.style.border = '1px solid #ddd';
+    localSugg.style.maxHeight = '260px';
+    localSugg.style.overflow = 'auto';
+    localSugg.style.width = (inputEl.offsetWidth || 300) + 'px';
+    localSugg.style.display = 'none';
+    // append right after input for good positioning
+    container.appendChild(localSugg);
+  }
+
+  // --- utilities ---
+  function escapeHtml(unsafe) {
+    return String(unsafe || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function safeCallMatch(q) {
+    try {
+      if (typeof matchAirports === 'function') {
+        const out = matchAirports(q);
+        if (Array.isArray(out) && out.length) return out;
+      }
+    } catch (e) {
+      debug('matchAirports threw:', e);
+    }
+    return [];
+  }
+
+  // Try to preload window.allAirports automatically if not already present.
+  // Uses the current path with ?airports=1 — adapt if your endpoint is different.
+  async function ensureAllAirportsLoaded() {
+    if (Array.isArray(window.allAirports) && window.allAirports.length) {
+      return window.allAirports;
+    }
+    try {
+      debug('Attempting to preload window.allAirports from endpoint ?airports=1');
+      const res = await fetch(window.location.pathname + '?airports=1', { cache: 'no-store' });
+      if (!res.ok) throw new Error('network not ok ' + res.status);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length) {
+        window.allAirports = data.map(a => ({
+          iata: (a.code || a.iata || a.IATA || '').toUpperCase(),
+          city: a.city || a.cityName || '',
+          name: a.name || a.airportName || '',
+          country: a.country || a.countryRegion || ''
+        }));
+        debug('Preloaded', window.allAirports.length, 'airports into window.allAirports');
+        return window.allAirports;
+      }
+    } catch (err) {
+      debug('Preload failed:', err);
+    }
+    return [];
+  }
+
+  // getMatches: robust fallbacks, returns Array
+function getMatchesSync(q) {
+  q = (q === undefined || q === null) ? '' : String(q);
+  const isEmptyQuery = !q.trim();
+
+  // 1) If matchAirports exists and returns results for this q, use it
+  try {
+    if (typeof matchAirports === 'function') {
+      const out = matchAirports(q);
+      if (Array.isArray(out) && out.length) return out.slice(0, 200);
+    }
+  } catch (e) {
+    debug && console.debug && console.debug('[iata-autocomplete] matchAirports threw', e);
+  }
+
+  // 2) If the query is empty, use the server-rendered airportList (synchronous fallback)
+  if (isEmptyQuery && Array.isArray(airportList) && airportList.length) {
+    // return a shallow copy limited to avoid huge DOM inserts
+    return airportList.slice(0, 200);
+  }
+
+  // 3) If non-empty, but matchAirports returned nothing, try simple contains search on airportList
+  if (!isEmptyQuery && Array.isArray(airportList) && airportList.length) {
+    const qq = q.trim().toUpperCase();
+    const out = [];
+    for (const a of airportList) {
+      const iata = (a.iata || '').toUpperCase();
+      const city = (a.city || '').toUpperCase();
+      const name = (a.name || '').toUpperCase();
+      const country = (a.country || a.countryRegion || '').toUpperCase();
+      if (out.length >= 200) break;
+      if (iata.startsWith(qq) || city.startsWith(qq) || name.startsWith(qq) || country.startsWith(qq)) {
+        out.push(a); continue;
+      }
+      if (iata.includes(qq) || city.includes(qq) || name.includes(qq) || country.includes(qq)) {
+        out.push(a); continue;
+      }
+    }
+    if (out.length) return out;
+  }
+
+  // 4) last-ditch: if window.allAirports exists, use it
+  if (Array.isArray(window.allAirports) && window.allAirports.length) {
+    if (isEmptyQuery) return window.allAirports.slice(0, 200);
+    const qq = q.trim().toLowerCase();
+    return window.allAirports.filter(a =>
+      (a.iata && a.iata.toLowerCase().includes(qq)) ||
+      (a.city && a.city.toLowerCase().includes(qq)) ||
+      (a.name && a.name.toLowerCase().includes(qq)) ||
+      (a.country && a.country.toLowerCase().includes(qq))
+    ).slice(0,200);
+  }
+
+  // Nothing found
+  return [];
+}
+
+  // async version that will try to preload if needed
+  async function getMatches(q) {
+    let m = getMatchesSync(q);
+    if (m.length) return m;
+    // attempt preloading window.allAirports once
+    const pre = await ensureAllAirportsLoaded();
+    if (pre && pre.length) {
+      // If query present, do a simple contains filter
+      if (q && q.trim()) {
+        const qq = q.trim().toLowerCase();
+        return pre.filter(a =>
+          (a.iata && a.iata.toLowerCase().includes(qq)) ||
+          (a.city && a.city.toLowerCase().includes(qq)) ||
+          (a.name && a.name.toLowerCase().includes(qq)) ||
+          (a.country && a.country.toLowerCase().includes(qq))
+        ).slice(0, 200);
+      }
+      return pre.slice(0, 200);
+    }
+    return [];
+  }
+
+  // render suggestions
+  function renderSuggestions(matches) {
+    if (!localSugg) return;
+    if (!matches || matches.length === 0) {
+      localSugg.innerHTML = '<div class="no-results">No airports found</div>';
+      localSugg.style.display = 'block';
+      return;
+    }
+    localSugg.innerHTML = matches.map(a => {
+      const label = escapeHtml(a.label || (a.iata || '') + ' ' + (a.name || ''));
+      const small = a.city ? `<small>${escapeHtml(a.city)}</small>` : `<small>${escapeHtml((a.name || '').toUpperCase())}</small>`;
+      return `<div class="iata-suggestion"
+                   data-iata="${escapeHtml(a.iata || '')}"
+                   data-city="${escapeHtml(a.city || '')}"
+                   data-name="${escapeHtml(a.name || '')}"
+                   data-country="${escapeHtml(a.country || '')}">
+                ${label}${small}
+              </div>`;
+    }).join('');
+    localSugg.style.display = 'block';
+  }
+
+  // show default (called on focus/click)
+  async function showDefault() {
+    debug('showDefault called for', inputEl.id || inputEl.name || inputEl);
+    const matches = await getMatches('');
+    debug('Default matches length:', matches.length);
+    renderSuggestions(matches);
+  }
+
+  // handle typing
+  let inputTimeout = null;
+  inputEl.addEventListener('input', function () {
+    if (inputTimeout) clearTimeout(inputTimeout);
+    // small debounce to avoid spamming matchAirports
+    inputTimeout = setTimeout(async () => {
+      const q = this.value || '';
+      if (!q.trim()) {
+        // show defaults rather than hide
+        await showDefault();
+        return;
+      }
+      const matches = await getMatches(q);
+      debug('input -> matches length', matches.length, 'for query:', q);
+      renderSuggestions(matches);
+    }, 120);
+  });
+
+  // open suggestions on focus & click
+  inputEl.addEventListener('focus', () => { showDefault(); });
+  inputEl.addEventListener('click', () => { showDefault(); });
+
+  // delegate click events on container
+  localSugg.addEventListener('click', (evt) => {
+    const node = evt.target.closest('.iata-suggestion');
+    if (!node) return;
+    const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
+    const quizType = quizTypeRadio ? quizTypeRadio.value : (window.currentQuizInputType || 'code-airport');
+
+    const iata = (node.dataset.iata || '').toUpperCase();
+    const city = (node.dataset.city || '').toUpperCase();
+    const name = (node.dataset.name || '').toUpperCase();
+    const country = (node.dataset.country || '').toUpperCase();
+
+    if (quizType === 'airport-code') {
+      const parts = [];
+      if (name) parts.push(name);
+      if (city) parts.push(city);
+      if (country) parts.push(country);
+      const display = parts.join(' - ') || iata;
+      inputEl.value = display;
+    } else {
+      inputEl.value = iata;
+    }
+
+    inputEl.dataset.city = city;
+    localSugg.style.display = 'none';
+    if (typeof M !== 'undefined' && M.updateTextFields) M.updateTextFields();
+    inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+    triggerAirportValidation(inputEl);
+  });
+
+  // hide on blur (allow click)
+  inputEl.addEventListener('blur', function () {
+    setTimeout(() => { if (localSugg) localSugg.style.display = 'none'; }, 120);
+  });
+  inputEl.addEventListener("input", () => {
+    triggerAirportValidation(inputEl);
+  });
+  // initia l debug ping
+  debug('attachAutocompleteTo initialized for', inputEl, 'container', container, 'suggestions', !!localSugg);
+}
+
+function triggerAirportValidation(el) {
+    const wrapper = el.closest('.item-row');
+    if (!wrapper) return;
+
+    const idx = wrapper.dataset.idx;
+
+    // single
+    const orig = wrapper.querySelector('.originAirportInner');
+    const dest = wrapper.querySelector('.destinationAirportInner');
+
+    validateAirportPair(orig, dest);
+
+    // multi-city legs
+    wrapper.querySelectorAll('.leg-row').forEach(row => {
+        const lo = row.querySelector('.legOrigin');
+        const ld = row.querySelector('.legDestination');
+        validateAirportPair(lo, ld);
+    });
+}
 
     // close when clicking overlay
 document.addEventListener('click', function (e) {
@@ -1160,13 +1838,35 @@ function addItem(prefill = null){
   const cont = document.getElementById('itemsContainer');
   if(!cont) return;
   const block = createItemBlock(prefill);
+
+  // append FIRST (important for Materialize initialization)
   cont.appendChild(block);
 
-  const selects = block.querySelectorAll('select');
-  M.FormSelect.init(selects);
+  // Initialize Materialize selects and other components inside this newly appended block
+  try {
+    const selects = block.querySelectorAll('select');
+    if (selects && selects.length && typeof M !== 'undefined' && M.FormSelect) {
+      M.FormSelect.init(selects);
+    }
+  } catch (err) {
+    console.warn('Materialize select init error on appended item:', err);
+  }
+
+  // re-run updateTextFields so floating labels position correctly
+  if (typeof M !== 'undefined' && M.updateTextFields) {
+    try { M.updateTextFields(); } catch(e) { /* ignore */ }
+  }
+
+  // If your createItemBlock doesn't attach autocomplete inside, attach it now
+  // (optional safety)
+  attachAutocompleteTo(block.querySelector('.originAirportInner'));
+  attachAutocompleteTo(block.querySelector('.destinationAirportInner'));
+  attachAutocompleteTo(block.querySelector('.legOrigin'));
+  attachAutocompleteTo(block.querySelector('.legDestination'));
 
   refreshItemLabels();
 }
+
 
 function refreshItemLabels(){
   const items = Array.from(document.querySelectorAll('#itemsContainer .item-row'));
@@ -1180,50 +1880,114 @@ function refreshItemLabels(){
 function collectItems(){
   const items = [];
   const blocks = document.querySelectorAll('#itemsContainer .item-row');
-  for(const b of blocks){
+
+  blocks.forEach((b) => {
+    const idx = b.dataset.idx;
+
     const adultsEl   = b.querySelector('.adultCountInner');
     const childrenEl = b.querySelector('.childCountInner');
     const infantsEl  = b.querySelector('.infantCountInner');
-    const originEl   = b.querySelector('.originAirportInner');
-    const destEl     = b.querySelector('.destinationAirportInner');
-    const departureEl= b.querySelector('.departureDateInner');
-    const returnEl   = b.querySelector('.returnDateInner');
     const flightNumEl= b.querySelector('.flightNumberInner');
     const seatsEl    = b.querySelector('.seatNumbersInner');
     const travelClassEl = b.querySelector('.travelClassInner');
-    const flightTypeInput = b.querySelector(`input[name=flightTypeInner${b.dataset.idx}]:checked`);
+    const flightTypeInput = b.querySelector(`input[name="flightTypeInner${idx}"]:checked`);
 
     const adults = adultsEl ? parseInt(adultsEl.value || 0, 10) : 0;
     const children = childrenEl ? parseInt(childrenEl.value || 0, 10) : 0;
     const infants = infantsEl ? parseInt(infantsEl.value || 0, 10) : 0;
-    const origin = originEl ? (originEl.value || '') : '';
-    const destination = destEl ? (destEl.value || '') : '';
-    const departure = departureEl ? (departureEl.value || null) : null;
-    const ret = returnEl ? (returnEl.value || null) : null;
     const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
     const seats = seatsEl ? (seatsEl.value || '') : '';
     const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
     const ftVal = flightTypeInput ? (flightTypeInput.value || 'ONE-WAY') : 'ONE-WAY';
-    const flightType = ftVal.toUpperCase() === 'ROUND-TRIP' ? 'ROUND-TRIP' : 'ONE-WAY';
+    const flightType = (ftVal || 'ONE-WAY').toUpperCase();
 
+    // Normalize helper
+    const ucNorm = (s) => (s || '').toString().trim().toUpperCase();
 
-    items.push({
-      iata: uc(origin),
-      city: uc(destination),
-      booking: {
-        adults, children, infants,
-        flight_type: flightType,
-        origin: uc(origin),
-        destination: uc(destination),
-        departure, return: ret,
-        flight_number: flightNumber,
-        seats,
-        travel_class: travelClass
-      }
-    });
-  }
+    // If MULTI-CITY => collect all leg rows
+    if (flightType === 'MULTI-CITY') {
+      const legs = [];
+      const legRows = b.querySelectorAll('.legs-list .leg-row');
+      legRows.forEach((lr) => {
+        const originEl = lr.querySelector('.legOrigin');
+        const destEl = lr.querySelector('.legDestination');
+        const dateEl = lr.querySelector('.legDate');
+
+        const origin = originEl ? (originEl.value || '') : '';
+        const destination = destEl ? (destEl.value || '') : '';
+        const date = dateEl ? (dateEl.value || null) : null;
+
+        legs.push({
+          origin: ucNorm(origin),
+          destination: ucNorm(destination),
+          date
+        });
+      });
+
+      const topOrigin = legs.length ? legs[0].origin : '';
+      const topDestination = legs.length ? legs[legs.length - 1].destination : '';
+
+      items.push({
+        iata: ucNorm(topOrigin),
+        city: ucNorm(topDestination),
+        booking: {
+          adults, children, infants,
+          flight_type: flightType,
+          origin: ucNorm(topOrigin),
+          destination: ucNorm(topDestination),
+          departure: legs.length ? legs[0].date : null,
+          return: null,
+          flight_number: flightNumber,
+          seats,
+          travel_class: travelClass,
+          legs
+        }
+      });
+
+    } else {
+      // ONE-WAY / ROUND-TRIP: read the single origin/destination + date(s)
+      const originEl = b.querySelector('.originAirportInner');
+      const destEl   = b.querySelector('.destinationAirportInner');
+      const depEl    = b.querySelector('.departureDateInner');
+      const retEl    = b.querySelector('.returnDateInner');
+
+      const originRaw = originEl ? (originEl.value || '') : '';
+      const destRaw = destEl ? (destEl.value || '') : '';
+      const departure = depEl ? (depEl.value || null) : null;
+      const ret = retEl ? (retEl.value || null) : null;
+
+      const origin = ucNorm(originRaw);
+      const destination = ucNorm(destRaw);
+
+      // create single-leg array so consumers can always look at booking.legs
+      const legs = [{ origin, destination, date: departure }];
+
+      items.push({
+        iata: origin,
+        city: destination,
+        booking: {
+          adults, children, infants,
+          flight_type: flightType,
+          origin,
+          destination,
+          departure,
+          return: flightType === 'ROUND-TRIP' ? ret : null,
+          flight_number: flightNumber,
+          seats,
+          travel_class: travelClass,
+          legs
+        }
+      });
+    }
+  });
+
+  // DEBUG helper: uncomment to inspect collected items in console
+  console.log('collectItems ->', items);
+
   return items;
 }
+
+
 
 // Turn a code or city into a nicer display using airportList
 function resolveAirportDisplay(value){
@@ -1278,89 +2042,103 @@ function buildDescription(){
   const sectionField = document.getElementById('sectionField');
   const section = sectionField ? (sectionField.value || '') : '';
 
-  // Quiz-level type from the radio or from loaded quiz
   const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
-  const quizType = quizTypeRadio
-    ? quizTypeRadio.value  // 'code-airport' or 'airport-code'
-    : (window.currentQuizInputType || 'code-airport');
+  const quizType = quizTypeRadio ? quizTypeRadio.value : (window.currentQuizInputType || 'code-airport');
 
   let parts = [];
 
   items.forEach((it) => {
     const b = it.booking || {};
 
-    // ----- PASSENGERS -----
+    // passengers
     let passengerParts = [];
     if (b.adults > 0)   passengerParts.push(`${b.adults} adult${b.adults > 1 ? 's' : ''}`);
     if (b.children > 0) passengerParts.push(`${b.children} child${b.children > 1 ? 'ren' : ''}`);
     if (b.infants > 0)  passengerParts.push(`${b.infants} infant${b.infants > 1 ? 's' : ''}`);
-
-    const passengerText = passengerParts.length
-      ? passengerParts.join(', ')
-      : '1 passenger';
-
-    // ----- AIRPORT VALUE LOOKUP -----
-    const originRaw      = b.origin || it.iata || '';
-    const destinationRaw = b.destination || it.city || '';
-
-    const originInfo = resolveAirportInfo(originRaw);
-    const destInfo   = resolveAirportInfo(destinationRaw);
-
-    // Display depends on quizType:
-    // 'airport-code' -> show airport name (student answers with CODE)
-    // 'code-airport' -> show IATA code (student answers with AIRPORT)
-    let originDisplay = '';
-    let destinationDisplay = '';
-
-    if (quizType === 'airport-code') {
-      originDisplay      = originInfo.airportText;
-      destinationDisplay = destInfo.airportText;
-    } else {
-      originDisplay      = originInfo.iataText;
-      destinationDisplay = destInfo.iataText;
-    }
+    const passengerText = passengerParts.length ? passengerParts.join(', ') : '1 passenger';
 
     const flightType  = (b.flight_type || 'ONE-WAY').toUpperCase();
     const flightClass = (b.travel_class || 'ECONOMY').toUpperCase();
 
-    // ----- FINAL PROMPT -----
-    const sentence =
-      `Book ${passengerText} from ${originDisplay} to ${destinationDisplay}, ` +
-      `${flightType}, ${flightClass}.`;
+    // build route text
+    let routeText = '';
 
+    if (flightType === 'MULTI-CITY' && Array.isArray(b.legs) && b.legs.length) {
+      // Build something like "MNL → NRT (2025-06-01), NRT → LAX (2025-06-05)"
+      const segs = b.legs.map(l => {
+        const originInfo = resolveAirportInfo(l.origin || '');
+        const destInfo = resolveAirportInfo(l.destination || '');
+        const originDisplay = (quizType === 'airport-code') ? originInfo.airportText : originInfo.iataText;
+        const destDisplay = (quizType === 'airport-code') ? destInfo.airportText : destInfo.iataText;
+        const datePart = l.date ? ` (${l.date})` : '';
+        return `${originDisplay} → ${destDisplay}${datePart}`;
+      });
+      routeText = segs.join(', ');
+    } else {
+      // Single leg (first leg)
+      const firstOrigin = (Array.isArray(b.legs) && b.legs[0]) ? b.legs[0].origin : (b.origin || it.iata || '');
+      const firstDest = (Array.isArray(b.legs) && b.legs[0]) ? b.legs[0].destination : (b.destination || it.city || '');
+      const originInfo = resolveAirportInfo(firstOrigin);
+      const destInfo   = resolveAirportInfo(firstDest);
+      const originDisplay = (quizType === 'airport-code') ? originInfo.airportText : originInfo.iataText;
+      const destDisplay = (quizType === 'airport-code') ? destInfo.airportText : destInfo.iataText;
+      const datePart = (Array.isArray(b.legs) && b.legs[0] && b.legs[0].date) ? ` on ${b.legs[0].date}` : (b.departure ? ` on ${b.departure}` : '');
+      routeText = `${originDisplay} to ${destDisplay}${datePart}`;
+      if (flightType === 'ROUND-TRIP' && b.return) routeText += ` (return ${b.return})`;
+    }
+
+    const sentence = `Book ${passengerText} — ${routeText}, ${flightType}, ${flightClass}.`;
     parts.push(sentence);
   });
 
-  // Join items
   let desc = parts.join(' ');
 
-  // Course / Section
   if (section) {
     desc += ` Course/Section: ${section}.`;
   }
 
-  // Expected answer (helper) based on quizType
+  // expected answer: keep same logic but pick last destination of first item
   let expected = null;
   if (items.length) {
     const first = items[0];
     const b0 = first.booking || {};
-
-    const originInfo0 = resolveAirportInfo(b0.origin || first.iata || '');
-    const destInfo0   = resolveAirportInfo(b0.destination || first.city || '');
-
-    if (quizType === 'airport-code') {
-      // Student should answer with IATA code -> use destination code
-      expected = destInfo0.code;
+    let targetDest = '';
+    if (Array.isArray(b0.legs) && b0.legs.length) {
+      targetDest = b0.legs[b0.legs.length - 1].destination || '';
     } else {
-      // Student should answer with airport name -> use full text
-      expected = destInfo0.airportText;
+      targetDest = b0.destination || first.city || '';
     }
+    const destInfo0 = resolveAirportInfo(targetDest || '');
+    expected = (quizType === 'airport-code') ? destInfo0.code : destInfo0.airportText;
   }
 
   return { description: desc, expected_answer: expected, itemsCount: items.length };
 }
 
+
 async function saveQuiz(redirect=false){
+
+    // FINAL VALIDATION PASS
+    let allValid = true;
+
+    document.querySelectorAll('.item-row').forEach(item => {
+        // SINGLE
+        const orig = item.querySelector('.originAirportInner');
+        const dest = item.querySelector('.destinationAirportInner');
+        if (!validateAirportPair(orig, dest)) allValid = false;
+
+        // MULTI-CITY
+        item.querySelectorAll('.leg-row').forEach(row => {
+            const lo = row.querySelector('.legOrigin');
+            const ld = row.querySelector('.legDestination');
+            if (!validateAirportPair(lo, ld)) allValid = false;
+        });
+    });
+
+    if (!allValid) {
+        M.toast({ html: "Origin and destination cannot be the same." });
+        return;
+    }
 
   const titleEl = document.getElementById('quizTitle');
   const sectionEl = document.getElementById('sectionField');
@@ -1427,7 +2205,71 @@ async function saveQuiz(redirect=false){
   }
 }
 
+function resetAllItemFieldsBecauseQuestionTypeChanged(){
+  const items = document.querySelectorAll('#itemsContainer .item-row');
+
+  items.forEach(item => {
+    const idx = item.dataset.idx;
+
+    // Single route inputs
+    const origin = item.querySelector('.originAirportInner');
+    const dest   = item.querySelector('.destinationAirportInner');
+    const dep    = item.querySelector('.departureDateInner');
+    const ret    = item.querySelector('.returnDateInner');
+    const seats  = item.querySelector('.seatNumbersInner');
+
+    if (origin) origin.value = '';
+    if (dest)   dest.value = '';
+    if (dep)    dep.value = '';
+    if (ret)    ret.value = '';
+    if (seats)  seats.value = '';
+
+    // MULTI-CITY legs
+    const legsList = item.querySelector('.legs-list');
+    if (legsList) {
+      legsList.innerHTML = '';
+      addLegRowToItem(item, idx);   // recreate FIRST leg row
+    }
+  });
+
+  // update floating labels
+  if (typeof M !== 'undefined' && M.updateTextFields) {
+    M.updateTextFields();
+  }
+
+  console.log('%c[RESET] Question type changed — all item fields cleared.', 'color:#d42;');
+}
+
+function validateAirportPair(originEl, destEl) {
+    if (!originEl || !destEl) return true;
+
+    const o = (originEl.value || "").trim().toUpperCase();
+    const d = (destEl.value || "").trim().toUpperCase();
+
+    // remove previous errors
+    originEl.classList.remove("input-error");
+    destEl.classList.remove("input-error");
+
+    // allow empty (user still typing)
+    if (!o || !d) return true;
+
+    if (o === d) {
+        originEl.classList.add("input-error");
+        destEl.classList.add("input-error");
+        return false;
+    }
+    return true;
+}
+
 document.addEventListener('DOMContentLoaded', function(){
+
+  document.querySelectorAll('input[name="quizInputType"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    resetAllItemFieldsBecauseQuestionTypeChanged();
+    resetBoardingPassPreview();                     
+  });
+});
+
   var elems = document.querySelectorAll('select');
   M.FormSelect.init(elems);
 
@@ -1488,9 +2330,10 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   const prevBtn = document.getElementById('previewBtn');
-  if(prevBtn){
-    prevBtn.addEventListener('click', (e)=>{
+  if (prevBtn) {
+    prevBtn.addEventListener('click', (e) => {
       e.preventDefault();
+
       const titleEl = document.getElementById('quizTitle');
       const sectionEl = document.getElementById('sectionField');
 
@@ -1499,50 +2342,107 @@ document.addEventListener('DOMContentLoaded', function(){
       const durationDisplay = '60';
       const code = genRef();
 
-      const {description, itemsCount} = buildDescription();
+      // collect items (reads current UI)
+      const items = collectItems();
+      if (!items || !items.length) {
+        if (typeof M !== 'undefined' && M.toast) M.toast({ html: 'No items to preview.' });
+        return;
+      }
 
-      const firstItem = collectItems()[0] || null;
+      const { description, itemsCount } = buildDescription();
+
+      // pick the first item for the big boarding pass
+      const firstItem = items[0] || null;
+      const b0 = firstItem && firstItem.booking ? firstItem.booking : {};
 
       // respect quiz type: show codes vs names
       const quizTypeRadio = document.querySelector('input[name="quizInputType"]:checked');
-      const quizType = quizTypeRadio
-        ? quizTypeRadio.value
-        : (window.currentQuizInputType || 'code-airport');
+      const quizType = quizTypeRadio ? quizTypeRadio.value : (window.currentQuizInputType || 'code-airport');
+
+      // Determine originRaw and destRaw robustly:
+      let originRaw = '';
+      let destRaw = '';
+
+      // If it's multi-city and has legs, prefer legs[0].origin and legs[last].destination
+      if ((b0.flight_type || '').toUpperCase() === 'MULTI-CITY' && Array.isArray(b0.legs) && b0.legs.length) {
+        originRaw = b0.legs[0].origin || '';
+        destRaw = b0.legs[b0.legs.length - 1].destination || '';
+      } else {
+        // For ONE-WAY / ROUND-TRIP: prefer booking.origin/destination if present,
+        // otherwise fall back to legs[0]
+        originRaw = b0.origin || firstItem.iata || (Array.isArray(b0.legs) && b0.legs[0] ? b0.legs[0].origin : '') || '';
+        destRaw   = b0.destination || firstItem.city || (Array.isArray(b0.legs) && b0.legs[0] ? b0.legs[0].destination : '') || '';
+      }
+
+      // Resolve display text using your helper
+      const originInfo = resolveAirportInfo(originRaw);
+      const destInfo   = resolveAirportInfo(destRaw);
 
       let repFrom = '---', repTo = '---';
       let repFromSub = 'Origin';
       let repToSub   = 'Destination';
 
-      if (firstItem) {
-        const b0 = firstItem.booking || {};
-        const originInfo = resolveAirportInfo(b0.origin || firstItem.iata || '');
-        const destInfo   = resolveAirportInfo(b0.destination || firstItem.city || '');
-
-        if (quizType === 'airport-code') {
-          // show big airport name, small IATA
-          repFrom    = originInfo.airportText;
-          repTo      = destInfo.airportText;
-          repFromSub = originInfo.iataText || 'Origin';
-          repToSub   = destInfo.iataText   || 'Destination';
-        } else {
-          // show big IATA, small airport name
-          repFrom    = originInfo.iataText;
-          repTo      = destInfo.iataText;
-          repFromSub = originInfo.airportText || 'Origin';
-          repToSub   = destInfo.airportText   || 'Destination';
-        }
+      if (quizType === 'airport-code') {
+        // show big airport name, small IATA
+        repFrom    = originInfo.airportText || originInfo.iataText || '---';
+        repTo      = destInfo.airportText   || destInfo.iataText   || '---';
+        repFromSub = originInfo.iataText || 'Origin';
+        repToSub   = destInfo.iataText   || 'Destination';
+      } else {
+        // show big IATA, small airport name
+        repFrom    = originInfo.iataText || originInfo.airportText || '---';
+        repTo      = destInfo.iataText || destInfo.airportText || '---';
+        repFromSub = originInfo.airportText || 'Origin';
+        repToSub   = destInfo.airportText || 'Destination';
       }
 
-      document.getElementById('bpFrom').textContent    = repFrom;
-      document.getElementById('bpTo').textContent      = repTo;
-      document.getElementById('bpFromName').textContent= repFromSub;
-      document.getElementById('bpToName').textContent  = repToSub;
-      document.getElementById('bpTitle').textContent= title;
+      // Compute Deadline / Departure(s) string
+      let deadlineText = 'Multiple / see description';
+      try {
+        const ft = (b0.flight_type || 'ONE-WAY').toUpperCase();
+        if (ft === 'MULTI-CITY' && Array.isArray(b0.legs) && b0.legs.length) {
+          // list each leg date (compact)
+          const segDates = b0.legs.map(l => {
+            const d = l.date || '';
+            const o = resolveAirportInfo(l.origin || '');
+            const dv = resolveAirportInfo(l.destination || '');
+            // short form: ORIG→DEST (date)
+            const oShort = (quizType === 'airport-code') ? (o.airportText || o.iataText) : o.iataText || o.airportText;
+            const dShort = (quizType === 'airport-code') ? (dv.airportText || dv.iataText) : dv.iataText || dv.airportText;
+            return `${oShort}→${dShort}${d ? ' (' + d + ')' : ''}`;
+          });
+          deadlineText = segDates.join(', ');
+        } else if (ft === 'ROUND-TRIP') {
+          const dep = b0.departure || (Array.isArray(b0.legs) && b0.legs[0] ? b0.legs[0].date : '');
+          const ret = b0.return || '';
+          if (dep && ret) deadlineText = `Departs ${dep} • Returns ${ret}`;
+          else if (dep) deadlineText = `Departs ${dep}`;
+          else deadlineText = 'Dates: see item';
+        } else { // ONE-WAY
+          const dep = b0.departure || (Array.isArray(b0.legs) && b0.legs[0] ? b0.legs[0].date : '');
+          deadlineText = dep ? `Departs ${dep}` : 'Departure date: not set';
+        }
+      } catch (err) {
+        deadlineText = 'Multiple / see description';
+      }
+
+      // Update boarding pass DOM
+      const bpFromEl = document.getElementById('bpFrom');
+      const bpToEl = document.getElementById('bpTo');
+      const bpFromNameEl = document.getElementById('bpFromName');
+      const bpToNameEl = document.getElementById('bpToName');
+
+      if (bpFromEl) bpFromEl.textContent = repFrom;
+      if (bpToEl) bpToEl.textContent = repTo;
+      if (bpFromNameEl) bpFromNameEl.textContent = repFromSub;
+      if (bpToNameEl) bpToNameEl.textContent = repToSub;
+
+      document.getElementById('bpTitle').textContent = title;
       document.getElementById('bpCode').textContent = 'REF: ' + code;
-      document.getElementById('bpDeadline').textContent = 'Multiple / see description';
+      document.getElementById('bpDeadline').textContent = deadlineText;
 
       let metaClass = '';
-      if(firstItem && firstItem.difficulty) metaClass = firstItem.difficulty;
+      if (firstItem && firstItem.difficulty) metaClass = firstItem.difficulty;
       document.getElementById('bpMeta').textContent =
         itemsCount + ' Items • ' + durationDisplay + ' min' + (metaClass ? ' • ' + metaClass : '');
 

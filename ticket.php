@@ -108,122 +108,272 @@ if ($quizId > 0) {
   }
 
   if ($quiz) {
-    $items = [];
+// =========================================
+// LOAD QUIZ ITEMS (supports legs_json + legacy ROUND-TRIP)
+// =========================================
 
+$items = [];
+
+// Detect if quiz_items has legs_json column
+$hasLegsJson = false;
+$colCheck = $conn->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
+if ($colCheck && $colCheck->num_rows > 0) {
+    $hasLegsJson = true;
+}
+
+// Build SELECT query including legs_json if available
+if ($hasLegsJson) {
     $itemSql = "
       SELECT
         id,
-        adults,
-        children,
-        infants,
+        adults, children, infants,
         flight_type,
-        origin_iata      AS origin,
+        origin_iata AS origin,
         destination_iata AS destination,
-        departure_date   AS departure,
+        departure_date AS departure,
         return_date,
         flight_number,
         seats,
-        travel_class
+        travel_class,
+        legs_json
       FROM quiz_items
       WHERE quiz_id = ?
-      ORDER BY id ASC
+      ORDER BY item_index ASC, id ASC
     ";
-    $stmt = $conn->prepare($itemSql);
-    if ($stmt) {
-      $stmt->bind_param('i', $quizId);
-      $stmt->execute();
-      $res = $stmt->get_result();
-      while ($r = $res->fetch_assoc()) {
-        $r['adults']   = isset($r['adults'])   ? (int)$r['adults']   : 0;
-        $r['children'] = isset($r['children']) ? (int)$r['children'] : 0;
-        $r['infants']  = isset($r['infants'])  ? (int)$r['infants']  : 0;
-        $items[] = $r;
-      }
-      $stmt->close();
-    }
+} else {
+    $itemSql = "
+      SELECT
+        id,
+        adults, children, infants,
+        flight_type,
+        origin_iata AS origin,
+        destination_iata AS destination,
+        departure_date AS departure,
+        return_date,
+        flight_number,
+        seats,
+        travel_class,
+        NULL AS legs_json
+      FROM quiz_items
+      WHERE quiz_id = ?
+      ORDER BY item_index ASC, id ASC
+    ";
+}
 
-     $sentences = [];
-    $firstDestination = null;
-    $firstDeadline = null;
+$stmt = $conn->prepare($itemSql);
 
-    $inputType = $quiz['input_type'] ?? 'code-airport'; // 'airport-code' or 'code-airport'
+if ($stmt) {
+    $stmt->bind_param('i', $quizId);
+    $stmt->execute();
+    $res = $stmt->get_result();
 
-    foreach ($items as $idx => $it) {
-      $adults   = (int)($it['adults'] ?? 0);
-      $children = (int)($it['children'] ?? 0);
-      $infants  = (int)($it['infants'] ?? 0);
+    while ($r = $res->fetch_assoc()) {
 
-      // ---- PASSENGER TEXT (same style as quizmaker) ----
-      $passengerParts = [];
-      if ($adults > 0)   $passengerParts[] = $adults   . ' adult'  . ($adults   > 1 ? 's' : '');
-      if ($children > 0) $passengerParts[] = $children . ' child'  . ($children > 1 ? 'ren' : '');
-      if ($infants > 0)  $passengerParts[] = $infants  . ' infant' . ($infants  > 1 ? 's' : '');
+        // Normalize numeric fields
+        $r['adults']   = (int)($r['adults'] ?? 0);
+        $r['children'] = (int)($r['children'] ?? 0);
+        $r['infants']  = (int)($r['infants'] ?? 0);
 
-      $passengerText = $passengerParts ? implode(', ', $passengerParts) : '1 passenger';
+        // Normalize travel class
+        $r['travel_class'] = strtoupper(trim($r['travel_class'] ?? 'ECONOMY'));
 
-      // ---- AIRPORTS, matching quizmaker mode ----
-      $orgCode = strtoupper(trim($it['origin'] ?? ''));
-      $dstCode = strtoupper(trim($it['destination'] ?? ''));
-
-      if ($inputType === 'airport-code') {
-        // Show airport name text (student answers IATA code)
-        $fromText = $orgCode ? airport_prompt_text($orgCode, $iataMap) : '---';
-        $toText   = $dstCode ? airport_prompt_text($dstCode, $iataMap) : '---';
-      } else {
-        // Show IATA codes (student answers airport name)
-        $fromText = $orgCode ?: '---';
-        $toText   = $dstCode ?: '---';
-      }
-
-      // ---- FLIGHT TYPE / CLASS (UPPERCASE, comma-separated) ----
-      $flightType = strtoupper(trim($it['flight_type'] ?? 'ONE-WAY'));
-      if ($flightType !== 'ROUND-TRIP') {
-        $flightType = 'ONE-WAY';
-      }
-
-      $flightClass = strtoupper(trim($it['travel_class'] ?? 'ECONOMY'));
-
-      // ---- FINAL SENTENCE (copy of quizmaker style) ----
-      $sentence = "Book {$passengerText} from {$fromText} to {$toText}, {$flightType}, {$flightClass}.";
-      $sentences[] = $sentence;
-
-      // expected_answer based on the FIRST item, like quizmaker
-      if ($idx === 0) {
-        if ($inputType === 'airport-code') {
-          // user should answer IATA code
-          $firstDestination = $dstCode ?: null;
-        } else {
-          // user should answer airport name text
-          $firstDestination = $dstCode ? airport_prompt_text($dstCode, $iataMap) : null;
+        // ---------------------------
+        // TRY PARSING legs_json FIRST
+        // ---------------------------
+        $legs = [];
+        if (!empty($r['legs_json'])) {
+            $decoded = json_decode($r['legs_json'], true);
+            if (is_array($decoded) && count($decoded) > 0) {
+                foreach ($decoded as $lg) {
+                    $legs[] = [
+                        'origin'      => strtoupper(trim($lg['origin'] ?? '')),
+                        'destination' => strtoupper(trim($lg['destination'] ?? '')),
+                        'date'        => trim($lg['date'] ?? '')
+                    ];
+                }
+            }
         }
-      }
 
-      // firstDeadline => first (earliest) departure_date
-      if ($firstDeadline === null && !empty($it['departure'])) {
-        $firstDeadline = $it['departure'];
-      }
+        // ---------------------------------------------
+        // LEGACY FALLBACK — build legs from old columns
+        // ---------------------------------------------
+        if (count($legs) === 0) {
+
+            $legacy_origin = strtoupper(trim($r['origin'] ?? ''));
+            $legacy_dest   = strtoupper(trim($r['destination'] ?? ''));
+            $legacy_depart = trim($r['departure'] ?? '');
+            $legacy_return = trim($r['return_date'] ?? '');
+            $rowFlightType = strtoupper(trim($r['flight_type'] ?? 'ONE-WAY'));
+
+            // Always add outbound leg
+            $legs[] = [
+                'origin'      => $legacy_origin,
+                'destination' => $legacy_dest,
+                'date'        => $legacy_depart
+            ];
+
+            // If ROUND-TRIP and return_date exists, add return leg
+            if ($rowFlightType === 'ROUND-TRIP' && $legacy_return !== '') {
+                $legs[] = [
+                    'origin'      => $legacy_dest,
+                    'destination' => $legacy_origin,
+                    'date'        => $legacy_return
+                ];
+            }
+        }
+
+        // Attach legs back to row
+        $r['legs'] = $legs;
+
+        $items[] = $r;
+    }
+    $stmt->close();
+}
+
+// =====================================================
+// BUILD REFORMATTED STUDENT PROMPT (MULTI-CITY FORMAT)
+// =====================================================
+
+// ---------- helpers ----------
+function is_true_roundtrip_for_legs($legs) {
+    if (!is_array($legs) || count($legs) !== 2) return false;
+    $l0 = $legs[0]; $l1 = $legs[1];
+    if (empty($l0['origin']) || empty($l0['destination']) || empty($l1['origin']) || empty($l1['destination'])) {
+        return false;
+    }
+    return ($l0['origin'] === $l1['destination'] && $l0['destination'] === $l1['origin']);
+}
+
+// --------- aggregate totals & segments ----------
+$totalAdults = 0;
+$totalChildren = 0;
+$totalInfants = 0;
+$allSegments = [];   // flattened segments (array of ['origin'=>'MNL','destination'=>'KUL','date'=>'2025-12-01'])
+$classes = [];       // distinct travel classes
+$anyTrueRoundTrip = false;
+$totalLegs = 0;
+
+$inputType = $quiz['input_type'] ?? 'code-airport'; // airport-code / code-airport
+
+foreach ($items as $it) {
+    $totalAdults += max(0, (int)($it['adults'] ?? 0));
+    $totalChildren += max(0, (int)($it['children'] ?? 0));
+    $totalInfants += max(0, (int)($it['infants'] ?? 0));
+
+    $tc = strtoupper(trim($it['travel_class'] ?? 'ECONOMY'));
+    if ($tc !== '') $classes[$tc] = true;
+
+    $legs = $it['legs'] ?? [];
+    if (!is_array($legs)) $legs = [];
+
+    if (is_true_roundtrip_for_legs($legs)) {
+        $anyTrueRoundTrip = true;
     }
 
-    // Combine all sentences (for multiple items)
-    if (count($sentences) === 0) {
-      $desc = 'Book the indicated destinations.';
-    } elseif (count($sentences) === 1) {
-      $desc = $sentences[0];
-    } else {
-      $desc = implode(' ', $sentences);
+    foreach ($legs as $lg) {
+        $org = strtoupper(trim($lg['origin'] ?? ''));
+        $dst = strtoupper(trim($lg['destination'] ?? ''));
+        $date = trim($lg['date'] ?? '');
+        // only include segments that have at least an origin and destination
+        $allSegments[] = ['origin' => $org, 'destination' => $dst, 'date' => $date];
+        $totalLegs++;
     }
+}
 
-    // Optional: keep duration info like before
-    if (!empty($quiz['duration'])) {
-      $desc .= ' Duration: ' . (int)$quiz['duration'] . ' minutes.';
+// Determine overall flight type
+$overallFlightType = 'ONE-WAY';
+if ($anyTrueRoundTrip && $totalLegs === 2 && count($items) === 1) {
+    $overallFlightType = 'ROUND-TRIP';
+} elseif ($totalLegs > 1) {
+    $overallFlightType = 'MULTI-CITY';
+} else {
+    $overallFlightType = 'ONE-WAY';
+}
+
+// Build "Class of Service" display:
+$classList = array_keys($classes);
+$classOfService = '';
+if (count($classList) === 1) {
+    $classOfService = strtoupper($classList[0]);
+    if (stripos($classOfService, 'CLASS') === false) {
+        $classOfService .= ' CLASS';
     }
+} elseif (count($classList) > 1) {
+    $classOfService = implode(', ', array_map('strtoupper', $classList));
+} else {
+    $classOfService = 'ECONOMY CLASS';
+}
 
-    $descObj = [
-      'description'     => $desc,
-      'expected_answer' => $firstDestination ?: null,
-      'itemsCount'      => count($items),
-      'firstDeadline'   => $firstDeadline ?: ''
-    ];
+// Build the description string (multiline with arrow)
+$lines = [];
+$lines[] = "Flight Type: " . $overallFlightType;
+$lines[] = "Passengers:";
+$lines[] = "Adults: " . max(0, $totalAdults);
+$lines[] = "Children: " . max(0, $totalChildren);
+$lines[] = "Infants: " . max(0, $totalInfants);
+$lines[] = "City Segments:";
+
+if (count($allSegments) === 0) {
+    $lines[] = "  (no segments)";
+} else {
+    $i = 1;
+    foreach ($allSegments as $seg) {
+        $org = $seg['origin'] ?: '---';
+        $dst = $seg['destination'] ?: '---';
+        $lines[] = "Segment {$i}: {$org} → {$dst}";
+        $i++;
+    }
+}
+
+$lines[] = "Class of Service:";
+$lines[] = $classOfService;
+$lines[] = "";
+$lines[] = "Student Instruction:";
+$lines[] = "“Enter each city pair in order. Make sure all airport codes are correct for each segment.”";
+
+$descriptionText = implode("\n", $lines);
+
+// firstDeadline & expected_answer (compatibility helpers)
+$firstDeadline = '';
+foreach ($items as $it) {
+    foreach (($it['legs'] ?? []) as $lg) {
+        if (!empty($lg['date'])) {
+            if ($firstDeadline === '' || strtotime($lg['date']) < strtotime($firstDeadline)) {
+                $firstDeadline = $lg['date'];
+            }
+        }
+    }
+}
+
+$firstDestination = null;
+if (!empty($items) && !empty($items[0]['legs']) && !empty($items[0]['legs'][0])) {
+    $dst = strtoupper(trim($items[0]['legs'][0]['destination'] ?? ''));
+    if ($dst !== '') {
+        if ($inputType === 'airport-code') {
+            $firstDestination = $dst;
+        } else {
+            $firstDestination = $dst ? airport_prompt_text($dst, $iataMap) : null;
+        }
+    }
+}
+
+// Final structured object returned to the rest of ticket.php / JS
+$descObj = [
+    'description'     => $descriptionText,
+    'flight_type'     => $overallFlightType,
+    'passengers'      => [
+        'adults'   => max(0, $totalAdults),
+        'children' => max(0, $totalChildren),
+        'infants'  => max(0, $totalInfants),
+    ],
+    'segments'        => $allSegments, // array of ['origin','destination','date']
+    'class_of_service'=> $classOfService,
+    'instruction'     => 'Enter each city pair in order. Make sure all airport codes are correct for each segment.',
+    'itemsCount'      => count($items),
+    'firstDeadline'   => $firstDeadline ?: '',
+    'expected_answer' => $firstDestination ?: null
+];
+
   } else {
     http_response_code(404);
     echo "Quiz not found or you do not have access to it.";
@@ -241,6 +391,7 @@ $errors       = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
+  
   $quizInputType = isset($_POST['quiz_type']) && $_POST['quiz_type'] !== ''
     ? $_POST['quiz_type']
     : 'airport-code';
@@ -249,68 +400,168 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors['login'] = 'You must be logged in to submit a flight.';
   }
 
-  if (empty($origin)) {
-    $errors['origin'] = 'Origin is required.';
-  } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
-    // Only enforce 3-letter IATA for airport-code quizzes
-    $errors['origin'] = 'Origin must be a 3-letter IATA code.';
-  }
+  // Normalize selected flight type from POST (defensive)
+  $flight_type = isset($_POST['flight_type']) ? strtoupper(trim($_POST['flight_type'])) : 'ONE-WAY';
 
-  if (empty($destination)) {
-    $errors['destination'] = 'Destination is required.';
-  } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
-    $errors['destination'] = 'Destination must be a 3-letter IATA code.';
-  }
+  // If MULTI-CITY we expect leg_* arrays; otherwise use single origin/destination inputs
+  if ($flight_type === 'MULTI-CITY') {
+      // Collect legs from POST arrays (names used in your JS: leg_origin_iata[], leg_destination_iata[], leg_date[])
+      $leg_origins = isset($_POST['leg_origin_iata']) && is_array($_POST['leg_origin_iata']) ? $_POST['leg_origin_iata'] : [];
+      $leg_dests   = isset($_POST['leg_destination_iata']) && is_array($_POST['leg_destination_iata']) ? $_POST['leg_destination_iata'] : [];
+      $leg_dates   = isset($_POST['leg_date']) && is_array($_POST['leg_date']) ? $_POST['leg_date'] : [];
 
-  if ($origin === $destination && !empty($origin)) {
-    $errors['destination'] = 'Destination code cannot be the same as origin.';
-  }
+      // Trim and uppercase origins/dests
+      $legs = [];
+      $numLegs = max(count($leg_origins), count($leg_dests), count($leg_dates));
+      for ($i = 0; $i < $numLegs; $i++) {
+          $o = strtoupper(trim((string)($leg_origins[$i] ?? '')));
+          $d = strtoupper(trim((string)($leg_dests[$i] ?? '')));
+          $dt = trim((string)($leg_dates[$i] ?? ''));
 
-  if (empty($flight_date)) {
-    $errors['flight_date'] = 'Departure date is required.';
-  } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-    $errors['flight_date'] = 'Invalid date format.';
+          // skip completely empty rows
+          if ($o === '' && $d === '' && $dt === '') continue;
+
+          $legs[] = ['origin' => $o, 'destination' => $d, 'date' => $dt];
+      }
+
+      if (count($legs) === 0) {
+          $errors['legs'] = 'At least one leg is required for multi-city bookings.';
+      } else {
+          // Validate each leg
+          foreach ($legs as $idx => $lg) {
+              $label = 'leg_' . ($idx + 1);
+              $o = $lg['origin'];
+              $d = $lg['destination'];
+              $dt = $lg['date'];
+
+              if ($o === '') {
+                  $errors['origin_' . $idx] = "Origin is required for leg " . ($idx + 1) . ".";
+              } else {
+                  if ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $o)) {
+                      $errors['origin_' . $idx] = "Origin must be a 3-letter IATA code for leg " . ($idx + 1) . ".";
+                  }
+              }
+
+              if ($d === '') {
+                  $errors['destination_' . $idx] = "Destination is required for leg " . ($idx + 1) . ".";
+              } else {
+                  if ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $d)) {
+                      $errors['destination_' . $idx] = "Destination must be a 3-letter IATA code for leg " . ($idx + 1) . ".";
+                  }
+              }
+
+              if ($o !== '' && $d !== '' && $o === $d) {
+                  $errors['destination_' . $idx] = "Origin and destination cannot be the same for leg " . ($idx + 1) . ".";
+              }
+
+              // date validation (optional but required in your single-route code)
+              if ($dt === '') {
+                  $errors['flight_date_' . $idx] = "Date is required for leg " . ($idx + 1) . ".";
+              } else {
+                  if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dt)) {
+                      $errors['flight_date_' . $idx] = "Invalid date format for leg " . ($idx + 1) . ". Use YYYY-MM-DD.";
+                  } else {
+                      $dobj = DateTime::createFromFormat('Y-m-d', $dt);
+                      if (!$dobj || $dobj->format('Y-m-d') !== $dt) {
+                          $errors['flight_date_' . $idx] = "Invalid date for leg " . ($idx + 1) . ".";
+                      }
+                  }
+              }
+          }
+      }
+
+      // If there were no errors for multi-city, set the "first" flight metadata for compatibility
+      if (empty($errors)) {
+          $firstLeg = $legs[0];
+          $lastLeg  = end($legs);
+          $origin = $firstLeg['origin'] ?? '';
+          $destination = $lastLeg['destination'] ?? '';
+          $flight_date = $firstLeg['date'] ?? '';
+          $return_date = $lastLeg['date'] ?? '';
+      }
+
   } else {
-    $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-    if (!$d || $d->format('Y-m-d') !== $flight_date) {
-      $errors['flight_date'] = 'Invalid date.';
-    }
-  }
+      // ONE-WAY or ROUND-TRIP (existing behavior)
 
-  if ($flight_type !== 'ROUND-TRIP') {
-    $return_date = '';
-  } else {
-    if (empty($return_date)) {
-      $errors['return_date'] = 'Return date is required for round-trip flights.';
-    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
-      $errors['return_date'] = 'Invalid return date format.';
-    } else {
-      $r = DateTime::createFromFormat('Y-m-d', $return_date);
-      if (!$r || $r->format('Y-m-d') !== $return_date) {
-        $errors['return_date'] = 'Invalid return date.';
+      $origin       = strtoupper(trim($_POST['origin'] ?? ''));
+      $destination  = strtoupper(trim($_POST['destination'] ?? ''));
+      $flight_date  = trim($_POST['flight_date'] ?? '');
+      $return_date  = trim($_POST['return_date'] ?? '');
+
+      if (empty($origin)) {
+        $errors['origin'] = 'Origin is required.';
+      } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
+        $errors['origin'] = 'Origin must be a 3-letter IATA code.';
+      }
+
+      if (empty($destination)) {
+        $errors['destination'] = 'Destination is required.';
+      } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
+        $errors['destination'] = 'Destination must be a 3-letter IATA code.';
+      }
+
+      if ($origin === $destination && !empty($origin)) {
+        $errors['destination'] = 'Destination code cannot be the same as origin.';
+      }
+
+      if (empty($flight_date)) {
+        $errors['flight_date'] = 'Departure date is required.';
+      } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+        $errors['flight_date'] = 'Invalid date format.';
       } else {
         $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-        if ($d && $r < $d) {
-          $errors['return_date'] = 'Return date cannot be before departure date.';
+        if (!$d || $d->format('Y-m-d') !== $flight_date) {
+          $errors['flight_date'] = 'Invalid date.';
         }
       }
-    }
+
+      if ($flight_type !== 'ROUND-TRIP') {
+        // ensure return_date cleared for NON-RT
+        $return_date = '';
+      } else {
+        if (empty($return_date)) {
+          $errors['return_date'] = 'Return date is required for round-trip flights.';
+        } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
+          $errors['return_date'] = 'Invalid return date format.';
+        } else {
+          $r = DateTime::createFromFormat('Y-m-d', $return_date);
+          if (!$r || $r->format('Y-m-d') !== $return_date) {
+            $errors['return_date'] = 'Invalid return date.';
+          } else {
+            $d = DateTime::createFromFormat('Y-m-d', $flight_date);
+            if ($d && $r < $d) {
+              $errors['return_date'] = 'Return date cannot be before departure date.';
+            }
+          }
+        }
+      }
   }
 
-
+  // If AJAX validation requested, return JSON including legs when MULTI-CITY
   if (!empty($_POST['ajax_validate'])) {
     header('Content-Type: application/json; charset=utf-8');
+
+    $responseFlight = [
+      'origin'      => $origin,
+      'destination' => $destination,
+      'flight_date' => $flight_date,
+      'return_date' => $return_date,
+      'flight_type' => $flight_type
+    ];
+
+    // include legs if we parsed them
+    if (isset($legs) && is_array($legs) && count($legs) > 0) {
+      // ensure legs are in normalized format (origin,destination,date)
+      $responseFlight['legs'] = array_values($legs);
+    } else {
+      $responseFlight['legs'] = [];
+    }
+
     echo json_encode([
       'ok'     => empty($errors),
       'errors' => $errors,
       'quiz_type' => $quizInputType,
-      'flight' => [
-        'origin'       => $origin,
-        'destination'  => $destination,
-        'flight_date'  => $flight_date,
-        'return_date'  => $return_date,
-        'flight_type'  => $flight_type
-      ]
+      'flight' => $responseFlight
     ]);
     exit;
   }
@@ -324,6 +575,7 @@ $flight = [
   'flight_type'      => htmlspecialchars($flight_type)
 ];
 ?>
+
 <!DOCTYPE html>
   <html lang="en">
   <?php include('templates/header.php'); ?>
@@ -371,67 +623,78 @@ $flight = [
             <input name="flight_type" type="radio" value="ROUND-TRIP" <?php echo ($flight_type === 'ROUND-TRIP') ? 'checked' : ''; ?> />
             <span>ROUND-TRIP</span>
           </label>
+          <label>
+            <input name="flight_type" type="radio" value="MULTI-CITY" <?php echo ($flight_type === 'MULTI-CITY') ? 'checked' : ''; ?> />
+            <span>MULTI-CITY</span>
+          </label>
         </p>
         <div class="row">
-          <!-- ORIGIN -->
-          <div class="col s4 md3">
-            <div class="input-field" style="position:relative;">
-              <i class="material-icons prefix">flight_takeoff</i>
-              <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
-                placeholder="e.g. MNL"
-                value="<?php 
-                  if (!empty($origin)) {
-                    echo htmlspecialchars(format_airport_display($origin, $iataMap));
-                  } else {
-                    echo '';
-                  }
-                ?>">
-              <label for="origin_autocomplete">ORIGIN</label>
-              <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
-              <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
+          <!-- SINGLE ROUTE (ONE-WAY / RT) -->
+          <div id="singleRouteWrap" style="">
+            <!-- ORIGIN -->
+            <div class="col s4 md3">
+              <div class="input-field" style="position:relative;">
+                <i class="material-icons prefix">flight_takeoff</i>
+                <input type="text" id="origin_autocomplete" class="center" autocomplete="off"
+                  placeholder="e.g. MNL"
+                  value="<?php echo !empty($origin) ? htmlspecialchars(format_airport_display($origin, $iataMap)) : ''; ?>">
+                <label for="origin_autocomplete">ORIGIN</label>
+                <div class="red-text"><?php echo $errors['origin'] ?? ''; ?></div>
+                <input type="hidden" id="origin" name="origin" value="<?php echo htmlspecialchars($origin); ?>">
+              </div>
             </div>
-          </div>
 
-          <!-- DESTINATION -->
-          <div class="col s4 md3">
-            <div class="input-field" style="position:relative;">
-              <i class="material-icons prefix">flight_land</i>
-              <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
-                placeholder="e.g. CEB"
-                value="<?php 
-                  if (!empty($destination)) {
-                    echo htmlspecialchars(format_airport_display($destination, $iataMap));
-                  } else {
-                    echo '';
-                  }
-                ?>">
-              <label for="destination_autocomplete">DESTINATION</label>
-              <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
-              <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
+            <!-- DESTINATION -->
+            <div class="col s4 md3">
+              <div class="input-field" style="position:relative;">
+                <i class="material-icons prefix">flight_land</i>
+                <input type="text" id="destination_autocomplete" class="center" autocomplete="off"
+                  placeholder="e.g. CEB"
+                  value="<?php echo !empty($destination) ? htmlspecialchars(format_airport_display($destination, $iataMap)) : ''; ?>">
+                <label for="destination_autocomplete">DESTINATION</label>
+                <div class="red-text"><?php echo $errors['destination'] ?? ''; ?></div>
+                <input type="hidden" id="destination" name="destination" value="<?php echo htmlspecialchars($destination); ?>">
+              </div>
             </div>
-          </div>
 
-          <!-- DATES -->
-          <div class="col s4 md3">
-            <div class="center">
-              <div class="row">
-                <div class="input-field col s6">
-                  <i class="material-icons prefix">calendar_today</i>
-                  <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
-                  <label for="flight-date">DEPARTURE</label>
-                  <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+            <!-- DATES (single) -->
+            <div class="col s4 md3">
+              <div class="center">
+                <div class="row">
+                  <div class="input-field col s6">
+                    <i class="material-icons prefix">calendar_today</i>
+                    <input type="text" id="flight-date" name="flight_date" class="datepicker" value="<?php echo htmlspecialchars($flight_date); ?>" readonly>
+                    <label for="flight-date">DEPARTURE</label>
+                    <div class="red-text"><?php echo $errors['flight_date'] ?? ''; ?></div>
+                  </div>
+                  <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'ROUND-TRIP') ? '' : 'display:none;'; ?>">
+                    <i class="material-icons prefix">calendar_today</i>
+                    <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
+                    <label for="return-date">RETURN</label>
+                    <div class="red-text"><?php echo $errors['return_date'] ?? ''; ?></div>
+                  </div>
                 </div>
-                <div class="input-field col s6" id="return-date-wrapper" style="<?php echo ($flight_type === 'ROUND-TRIP') ? '' : 'display:none;'; ?>">
-                  <i class="material-icons prefix">calendar_today</i>
-                  <input type="text" id="return-date" name="return_date" class="datepicker" value="<?php echo htmlspecialchars($return_date); ?>" readonly>
-                  <label for="return-date">RETURN</label>
-                  <div class="red-text"><?php echo $errors['return_date'] ?? ''; ?></div>
-                </div>              
               </div>
             </div>
           </div>
 
-          <div class="col s3 md3"></div>
+          <!-- MULTI-CITY: dynamic legs editor (hidden by default) -->
+          <div id="multiLegsWrap" style="display:none; width:100%; margin-top:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <div style="font-weight:700">Multi-city legs</div>
+              <div>
+                <button type="button" id="addLegBtn" class="btn btn-small">ADD FLIGHT</button>
+              </div>
+            </div>
+
+            <div id="legsList">
+              <!-- JS will create .leg-row entries here -->
+            </div>
+
+            <div style="margin-top:10px; color:#666; font-size:0.95em;">
+              Add multiple legs. Each leg has a visible label (IATA or airport name depending on quiz) and a hidden IATA value saved with the booking.
+            </div>
+          </div>
         </div>
       </form>
     </div>
@@ -446,7 +709,7 @@ $flight = [
         <input type="hidden" name="flight_type" id="booking_flight_type" value="">
         <input type="hidden" name="origin_airline" id="booking_origin_airline" value="">
         <input type="hidden" name="destination_airline" id="booking_destination_airline" value="">
-
+        <input type="hidden" name="booking_legs" id="booking_legs" value="">
         <div id="ticketContainer">
           <div class="ticket-card">
             <button type="button" class="remove-btn" onclick="removeTicket(this)" style="display:none;">✕</button>
@@ -830,6 +1093,202 @@ $flight = [
     }
     
     // ===== General helpers =====
+    /* ---------- MULTI-CITY: legs UI & helpers ---------- */
+function createLegRow(idx, legIndex, prefill) {
+  // prefill: { origin_display, origin_iata, destination_display, destination_iata, date }
+  const wrap = document.createElement('div');
+  wrap.className = 'leg-row';
+  wrap.dataset.legIndex = legIndex;
+  wrap.style = 'display:flex; gap:8px; align-items:center; margin-bottom:6px;';
+
+  wrap.innerHTML = `
+    <div style="flex:1;">
+      <div class="input-field">
+        <input type="text" class="leg-origin-display" id="leg_origin_display_${idx}_${legIndex}" placeholder="Origin (IATA or name)">
+        <label for="leg_origin_display_${idx}_${legIndex}">Leg origin</label>
+        <input type="hidden" class="leg-origin-iata" id="leg_origin_iata_${idx}_${legIndex}" name="leg_origin_iata[]">
+      </div>
+    </div>
+    <div style="flex:1;">
+      <div class="input-field">
+        <input type="text" class="leg-destination-display" id="leg_dest_display_${idx}_${legIndex}" placeholder="Destination (IATA or name)">
+        <label for="leg_dest_display_${idx}_${legIndex}">Leg destination</label>
+        <input type="hidden" class="leg-destination-iata" id="leg_dest_iata_${idx}_${legIndex}" name="leg_destination_iata[]">
+      </div>
+    </div>
+    <div style="width:180px;">
+      <div class="input-field">
+        <input type="text" class="leg-date datepicker" id="leg_date_${idx}_${legIndex}" name="leg_date[]">
+        <label for="leg_date_${idx}_${legIndex}">Date</label>
+      </div>
+    </div>
+    <div style="width:36px;">
+      <button type="button" class="btn-flat remove-leg" title="Remove leg">&minus;</button>
+    </div>
+  `;
+
+  // prefill values if available
+  if (prefill) {
+    const od = wrap.querySelector('.leg-origin-display');
+    const oi = wrap.querySelector('.leg-origin-iata');
+    const dd = wrap.querySelector('.leg-destination-display');
+    const di = wrap.querySelector('.leg-destination-iata');
+    const ld = wrap.querySelector('.leg-date');
+
+    if (od && prefill.origin_display) od.value = prefill.origin_display;
+    if (oi && prefill.origin_iata) oi.value = prefill.origin_iata;
+    if (dd && prefill.destination_display) dd.value = prefill.destination_display;
+    if (di && prefill.destination_iata) di.value = prefill.destination_iata;
+    if (ld && prefill.date) ld.value = prefill.date;
+  }
+
+  return wrap;
+}
+
+const legsListEl = document.getElementById('legsList');
+const singleRouteWrap = document.getElementById('singleRouteWrap');
+const multiLegsWrap = document.getElementById('multiLegsWrap');
+const addLegBtn = document.getElementById('addLegBtn');
+
+function clearAllLegs() {
+  if (!legsListEl) return;
+  legsListEl.innerHTML = '';
+}
+
+function addLeg(prefill = null) {
+  if (!legsListEl) return;
+  const idx = 0; // only one ticket context — keep idx 0 to match IDs
+  const legIndex = legsListEl.querySelectorAll('.leg-row').length;
+  const row = createLegRow(idx, legIndex, prefill);
+  legsListEl.appendChild(row);
+
+  // init datepicker for this row
+  const dateInput = row.querySelector('.datepicker');
+  if (dateInput) {
+    M.Datepicker.init(dateInput, { format:'yyyy-mm-dd', minDate: new Date(), autoClose:true });
+  }
+
+  // attach autocomplete/behaviour for display <-> iata mapping
+  const originDisplay = row.querySelector('.leg-origin-display');
+  const originIata = row.querySelector('.leg-origin-iata');
+  const destDisplay = row.querySelector('.leg-destination-display');
+  const destIata = row.querySelector('.leg-destination-iata');
+
+  if (QUIZ_TYPE === 'code-airport') {
+    // users will type airport name (student answers with name) — store name in display and also attempt to lookup code
+    if (originDisplay) initAirportNameDropdown(originDisplay.id, originIata.id);
+    if (destDisplay) initAirportNameDropdown(destDisplay.id, destIata.id);
+  } else {
+    // users will input IATA code directly
+    if (originDisplay) initPlainIataInput(originDisplay.id, originIata.id);
+    if (destDisplay) initPlainIataInput(destDisplay.id, destIata.id);
+  }
+
+  // hide remove on first leg
+  const removeBtn = row.querySelector('.remove-leg');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      row.remove();
+      // re-index ids if you want (not required)
+    });
+  }
+}
+
+if (addLegBtn) {
+  addLegBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    addLeg();
+  });
+}
+
+// Flight type radio toggles (show multi legs or single route)
+document.querySelectorAll('input[name="flight_type"]').forEach(radio => {
+  radio.addEventListener('change', function () {
+    if (this.value === 'MULTI-CITY') {
+      // show legs editor
+      if (singleRouteWrap) singleRouteWrap.style.display = 'none';
+      if (multiLegsWrap) multiLegsWrap.style.display = '';
+      // create at least one leg if none
+      if (legsListEl && legsListEl.children.length === 0) addLeg();
+    } else {
+      // hide legs editor
+      if (multiLegsWrap) multiLegsWrap.style.display = 'none';
+      if (singleRouteWrap) singleRouteWrap.style.display = '';
+    }
+
+    // hide return-date for non RT
+    if (this.value === 'ROUND-TRIP') {
+      if (returnWrapper) returnWrapper.style.display = '';
+    } else {
+      if (returnWrapper) returnWrapper.style.display = 'none';
+      if (returnInput) returnInput.value = '';
+    }
+  });
+});
+
+// When building booking hidden fields, include legs if present
+window.fillBookingHiddenFlightFields = function(flight) {
+  // hidden fields
+  const bOrigin = document.getElementById('booking_origin');
+  const bDestination = document.getElementById('booking_destination');
+  const bDate = document.getElementById('booking_flight_date');
+  const bReturn = document.getElementById('booking_return_date');
+  const bType = document.getElementById('booking_flight_type');
+  const bOriginAir = document.getElementById('booking_origin_airline');
+  const bDestAir = document.getElementById('booking_destination_airline');
+  const bLegs = document.getElementById('booking_legs');
+
+  // allow caller to pass a flight object; otherwise use DOM as source of truth
+  flight = flight || {};
+
+  // Detect multi-city legs in DOM and the selected flight type
+  const legRows = document.querySelectorAll('.leg-row');
+  const selectedType = (document.querySelector('input[name="flight_type"]:checked') || {}).value || 'ONE-WAY';
+
+  if (legRows && legRows.length > 0 && selectedType === 'MULTI-CITY') {
+    const legs = [];
+    legRows.forEach(lr => {
+      const oiEl = lr.querySelector('.leg-origin-iata');
+      const diEl = lr.querySelector('.leg-destination-iata');
+      const dateEl = lr.querySelector('.leg-date');
+      const originIata = (oiEl && oiEl.value || '').toUpperCase();
+      const destIata = (diEl && diEl.value || '').toUpperCase();
+      const dateVal = dateEl && dateEl.value ? dateEl.value : '';
+      legs.push({ origin: originIata, destination: destIata, date: dateVal });
+    });
+
+    const first = legs[0] || null;
+    const last = legs[legs.length - 1] || null;
+
+    if (bOrigin) bOrigin.value = first ? (first.origin || '') : '';
+    if (bDestination) bDestination.value = last ? (last.destination || '') : '';
+    if (bDate) bDate.value = first ? (first.date || '') : '';
+    if (bReturn) bReturn.value = last ? (last.date || '') : '';
+    if (bType) bType.value = 'MULTI-CITY';
+    if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[bOrigin.value]) || '';
+    if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[bDestination.value]) || '';
+    if (bLegs) bLegs.value = JSON.stringify(legs); // <<< use standard JS stringify
+    return;
+  }
+
+  // fallback = single-route behavior (ONE-WAY / ROUND-TRIP)
+  const originCode = flight.origin || (document.getElementById('origin') && document.getElementById('origin').value) || '';
+  const destCode   = flight.destination || (document.getElementById('destination') && document.getElementById('destination').value) || '';
+  const depDate    = flight.flight_date || (document.getElementById('flight-date') && document.getElementById('flight-date').value) || '';
+  const retDate    = flight.return_date || (document.getElementById('return-date') && document.getElementById('return-date').value) || '';
+  const typeRadio  = document.querySelector('input[name="flight_type"]:checked');
+  const typeVal    = flight.flight_type || (typeRadio ? typeRadio.value : 'ONE-WAY');
+
+  if (bOrigin) bOrigin.value = originCode;
+  if (bDestination) bDestination.value = destCode;
+  if (bDate) bDate.value = depDate;
+  if (bReturn) bReturn.value = retDate;
+  if (bType) bType.value = typeVal;
+  if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[originCode]) || '';
+  if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[destCode]) || '';
+  if (bLegs) bLegs.value = '';
+};
 
     function initIataDropdown(inputId) {
       const input = document.getElementById(inputId);
@@ -1267,30 +1726,6 @@ $flight = [
       if (errors.db) M.toast({ html: 'Server error: ' + errors.db });
     }
 
-    function fillBookingHiddenFlightFields(flight) {
-      const bOrigin = document.getElementById('booking_origin');
-      const bDestination = document.getElementById('booking_destination');
-      const bDate = document.getElementById('booking_flight_date');
-      const bReturn = document.getElementById('booking_return_date');
-      const bType = document.getElementById('booking_flight_type');
-      const bOriginAir = document.getElementById('booking_origin_airline');
-      const bDestAir = document.getElementById('booking_destination_airline');
-
-      const originCode = flight.origin || document.getElementById('origin').value || '';
-      const destCode = flight.destination || document.getElementById('destination').value || '';
-      const depDate = flight.flight_date || document.getElementById('flight-date').value || '';
-      const retDate = flight.return_date || (document.getElementById('return-date') ? document.getElementById('return-date').value : '');
-      const typeRadio = document.querySelector('input[name="flight_type"]:checked');
-      const typeVal = flight.flight_type || (typeRadio ? typeRadio.value : 'ONE-WAY');
-
-      if (bOrigin) bOrigin.value = originCode;
-      if (bDestination) bDestination.value = destCode;
-      if (bDate) bDate.value = depDate;
-      if (bReturn) bReturn.value = retDate;
-      if (bType) bType.value = typeVal;
-      if (bOriginAir) bOriginAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[originCode]) || '';
-      if (bDestAir) bDestAir.value = (window.IATA_LOOKUP && window.IATA_LOOKUP[destCode]) || '';
-    }
 
     function buildSummaryAndOpen(flight) {
       fillBookingHiddenFlightFields(flight);
@@ -1348,6 +1783,8 @@ $flight = [
       showServerErrors(null);
       summaryError.style.display = 'none';
 
+      fillBookingHiddenFlightFields();
+
       const fd = new FormData(flightForm || document.createElement('form'));
       fd.set('form_submit', '1');
       fd.set('ajax_validate', '1');
@@ -1397,11 +1834,14 @@ $flight = [
         return_date: document.getElementById('return-date') ? document.getElementById('return-date').value.trim() : '',
         flight_type: typeRadio ? typeRadio.value : 'ONE-WAY'
       };
+
       fillBookingHiddenFlightFields(flight);
+      bookingForm.submit();
 
       confirmBtn.disabled = true;
       summaryModal.close();
       setTimeout(() => bookingForm.submit(), 120);
+
     });
 
 
