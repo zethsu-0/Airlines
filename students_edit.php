@@ -10,7 +10,7 @@ $dbUser = 'root';
 $dbPass = '';
 
 // DB names / table/column mapping (adjust if different)
-$DB_ACCOUNTS = 'account';
+$DB_ACCOUNTS = 'airlines';
 $ACCOUNTS_TABLE = 'accounts';
 $ACCOUNTS_ID_COL = 'acc_id';
 $ACCOUNTS_PW_COL = 'password';
@@ -448,3 +448,4 @@ document.addEventListener('DOMContentLoaded', function () {
 
 </body>
 </html>
+
