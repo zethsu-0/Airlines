@@ -11,7 +11,7 @@ $db_host = 'localhost';
 $db_user = 'root';
 $db_pass = '';
 $db_name = 'airlines';   // students table
-$acc_db_name = 'account'; // accounts + admins tables
+$acc_db_name = 'airlines'; // accounts + admins tables
 
 // upload dir for avatars (students & teachers share same directory)
 $uploads_dir = __DIR__ . '/uploads/avatars';
@@ -1684,3 +1684,4 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
+
