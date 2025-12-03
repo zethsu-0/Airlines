@@ -9,7 +9,7 @@ $db_host = 'localhost';
 $db_user = 'root';
 $db_pass = '';
 $db_name = 'airlines';
-$acc_db_name = 'account';
+$acc_db_name = 'airlines';
 
 // unified upload folder to match students_edit.php
 $uploads_dir = __DIR__ . '/uploads/avatars';
@@ -1214,3 +1214,4 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
+
