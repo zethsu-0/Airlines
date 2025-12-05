@@ -243,9 +243,6 @@ $flash_error = get_flash('flash_error');
 <body>
 <?php include('templates/header.php'); ?>
 
-<!-- preserve island image using an actual <img> element so it reliably displays -->
-<img src="assets/island.jpg" alt="" class="page-bg-img" aria-hidden="true">
-
 <main class="page-main container">
   <div class="overlay-box">
 
@@ -328,65 +325,73 @@ $flash_error = get_flash('flash_error');
 
 <style>
 :root{
-  --accent-1: #0d47a1;
-  --accent-2: #1976d2;
+  --air-blue: #0b59d8;
+  --air-sky: #2e7ef7;
   --muted: #bfc9d9;
-  --card-bg: rgba(255,255,255,0.04);
+  --card-bg: rgba(255,255,255,0.03);
   --max-width: 1100px;
 }
 
-/* use an image element so the island displays reliably */
-.page-bg-img{
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  object-fit: cover;
-  object-position: center center;
-  filter: brightness(0.72) saturate(0.95);
-  z-index: -1000;
-  pointer-events: none;
-  user-select: none;
+/* Page background: use same dark gradient as other pages */
+html, body {
+  height: 100%;
+  background: linear-gradient(180deg, #071428, #0b1830);
+  color: #e9f1ff;
+  font-family: Inter, Roboto, Arial, sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
 }
 
-/* main layout */
+/* center content */
 .page-main { padding: 36px 18px; display: flex; justify-content: center; min-height: calc(100vh - 84px); }
-.overlay-box { width:100%; max-width: var(--max-width); background: linear-gradient(180deg, rgba(12,18,36,0.48), rgba(8,12,24,0.56)); border-radius:14px; padding:24px; box-shadow:0 18px 48px rgba(2,8,23,0.6); color:#fff; box-sizing:border-box; }
+.overlay-box {
+  width:100%;
+  max-width: var(--max-width);
+  background: linear-gradient(180deg, rgba(11,17,30,0.55), rgba(7,11,20,0.6));
+  border-radius:14px;
+  padding:24px;
+  box-shadow:0 18px 48px rgba(2,8,23,0.6);
+  color:#e9f1ff;
+  box-sizing:border-box;
+}
 
+/* notices */
 .notice { padding:12px 14px; border-radius:8px; margin-bottom:14px; font-weight:600; }
-.notice-success { background: rgba(40,167,69,0.08); color: #c8f6d0; border: 1px solid rgba(40,167,69,0.12); }
+.notice-success { background: rgba(46,126,247,0.06); color: #cfefff; border: 1px solid rgba(46,126,247,0.08); }
 .notice-error { background: rgba(198,40,40,0.06); color: #ffd6d6; border: 1px solid rgba(198,40,40,0.12); }
 
+/* layout grid */
 .grid { display:grid; grid-template-columns:360px 1fr; gap:18px; align-items:start; }
 @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
 
 .panel { background: var(--card-bg); border-radius:12px; padding:16px; box-shadow: 0 8px 30px rgba(2,8,23,0.45); }
 
+/* profile area */
 .profile-top { display:flex; gap:16px; align-items:center; }
-.avatar-large { width:120px; height:120px; border-radius:50%; object-fit:cover; border:4px solid rgba(255,255,255,0.14); box-shadow:0 6px 20px rgba(2,8,23,0.6); }
+.avatar-large { width:120px; height:120px; border-radius:50%; object-fit:cover; border:4px solid rgba(255,255,255,0.08); box-shadow:0 6px 20px rgba(0,0,0,0.6); }
 .profile-name { margin:0 0 6px; font-size:1.25rem; font-weight:700; color:#fff; }
 .profile-info .muted { color: var(--muted); margin-top:6px; }
 
-/* PROFILE ACTIONS: ensure no offset */
+/* actions */
 .profile-actions { margin-top:12px; display:flex; gap:10px; align-items:center; justify-content:flex-start; flex-wrap:wrap; }
 .profile-actions .btn { display:inline-flex !important; align-items:center !important; justify-content:center !important; padding: 0 14px !important; height:44px !important; line-height:1 !important; vertical-align:middle !important; border-radius:10px !important; }
 
 /* edit panel */
 .edit-panel h3 { margin-top:0; margin-bottom:12px; font-size:1.05rem; color:#fff; }
 .avatar-row { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
-.avatar-preview { width:110px; height:110px; border-radius:12px; object-fit:cover; border:3px solid rgba(255,255,255,0.08); box-shadow:0 6px 18px rgba(0,0,0,0.45); }
+.avatar-preview { width:110px; height:110px; border-radius:12px; object-fit:cover; border:3px solid rgba(255,255,255,0.06); box-shadow:0 6px 18px rgba(0,0,0,0.45); }
 .file-label { cursor:pointer; display:inline-block; }
-.file-btn { display:inline-block; padding:8px 12px; border-radius:8px; font-weight:700; color:#fff; background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); box-shadow:0 8px 18px rgba(13,71,161,0.12); }
+.file-btn { display:inline-block; padding:8px 12px; border-radius:8px; font-weight:700; color:#fff; background: linear-gradient(90deg, var(--air-blue), var(--air-sky)); box-shadow:0 8px 18px rgba(11,89,216,0.12); }
 
 .input-field { margin-bottom:12px; }
-.input-field input { color:#fff !important; }
-.input-field label { color: var(--muted) !important; }
+.input-field input { color:#fff !important; background:transparent; border:1px solid rgba(255,255,255,0.04); padding:10px;border-radius:6px; width:100%; box-sizing:border-box; }
+.input-field label { color: var(--muted) !important; display:block; margin-bottom:6px; }
 
-/* ACTIONS: make Save & Reset identical height/align */
+/* actions */
 .actions-row { margin-top:12px; display:flex; gap:12px; align-items:center; }
-.btn { border-radius:10px; padding: 10px 16px; font-weight:700; height:44px; display:inline-flex; align-items:center; justify-content:center; }
-.gradient-btn { color:#fff !important; background: linear-gradient(90deg, var(--accent-1), var(--accent-2)); border:none; box-shadow: 0 12px 28px rgba(13,71,161,0.12); }
-.btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.06); color:#fff; height:44px; padding: 0 14px; }
+.btn { border-radius:10px; padding: 10px 16px; font-weight:700; height:44px; display:inline-flex; align-items:center; justify-content:center; border: none; cursor:pointer; }
+.gradient-btn { color:#fff !important; background: linear-gradient(90deg, var(--air-blue), var(--air-sky)); box-shadow: 0 12px 28px rgba(11,89,216,0.12); }
+.btn-ghost { background: transparent; border: 1px solid rgba(255,255,255,0.06); color:#e9f1ff; height:44px; padding: 0 14px; }
 
 .muted { color: var(--muted); }
 .hint { color: var(--muted); font-size:.9rem; }
@@ -396,6 +401,43 @@ $flash_error = get_flash('flash_error');
   .avatar-preview { width:88px; height:88px; }
   .profile-actions { gap:8px; }
 }
+
+/* ---- Force Logout & Reset (ghost) buttons to use airline blue ---- */
+.btn-ghost,
+a.btn-ghost,
+button.btn-ghost {
+  --btn-ghost-border: linear-gradient(90deg, var(--air-blue), var(--air-sky));
+  border: 1px solid rgba(11,89,216,0.18) !important;
+  color: var(--air-sky) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Hover / focus: solid blue highlight */
+.btn-ghost:hover,
+a.btn-ghost:hover,
+button.btn-ghost:hover,
+.btn-ghost:focus,
+a.btn-ghost:focus,
+button.btn-ghost:focus {
+  background: linear-gradient(90deg, rgba(46,126,247,0.12), rgba(11,89,216,0.14)) !important;
+  border-color: rgba(11,89,216,0.32) !important;
+  color: #eaf4ff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(11,89,216,0.12) !important;
+}
+
+/* Ensure icon-only ghost buttons (if any) also keep blue on hover */
+.btn-ghost i.material-icons,
+a.btn-ghost i.material-icons {
+  color: var(--air-sky) !important;
+}
+.btn-ghost:hover i.material-icons,
+a.btn-ghost:hover i.material-icons {
+  color: #fff !important;
+}
+
+
 </style>
 
 <script>
@@ -424,6 +466,8 @@ document.addEventListener('DOMContentLoaded', function () {
     fileLabel.addEventListener('keydown', function(e){
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
     });
+    // clicking the label should open file picker
+    fileLabel.addEventListener('click', function(e){ if (avatarInput) avatarInput.click(); });
   }
 
   const resetBtn = document.getElementById('formResetBtn');
@@ -435,17 +479,8 @@ document.addEventListener('DOMContentLoaded', function () {
       }, 10);
     });
   }
-
-  // extra: detect if background image failed to load and warn in console
-  const bg = document.querySelector('.page-bg-img');
-  if (bg) {
-    bg.addEventListener('error', function () {
-      console.warn('Background image failed to load:', bg.src);
-    });
-  }
 });
 </script>
 
 </body>
 </html>
-
