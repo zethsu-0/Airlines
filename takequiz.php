@@ -230,12 +230,12 @@ if ($currentAccId !== null && $currentAccId !== '') {
     $sql = "
       SELECT
         q.id AS quiz_id,
+        q.public_id,
         q.title,
         q.quiz_code AS code,
         '' AS deadline,
         COALESCE(q.duration, 0) AS duration,
 
-        -- mark as submitted if any row exists
         COUNT(sf.id) AS submission_count,
         MIN(sf.submitted_at) AS submitted_at,
 
@@ -245,7 +245,7 @@ if ($currentAccId !== null && $currentAccId !== '') {
         ON qi.quiz_id = q.id
       LEFT JOIN submitted_flights sf
         ON sf.quiz_id = q.id
-       AND sf.acc_id = ?
+      AND sf.acc_id = ?
       GROUP BY q.id
       ORDER BY q.created_at DESC
     ";
@@ -282,6 +282,7 @@ if ($currentAccId !== null && $currentAccId !== '') {
     $sql = "
       SELECT
         q.id AS quiz_id,
+        q.public_id,
         q.title,
         q.quiz_code AS code,
         '' AS deadline,
@@ -510,7 +511,7 @@ body {
 }
 
 
-[... remaining CSS and HTML unchanged ...]
+
 </style>
 
 <div class="sa-container">
@@ -551,6 +552,7 @@ body {
                 $numQuestions    = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
                 $duration        = isset($q['duration']) ? (int)$q['duration'] : 0;
                 $numItems        = isset($q['num_items']) ? (int)$q['num_items'] : 0;
+                  $quizPublicId = !empty($q['public_id']) ? $q['public_id'] : $q['quiz_id'];
             ?>
             <div class="quiz-row">
               <div class="quiz-code">
@@ -592,7 +594,7 @@ body {
                   <div style="color:#ff8a80; font-weight:700">Not submitted</div>
                   <div class="small-note">&nbsp;</div>
                   <div style="margin-top:8px">
-                    <a class="btn btn--primary" href="ticket.php?id=<?php echo urlencode($q['quiz_id']); ?>">Take Quiz</a>
+                    <a class="btn btn--primary" href="ticket.php?id=<?php echo urlencode($q['public_id']); ?>">Take Quiz</a>
                   </div>
                 <?php endif; ?>
               </div>

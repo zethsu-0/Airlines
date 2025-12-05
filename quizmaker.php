@@ -83,13 +83,16 @@ $airportOptionsJson = json_encode($airportOptionsHtml);
 $airportListJson    = json_encode($airportList);
 
 // ---------------- EDIT MODE: CHECK FOR ?id= ----------------
-$editing   = false;
-$editId    = null;
+$editing      = false;
+$editPublicId = null;
 
-if (isset($_GET['id']) && ctype_digit($_GET['id'])) {
-    $editing = true;
-    $editId  = (int) $_GET['id'];
+if (isset($_GET['id']) && $_GET['id'] !== '') {
+    $editing      = true;
+    // keep only alphanumeric chars for safety
+    $editPublicId = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['id']);
 }
+
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -493,8 +496,8 @@ const airportOptionsHtml = <?php echo $airportOptionsJson; ?>;
 const airportList        = <?php echo $airportListJson; ?>;
 
 // EDIT MODE FLAGS FROM PHP
-const isEditing  = <?php echo $editing ? 'true' : 'false'; ?>;
-const editQuizId = <?php echo $editing ? (int)$editId : 'null'; ?>;
+const isEditing    = <?php echo $editing ? 'true' : 'false'; ?>;
+const editPublicId = <?php echo $editing ? json_encode($editPublicId) : 'null'; ?>;
 
 /* Simple matching function */
 function matchAirports(query){
@@ -2155,8 +2158,8 @@ async function saveQuiz(redirect=false){
   const fromSection = sectionEl ? (sectionEl.value || '') : '';
 
   const payload = {
-    id:        isEditing ? editQuizId : null,
-    quiz_id:   isEditing ? editQuizId : null,
+    id:        isEditing ? editPublicId : null,
+    quiz_id:   isEditing ? editPublicId : null,
     action:    isEditing ? 'edit'    : 'create',
     mode:      isEditing ? 'edit'    : 'create',
     input_type: inputType,          // ✅ sent to PHP
@@ -2192,9 +2195,12 @@ async function saveQuiz(redirect=false){
     }
 
     if (data && data.success) {
-      M.toast({html: (isEditing ? 'Quiz updated' : 'Quiz saved') + ' (ID: '+data.id+')'});
-      if (redirect) window.location.href = 'Exam.php?id='+data.id;
-      return;
+    const pid = data.public_id || editPublicId || data.id; // fallback to old id if needed
+    M.toast({html: (isEditing ? 'Quiz updated' : 'Quiz saved') + ' (ID: ' + pid + ')'});
+    if (redirect && pid) {
+      window.location.href = 'Exam.php?id=' + encodeURIComponent(pid);
+    }
+    return;
     }
 
     const fallbackErr = (data && data.error) ? data.error : ('Unexpected server response: ' + text);
@@ -2465,7 +2471,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 
   const deleteBtn = document.getElementById('deleteQuizBtn');
-  if (deleteBtn && isEditing && editQuizId) {
+  if (deleteBtn && isEditing && editPublicId) {
     deleteBtn.addEventListener('click', function(e){
       e.preventDefault();
       if (!confirm('Are you sure you want to delete this quiz? This action cannot be undone.')) {
@@ -2473,11 +2479,11 @@ document.addEventListener('DOMContentLoaded', function(){
       }
 
       M.toast({html:'Deleting quiz...'});
-
+      
       fetch('delete_quiz.php', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ id: editQuizId })
+        body: JSON.stringify({ id: editPublicId  })
       })
       .then(r => r.json())
       .then(data => {
@@ -2512,9 +2518,9 @@ document.addEventListener('DOMContentLoaded', function(){
 }
 
   // ------------------ IF EDITING, LOAD QUIZ DATA ------------------
-  if(isEditing && editQuizId){
+  if(isEditing && editPublicId){
     M.toast({html:'Loading quiz data...'});
-    fetch('load_quiz.php?id=' + encodeURIComponent(editQuizId))
+    fetch('load_quiz.php?id=' + encodeURIComponent(editPublicId))
       .then(r => r.json())
       .then(data => {
         console.log('load_quiz response:', data);

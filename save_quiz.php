@@ -36,7 +36,6 @@ if (!$createdBy) {
     ]);
     exit;
 }
-$createdByInt = (int)$createdBy;
 
 // ------------------
 // READ INPUT JSON
@@ -56,7 +55,7 @@ if (!is_array($data)) {
 // ------------------
 // EXTRACT QUIZ DATA
 // ------------------
-$quiz_id_in = isset($data['id']) ? (int)$data['id'] : 0;   // 0 = create, >0 = update
+$quiz_id_in = isset($data['id']) ? (int)$data['id'] : 0;
 
 $title       = trim($data['title'] ?? 'Untitled Quiz');
 $from        = trim($data['from'] ?? '');
@@ -65,8 +64,6 @@ $code        = trim($data['code'] ?? '');
 $duration    = (int)($data['duration'] ?? 0);
 $num_questions = (int)($data['num_questions'] ?? 0);
 $items       = isset($data['items']) && is_array($data['items']) ? $data['items'] : [];
-
-// NEW: input_type from JS payload ('airport-code' or 'code-airport')
 $input_type  = trim($data['input_type'] ?? 'code-airport');
 
 if ($code === '') {
@@ -83,13 +80,8 @@ try {
     $isUpdate = $quiz_id_in > 0;
 
     if ($isUpdate) {
-        // ------------------
-        // UPDATE EXISTING QUIZ
-        // ------------------
-        $stmtCheck = $mysqli->prepare("SELECT id, created_by FROM quizzes WHERE id = ?");
-        if (!$stmtCheck) {
-            throw new Exception('Prepare failed for quiz check: ' . $mysqli->error);
-        }
+        // UPDATE QUIZ
+        $stmtCheck = $mysqli->prepare("SELECT id FROM quizzes WHERE id = ?");
         $stmtCheck->bind_param('i', $quiz_id_in);
         $stmtCheck->execute();
         $res = $stmtCheck->get_result();
@@ -106,12 +98,9 @@ try {
                 duration = ?, num_questions = ?, input_type = ?
             WHERE id = ?
         ");
-        if (!$stmtQuiz) {
-            throw new Exception('Prepare failed for quizzes UPDATE: ' . $mysqli->error);
-        }
 
         $stmtQuiz->bind_param(
-            'ssssii' . 'si',
+            'ssssiisi',
             $title,
             $from,
             $to,
@@ -122,39 +111,37 @@ try {
             $quiz_id_in
         );
 
-        if (!$stmtQuiz->execute()) {
-            throw new Exception('Update quiz failed: ' . $stmtQuiz->error);
-        }
+        $stmtQuiz->execute();
         $stmtQuiz->close();
 
         $quiz_id = $quiz_id_in;
 
-        // Clear old items so we can reinsert fresh ones
+        // Delete old items
         $stmtDel = $mysqli->prepare("DELETE FROM quiz_items WHERE quiz_id = ?");
-        if (!$stmtDel) {
-            throw new Exception('Prepare failed for quiz_items delete: ' . $mysqli->error);
-        }
-        $stmtDel->bind_param('i', $quiz_id);
-        if (!$stmtDel->execute()) {
-            throw new Exception('Delete quiz_items failed: ' . $stmtDel->error);
-        }
+        $stmtDel->bind_param('i', $quiz_id_in);
+        $stmtDel->execute();
         $stmtDel->close();
 
     } else {
-        // ------------------
+
         // INSERT NEW QUIZ
-        // ------------------
+        $public_id = bin2hex(random_bytes(8));
+
         $stmtQuiz = $mysqli->prepare("
             INSERT INTO quizzes
-            (title, `from`, `to`, quiz_code, duration, num_questions, input_type, created_by, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            (public_id, title, `from`, `to`, quiz_code, duration, num_questions, input_type, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ");
-        if (!$stmtQuiz) {
-            throw new Exception('Prepare failed for quizzes INSERT: ' . $mysqli->error);
-        }
+
+        $stmtQuiz = $mysqli->prepare("
+            INSERT INTO quizzes
+            (public_id, title, `from`, `to`, quiz_code, duration, num_questions, input_type, created_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
 
         $stmtQuiz->bind_param(
-            'ssssii' . 'ss',
+            'sssssiisi',
+            $public_id,
             $title,
             $from,
             $to,
@@ -165,218 +152,111 @@ try {
             $createdBy
         );
 
-        if (!$stmtQuiz->execute()) {
-            throw new Exception('Insert quiz failed: ' . $stmtQuiz->error);
-        }
-
+        $stmtQuiz->execute();
         $quiz_id = $stmtQuiz->insert_id;
         $stmtQuiz->close();
     }
 
-    // ------------------
-    // Ensure quiz_items has legs_json column (TEXT) to store multi-city legs
-    // ------------------
+    // Ensure legs_json exists
     $resCol = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
-    if ($resCol === false) {
-        throw new Exception('Failed to check quiz_items columns: ' . $mysqli->error);
-    }
     if ($resCol->num_rows === 0) {
-        // Try to add the column (safe if user has permission)
-        if (!$mysqli->query("ALTER TABLE `quiz_items` ADD COLUMN `legs_json` TEXT NULL")) {
-            // If ALTER fails, do not abort — we'll continue but legs won't be persisted in the column.
-            // Still throw an Exception? For now, log but continue.
-            //throw new Exception('Failed to add legs_json column: ' . $mysqli->error);
-            error_log('save_quiz.php: unable to add legs_json column: ' . $mysqli->error);
-        }
+        $mysqli->query("ALTER TABLE quiz_items ADD COLUMN legs_json TEXT NULL");
     }
 
-    // ------------------
-    // INSERT QUIZ ITEMS (for both create + update)
-    // ------------------
+    // INSERT ITEMS
     if (!empty($items)) {
 
-        // Prepare insert - include legs_json (some DBs may have column if ALTER succeeded)
-        // We'll include legs_json in the column list; if the column doesn't exist this will fail,
-        // but we attempted to create it above. If it still fails, fallback to inserting without legs_json.
-        $insertWithLegsSql = "
+        $insertSql = "
             INSERT INTO quiz_items
-            (quiz_id, item_index, origin_iata, destination_iata,
+            (public_id, quiz_id, item_index, origin_iata, destination_iata,
              adults, children, infants, flight_type,
              departure_date, return_date,
              flight_number, seats, travel_class, legs_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ";
 
-        $stmtItem = $mysqli->prepare($insertWithLegsSql);
-        if (!$stmtItem) {
-            // Fallback: try insert without legs_json
-            $insertFallbackSql = "
-                INSERT INTO quiz_items
-                (quiz_id, item_index, origin_iata, destination_iata,
-                 adults, children, infants, flight_type,
-                 departure_date, return_date,
-                 flight_number, seats, travel_class)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ";
-            $stmtItem = $mysqli->prepare($insertFallbackSql);
-            if (!$stmtItem) {
-                throw new Exception('Prepare failed for quiz_items (both with-legs and fallback): ' . $mysqli->error);
-            }
-            $useLegsColumn = false;
-        } else {
-            $useLegsColumn = true;
-        }
+        $stmtItem = $mysqli->prepare($insertSql);
 
         $index = 0;
-        foreach ($items as $i => $item) {
+        foreach ($items as $item) {
             $index++;
+
+            // Generate unique public ID per item
+            $item_public_id = bin2hex(random_bytes(8));
 
             $booking = $item['booking'] ?? [];
 
-            // Normalize legs: if booking contains legs array, use it. Otherwise create single-leg for compatibility.
+            // Normalize legs
             $legs = [];
-            if (isset($booking['legs']) && is_array($booking['legs']) && count($booking['legs']) > 0) {
+            if (!empty($booking['legs'])) {
                 foreach ($booking['legs'] as $lg) {
-                    // Ensure each leg has origin/destination/date keys (normalize)
                     $legs[] = [
-                        'origin' => isset($lg['origin']) ? strtoupper(trim($lg['origin'])) : '',
-                        'destination' => isset($lg['destination']) ? strtoupper(trim($lg['destination'])) : '',
-                        'date' => isset($lg['date']) ? $lg['date'] : null
+                        'origin' => strtoupper(trim($lg['origin'] ?? '')),
+                        'destination' => strtoupper(trim($lg['destination'] ?? '')),
+                        'date' => $lg['date'] ?? null
                     ];
                 }
             } else {
-                // fallback to origin/destination at top-level / single leg
-                $lgOrigin = strtoupper(trim($booking['origin'] ?? $item['iata'] ?? ''));
-                $lgDest   = strtoupper(trim($booking['destination'] ?? $item['city'] ?? ''));
-                $lgDate   = $booking['departure'] ?? null;
-                $legs[] = ['origin'=>$lgOrigin, 'destination'=>$lgDest, 'date'=>$lgDate];
+                $legs[] = [
+                    'origin' => strtoupper(trim($booking['origin'] ?? $item['iata'] ?? '')),
+                    'destination' => strtoupper(trim($booking['destination'] ?? $item['city'] ?? '')),
+                    'date' => $booking['departure'] ?? null
+                ];
             }
 
-            // Top-level origin/destination/dates for compatibility (first/last leg)
+            // Compatible top-level fields
             $origin = $legs[0]['origin'] ?? '';
             $dest   = $legs[count($legs)-1]['destination'] ?? '';
-
-            // Fallback from root object if missing
-            if ($origin === '') $origin = strtoupper(trim($item['iata'] ?? ''));
-            if ($dest === '')   $dest   = strtoupper(trim($item['city'] ?? ''));
 
             $adults   = (int)($booking['adults'] ?? 0);
             $children = (int)($booking['children'] ?? 0);
             $infants  = (int)($booking['infants'] ?? 0);
             $type     = strtoupper(trim($booking['flight_type'] ?? 'ONE-WAY'));
-
-            // derive departure and return
-            $depart   = $legs[0]['date'] ?? ($booking['departure'] ?? null);
+            $depart   = $legs[0]['date'] ?? null;
             $return   = $booking['return'] ?? null;
 
             $flightNo = trim($booking['flight_number'] ?? '');
             $seats    = strtoupper(trim($booking['seats'] ?? ''));
             $class    = strtoupper(trim($booking['travel_class'] ?? ''));
 
-            // legs_json string (or null)
-            $legs_json = null;
-            if ($useLegsColumn) {
-                $legs_json = json_encode($legs, JSON_UNESCAPED_UNICODE);
-                if ($legs_json === false) {
-                    $legs_json = null; // encoding failed; store null
-                }
-            }
+            $legs_json = json_encode($legs, JSON_UNESCAPED_UNICODE);
 
-            if ($useLegsColumn) {
-                // bind with legs_json
-                // types: quiz_id(i), item_index(i), origin(s), destination(s),
-                // adults(i), children(i), infants(i), flight_type(s),
-                // departure(s), return(s), flight_number(s), seats(s), travel_class(s), legs_json(s)
-                $types = 'iissiiisssssss';
-                // Note: bind_param requires variables, not expressions
-                $quiz_id_var = $quiz_id;
-                $item_index_var = $index;
-                $origin_var = $origin;
-                $dest_var = $dest;
-                $adults_var = $adults;
-                $children_var = $children;
-                $infants_var = $infants;
-                $type_var = $type;
-                $depart_var = $depart;
-                $return_var = $return;
-                $flightNo_var = $flightNo;
-                $seats_var = $seats;
-                $class_var = $class;
-                $legs_json_var = $legs_json;
-
-                if (!$stmtItem->bind_param(
-                    $types,
-                    $quiz_id_var,
-                    $item_index_var,
-                    $origin_var,
-                    $dest_var,
-                    $adults_var,
-                    $children_var,
-                    $infants_var,
-                    $type_var,
-                    $depart_var,
-                    $return_var,
-                    $flightNo_var,
-                    $seats_var,
-                    $class_var,
-                    $legs_json_var
-                )) {
-                    throw new Exception('Bind failed for quiz_items (with legs): ' . $stmtItem->error);
-                }
-            } else {
-                // fallback bind (no legs_json)
-                $types = 'iissiiissssss';
-                $quiz_id_var = $quiz_id;
-                $item_index_var = $index;
-                $origin_var = $origin;
-                $dest_var = $dest;
-                $adults_var = $adults;
-                $children_var = $children;
-                $infants_var = $infants;
-                $type_var = $type;
-                $depart_var = $depart;
-                $return_var = $return;
-                $flightNo_var = $flightNo;
-                $seats_var = $seats;
-                $class_var = $class;
-
-                if (!$stmtItem->bind_param(
-                    $types,
-                    $quiz_id_var,
-                    $item_index_var,
-                    $origin_var,
-                    $dest_var,
-                    $adults_var,
-                    $children_var,
-                    $infants_var,
-                    $type_var,
-                    $depart_var,
-                    $return_var,
-                    $flightNo_var,
-                    $seats_var,
-                    $class_var
-                )) {
-                    throw new Exception('Bind failed for quiz_items (fallback): ' . $stmtItem->error);
-                }
-            }
+            // Bind
+            $stmtItem->bind_param(
+                'siissiiisssssss',
+                $item_public_id,
+                $quiz_id,
+                $index,
+                $origin,
+                $dest,
+                $adults,
+                $children,
+                $infants,
+                $type,
+                $depart,
+                $return,
+                $flightNo,
+                $seats,
+                $class,
+                $legs_json
+            );
 
             if (!$stmtItem->execute()) {
-                throw new Exception('Insert quiz_items failed: ' . $stmtItem->error);
+                throw new Exception("Insert quiz_items failed: " . $stmtItem->error);
             }
         }
 
         $stmtItem->close();
     }
 
-    // ------------------
-    // COMMIT
-    // ------------------
+    // Commit
     $mysqli->commit();
 
     echo json_encode([
         'success' => true,
-        'id'      => $quiz_id,
-        'mode'    => $isUpdate ? 'update' : 'create'
+        'public_id' => $public_id ?? null,
+        'id' => $quiz_id,
+        'mode' => $isUpdate ? 'update' : 'create'
     ]);
     exit;
 
@@ -391,3 +271,4 @@ try {
     ]);
     exit;
 }
+?>

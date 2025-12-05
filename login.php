@@ -293,6 +293,7 @@ if ($account['source'] === 'admins') {
 $_SESSION['acc_id']   = $account['acc_id'];
 $_SESSION['acc_name'] = $account['acc_name'];
 $_SESSION['role']     = $roleNorm;
+$_SESSION['acc_role']  = $roleNorm;  
 
 session_regenerate_id(true);
 

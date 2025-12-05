@@ -1,5 +1,5 @@
 <?php
-// save_booking.php - ONLY inserts into submitted_flights (now supports multi-city legs)
+// save_booking.php
 session_start();
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
@@ -21,6 +21,19 @@ function clean($s) {
     return trim($s === null ? '' : (string)$s);
 }
 
+/**
+ * Generate a URL-safe public id (like YouTube-ish)
+ */
+function generate_public_id($length = 11) {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    $max = strlen($alphabet) - 1;
+    $id = '';
+    for ($i = 0; $i < $length; $i++) {
+        $id .= $alphabet[random_int(0, $max)];
+    }
+    return $id;
+}
+
 /* -------------------------
    Identify account (acc_id)
 --------------------------*/
@@ -38,8 +51,6 @@ if ($acc_id === '') {
     die('Not logged in or acc_id not provided.');
 }
 
-// prefer integer acc_id for DB
-$acc_id_int = is_numeric($acc_id) ? (int)$acc_id : 0;
 
 /* -------------------------
    quiz_id from POST (ticket.php sends this)
@@ -70,7 +81,6 @@ if ($quiz_id > 0) {
 /* -------------------------
    Flight fields (from hidden inputs in bookingForm)
 --------------------------*/
-// These top-level fields may be overridden by legs if booking_legs is present
 $origin      = strtoupper(clean($_POST['origin'] ?? ''));
 $destination = strtoupper(clean($_POST['destination'] ?? ''));
 $departure   = clean($_POST['flight_date'] ?? '');
@@ -78,7 +88,6 @@ $return_date = clean($_POST['return_date'] ?? '');
 $flight_type = strtoupper(clean($_POST['flight_type'] ?? 'ONE-WAY'));
 if (!in_array($flight_type, ['ONE-WAY','ROUND-TRIP','MULTI-CITY'], true)) $flight_type = 'ONE-WAY';
 if ($flight_type !== 'ROUND-TRIP' && $flight_type !== 'MULTI-CITY') {
-    // For non-RT / non-multi-city, clear return
     $return_date = '';
 }
 
@@ -91,7 +100,6 @@ $hasLegs = false;
 if (is_string($booking_legs_raw) && trim($booking_legs_raw) !== '') {
     $decoded = json_decode($booking_legs_raw, true);
     if (is_array($decoded) && count($decoded) > 0) {
-        // normalize legs to array of {origin,destination,date}
         $legs = [];
         foreach ($decoded as $lg) {
             $o = isset($lg['origin']) ? strtoupper(trim($lg['origin'])) : '';
@@ -101,7 +109,6 @@ if (is_string($booking_legs_raw) && trim($booking_legs_raw) !== '') {
         }
         $booking_legs = $legs;
         $hasLegs = true;
-        // enforce multi-city type
         $flight_type = 'MULTI-CITY';
     }
 }
@@ -113,7 +120,6 @@ if ($hasLegs && is_array($booking_legs) && count($booking_legs) > 0) {
     $firstLeg = $booking_legs[0];
     $lastLeg  = $booking_legs[count($booking_legs)-1];
 
-    // derive origin/destination/date
     $origin = strtoupper(trim($firstLeg['origin'] ?? '')) ?: $origin;
     $destination = strtoupper(trim($lastLeg['destination'] ?? '')) ?: $destination;
     $departure = trim($firstLeg['date'] ?? '') ?: $departure;
@@ -134,34 +140,26 @@ $passengerCount = is_array($names) ? count($names) : 0;
 /* -------------------------
    Basic validation
 --------------------------*/
-/* -------------------------
-   Basic validation
---------------------------*/
 $errors = [];
 
-// If we have booking legs, validate the legs (and skip top-level origin/destination requirement)
 if ($hasLegs) {
     foreach ($booking_legs as $i => $lg) {
         $o = $lg['origin'] ?? '';
         $d = $lg['destination'] ?? '';
         $dt = $lg['date'] ?? '';
 
-        // presence checks
         if ($o === '') $errors[] = "Leg #".($i+1)." origin is required.";
         if ($d === '') $errors[] = "Leg #".($i+1)." destination is required.";
 
-        // IATA format only when quiz expects codes
         if ($quizInputType === 'airport-code') {
             if ($o !== '' && !preg_match('/^[A-Z]{3}$/', $o)) $errors[] = "Leg #".($i+1)." origin must be a 3-letter IATA code.";
             if ($d !== '' && !preg_match('/^[A-Z]{3}$/', $d)) $errors[] = "Leg #".($i+1)." destination must be a 3-letter IATA code.";
         }
 
-        // same-origin/destination for the leg
         if ($o !== '' && $d !== '' && $o === $d) {
             $errors[] = "Leg #".($i+1)." origin and destination cannot be the same.";
         }
 
-        // date validation for each leg (if provided)
         if ($dt === '') {
             $errors[] = "Leg #".($i+1)." date is required.";
         } else {
@@ -175,21 +173,7 @@ if ($hasLegs) {
             }
         }
     }
-
-    // Optional: ensure legs chain together (leg[n].destination == leg[n+1].origin)
-    // If you want this, uncomment the block below:
-    /*
-    for ($i = 0; $i < count($booking_legs) - 1; $i++) {
-        $cur = $booking_legs[$i];
-        $next = $booking_legs[$i+1];
-        if (!empty($cur['destination']) && !empty($next['origin']) && $cur['destination'] !== $next['origin']) {
-            $errors[] = "Leg #".($i+1)." destination must match Leg #".($i+2)." origin.";
-        }
-    }
-    */
-
 } else {
-    // No legs => legacy top-level validation
     if ($origin === '') {
         $errors[] = 'Origin is required.';
     } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
@@ -206,7 +190,6 @@ if ($hasLegs) {
         $errors[] = 'Origin and destination cannot be the same.';
     }
 
-    // Validate departure & return dates
     if ($departure === '') {
         $errors[] = 'Departure date is required.';
     } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $departure)) {
@@ -234,11 +217,9 @@ if ($hasLegs) {
     }
 }
 
-// passenger count validation (applies regardless)
 if ($passengerCount < 1) {
     $errors[] = 'At least one passenger is required to compute seats.';
 }
-
 
 if (!empty($errors)) {
     echo "<h3>Validation errors in save_booking.php</h3><ul>";
@@ -300,10 +281,9 @@ if ($passengerCount > 0) {
 
 // seat numbers: convert array -> single string for DB storage
 if (!is_array($seats_number)) {
-    $seats_number = [$seats_number]; // just in case it's a single value
+    $seats_number = [$seats_number];
 }
 
-// Clean + uppercase each seat value
 $clean_seats = [];
 foreach ($seats_number as $sn) {
     $sn = strtoupper(clean($sn));
@@ -311,27 +291,21 @@ foreach ($seats_number as $sn) {
         $clean_seats[] = $sn;
     }
 }
-
-// Final value saved into DB (e.g. "12A,12B,13C")
 $seat_number = implode(',', $clean_seats);
 
 /* -------------------------
-   Prepare to insert into submitted_flights
-   Attempt to add legs_json column if missing, then include it in INSERT
+   Determine submitted_flights support: legs_json and public_id
 --------------------------*/
 $useLegsColumn = false;
 $resCol = $mysqli->query("SHOW COLUMNS FROM `submitted_flights` LIKE 'legs_json'");
 if ($resCol && $resCol->num_rows > 0) {
     $useLegsColumn = true;
-} else {
-    // try to add it (non-fatal)
-    if ($mysqli->query("ALTER TABLE `submitted_flights` ADD COLUMN `legs_json` TEXT NULL")) {
-        $useLegsColumn = true;
-    } else {
-        // if ALTER fails, continue without legs column
-        error_log('save_booking.php: unable to add legs_json column: ' . $mysqli->error);
-        $useLegsColumn = false;
-    }
+}
+
+$submitted_has_public = false;
+$resPub = $mysqli->query("SHOW COLUMNS FROM `submitted_flights` LIKE 'public_id'");
+if ($resPub && $resPub->num_rows > 0) {
+    $submitted_has_public = true;
 }
 
 /* -------------------------
@@ -340,103 +314,169 @@ if ($resCol && $resCol->num_rows > 0) {
 $mysqli->begin_transaction();
 
 try {
-    if ($useLegsColumn) {
-        // 13 params:
-        // i quiz_id
-        // i acc_id_int
-        // i adults
-        // i children
-        // i infants
-        // s flight_type
-        // s origin
-        // s destination
-        // s departure
-        // s return_date
-        // s seat_number
-        // s travel_class
-        // s legs_json_to_store
-        $sql = "
-        INSERT INTO submitted_flights
+    $final_public_id = null;
+
+    // Build SQL depending on columns present
+    if ($useLegsColumn && $submitted_has_public) {
+        $sql = "INSERT INTO submitted_flights
+            (quiz_id, acc_id, adults, children, infants, flight_type,
+             origin, destination, departure, return_date, seat_number, travel_class, legs_json, public_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    } elseif ($useLegsColumn && !$submitted_has_public) {
+        $sql = "INSERT INTO submitted_flights
             (quiz_id, acc_id, adults, children, infants, flight_type,
              origin, destination, departure, return_date, seat_number, travel_class, legs_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ";
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    } elseif (!$useLegsColumn && $submitted_has_public) {
+        $sql = "INSERT INTO submitted_flights
+            (quiz_id, acc_id, adults, children, infants, flight_type,
+             origin, destination, departure, return_date, seat_number, travel_class, public_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    } else {
+        $sql = "INSERT INTO submitted_flights
+            (quiz_id, acc_id, adults, children, infants, flight_type,
+             origin, destination, departure, return_date, seat_number, travel_class)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    }
+
+    // If public_id will be inserted, we must handle rare collisions by retrying
+    $maxPublicRetries = 6;
+    $attempt = 0;
+    $inserted = false;
+    $lastError = '';
+
+    while (!$inserted) {
+        // Prepare statement
         $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
-            throw new Exception("Prepare failed (with legs): " . $mysqli->error);
+            throw new Exception("Prepare failed: " . $mysqli->error . " SQL: " . $sql);
         }
 
+        // Prepare legs_json if needed
         $legs_json_to_store = null;
-        if ($hasLegs) {
+        if ($useLegsColumn && $hasLegs) {
             $json = json_encode($booking_legs, JSON_UNESCAPED_UNICODE);
             $legs_json_to_store = ($json === false) ? null : $json;
         }
 
-        // types: 5 ints, 8 strings => "iiiiissssssss"
-        $types = "iiiiissssssss";
-        if (!$stmt->bind_param(
-            $types,
-            $quiz_id,
-            $acc_id_int,
-            $adults,
-            $children,
-            $infants,
-            $flight_type,
-            $origin,
-            $destination,
-            $departure,
-            $return_date,
-            $seat_number,
-            $travel_class,
-            $legs_json_to_store
-        )) {
-            throw new Exception("Bind failed (with legs): " . $stmt->error);
+        if ($submitted_has_public) {
+            // generate public id (only for inserts that include public_id)
+            $final_public_id = generate_public_id(11);
         }
 
-    } else {
-        // fallback insert (without legs_json)
-        // 12 params:
-        // i quiz_id, i acc_id_int, i adults, i children, i infants,
-        // s flight_type, s origin, s destination, s departure, s return_date, s seat_number, s travel_class
-        $sql = "
-        INSERT INTO submitted_flights
-            (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, seat_number, travel_class)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ";
-        $stmt = $mysqli->prepare($sql);
-        if (!$stmt) {
-            throw new Exception("Prepare failed (no legs): " . $mysqli->error);
+        // Bind parameters according to selected SQL
+        if ($useLegsColumn && $submitted_has_public) {
+            // 14 params: i, s, i, i, i, s, s, s, s, s, s, s, s, s
+            $types = "isiii" . str_repeat('s', 9); // "isiiissssssss"
+            $bindVars = [
+                $quiz_id,
+                $acc_id,
+                $adults,
+                $children,
+                $infants,
+                $flight_type,
+                $origin,
+                $destination,
+                $departure,
+                $return_date,
+                $seat_number,
+                $travel_class,
+                $legs_json_to_store,
+                $final_public_id
+            ];
+        } elseif ($useLegsColumn && !$submitted_has_public) {
+            // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
+            $types = "isiii" . str_repeat('s', 8); // "isiiisssssss"
+            $bindVars = [
+                $quiz_id,
+                $acc_id,
+                $adults,
+                $children,
+                $infants,
+                $flight_type,
+                $origin,
+                $destination,
+                $departure,
+                $return_date,
+                $seat_number,
+                $travel_class,
+                $legs_json_to_store
+            ];
+        } elseif (!$useLegsColumn && $submitted_has_public) {
+            // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
+            $types = "isiii" . str_repeat('s', 8); // "isiiisssssss"
+            $bindVars = [
+                $quiz_id,
+                $acc_id,
+                $adults,
+                $children,
+                $infants,
+                $flight_type,
+                $origin,
+                $destination,
+                $departure,
+                $return_date,
+                $seat_number,
+                $travel_class,
+                $final_public_id
+            ];
+        } else {
+            // 12 params: i, s, i, i, i, s, s, s, s, s, s, s
+            $types = "isiii" . str_repeat('s', 7); // "isiiissssss"
+            $bindVars = [
+                $quiz_id,
+                $acc_id,
+                $adults,
+                $children,
+                $infants,
+                $flight_type,
+                $origin,
+                $destination,
+                $departure,
+                $return_date,
+                $seat_number,
+                $travel_class
+            ];
         }
 
-        // types: 5 ints, 7 strings => "iiiiisssssss"
-        $types = "iiiiisssssss";
-        if (!$stmt->bind_param(
-            $types,
-            $quiz_id,
-            $acc_id_int,
-            $adults,
-            $children,
-            $infants,
-            $flight_type,
-            $origin,
-            $destination,
-            $departure,
-            $return_date,
-            $seat_number,
-            $travel_class
-        )) {
-            throw new Exception("Bind failed (no legs): " . $stmt->error);
+        // Use argument unpacking to bind dynamically
+        // mysqli_stmt::bind_param requires variables passed by reference,
+        // so build an array of references:
+        $refs = [];
+        foreach ($bindVars as $k => $v) {
+            $refs[$k] = &$bindVars[$k];
         }
-    }
 
-    // Execute and commit
-    if (!$stmt->execute()) {
-        throw new Exception("Execute failed: " . $stmt->error);
+        // Prepend types as first arg
+        array_unshift($refs, $types);
+
+        if (!call_user_func_array([$stmt, 'bind_param'], $refs)) {
+            throw new Exception("Bind failed: " . $stmt->error);
+        }
+
+        // Execute
+        if ($stmt->execute()) {
+            $inserted = true;
+            $inserted_id = $stmt->insert_id;
+            $stmt->close();
+            break;
+        }
+
+        $lastError = $stmt->error;
+        $errno = $mysqli->errno;
+        $stmt->close();
+
+        // If collision on public_id (duplicate key 1062), retry
+        if ($submitted_has_public && $errno === 1062 && $attempt < $maxPublicRetries) {
+            $attempt++;
+            continue; // regenerate public_id and try again
+        }
+
+        // otherwise fail
+        throw new Exception("Execute failed: " . $lastError);
     }
 
     $mysqli->commit();
-    $stmt->close();
 
 } catch (Exception $ex) {
     $mysqli->rollback();
@@ -447,6 +487,18 @@ try {
 /* -------------------------
    Redirect / show success
 --------------------------*/
-header("refresh:2;url=takequiz.php");
+$redirectUrl = 'takequiz.php';
+if (!empty($final_public_id)) {
+    // include public_id in query so user can copy/share the booking link
+    $redirectUrl .= '?pid=' . urlencode($final_public_id);
+}
+
+// small friendly message, then redirect
+header("refresh:2;url=" . $redirectUrl);
 echo "<h3>Flight submitted</h3>";
+if (!empty($final_public_id)) {
+    echo "<p>Booking ID: <strong>" . htmlspecialchars($final_public_id) . "</strong></p>";
+    echo "<p><a href=\"submitted_flights_view.php?pid=" . htmlspecialchars($final_public_id) . "\">View booking</a></p>";
+}
+echo "<p>Redirecting...</p>";
 exit;

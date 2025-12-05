@@ -8,6 +8,8 @@ $default_avatar = 'assets/avatar.png';
 $sn_avatar = $default_avatar;
 $sn_name   = $_SESSION['acc_name'] ?? 'Guest';
 
+$acc_role = $_SESSION['acc_role'] ?? $_SESSION['role'] ?? null;
+
 if (!empty($_SESSION['acc_id'])) {
     $acc_id = (string) $_SESSION['acc_id'];
     // Attempt to fetch avatar and nicer name from DB (silent on failure)
@@ -16,7 +18,10 @@ if (!empty($_SESSION['acc_id'])) {
         $tmpConn = new mysqli($dbHost, $dbUser, $dbPass, $dbName);
         if (!$tmpConn->connect_error) {
             $tmpConn->set_charset('utf8mb4');
-            $stmt = $tmpConn->prepare("SELECT avatar, acc_name FROM students LEFT JOIN accounts ON students.student_id = accounts.acc_id WHERE students.student_id = ? LIMIT 1");
+            $stmt = $tmpConn->prepare("SELECT avatar, acc_name, acc_role
+                                        FROM students
+                                        LEFT JOIN accounts ON students.student_id = accounts.acc_id
+                                        WHERE students.student_id = ? LIMIT 1");
             if ($stmt) {
                 $stmt->bind_param('s', $acc_id);
                 $stmt->execute();
@@ -62,7 +67,7 @@ $sn_name_html   = htmlspecialchars($sn_name, ENT_QUOTES);
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 
-  <style>
+<style>
     /* ----- Scoped header theme ----- */
     .header-scope {
       --primary1: #0052cc;
@@ -119,9 +124,9 @@ $sn_name_html   = htmlspecialchars($sn_name, ENT_QUOTES);
       text-transform: none;
     }
 
-/* ===== Button: transparent by default, blue highlight on hover/focus/active ===== */
-.header-scope .btn-ticket,
-.header-scope .login-trigger {
+  /* ===== Button: transparent by default, blue highlight on hover/focus/active ===== */
+  .header-scope .btn-ticket,
+  .header-scope .login-trigger {
   background: transparent;
   color: #fff;
   border: none;
@@ -130,227 +135,227 @@ $sn_name_html   = htmlspecialchars($sn_name, ENT_QUOTES);
   font-weight: 600;
   text-transform: none;
   transition: background 180ms ease, box-shadow 180ms ease, color 180ms ease;
-}
+  }
 
-/* Blue highlight on hover / focus / active */
-.header-scope .btn-ticket:hover,
-.header-scope .btn-ticket:focus,
-.header-scope .btn-ticket:active,
-.header-scope .login-trigger:hover,
-.header-scope .login-trigger:focus,
-.header-scope .login-trigger:active {
-  /* small blue gradient to match header */
-  background: linear-gradient(90deg, rgba(25,118,210,0.12), rgba(11,132,255,0.16));
-  color: #fff;
-  outline: none;
-  box-shadow: 0 6px 18px rgba(11,132,255,0.08);
-}
+  /* Blue highlight on hover / focus / active */
+  .header-scope .btn-ticket:hover,
+  .header-scope .btn-ticket:focus,
+  .header-scope .btn-ticket:active,
+  .header-scope .login-trigger:hover,
+  .header-scope .login-trigger:focus,
+  .header-scope .login-trigger:active {
+    /* small blue gradient to match header */
+    background: linear-gradient(90deg, rgba(25,118,210,0.12), rgba(11,132,255,0.16));
+    color: #fff;
+    outline: none;
+    box-shadow: 0 6px 18px rgba(11,132,255,0.08);
+  }
 
-/* stronger blue fill for primary-like ticket if you prefer a filled hover (optional) */
-/* uncomment if you want a filled pill on hover */
-/*
-.header-scope .btn-ticket:hover,
-.header-scope .btn-ticket:focus {
-  background: linear-gradient(90deg, var(--primary1), var(--primary2));
-  color: #fff;
-}
-*/
+  /* stronger blue fill for primary-like ticket if you prefer a filled hover (optional) */
+  /* uncomment if you want a filled pill on hover */
+  /*
+  .header-scope .btn-ticket:hover,
+  .header-scope .btn-ticket:focus {
+    background: linear-gradient(90deg, var(--primary1), var(--primary2));
+    color: #fff;
+  }
+  */
 
-/* ensure the tiny white flash from Materialize waves is removed and replaced with a blue ripple */
-.header-scope .waves-ripple,
-.header-scope span[class*="waves-ripple"] {
-  display: none !important;
-  opacity: 0 !important;
-}
+  /* ensure the tiny white flash from Materialize waves is removed and replaced with a blue ripple */
+  .header-scope .waves-ripple,
+  .header-scope span[class*="waves-ripple"] {
+    display: none !important;
+    opacity: 0 !important;
+  }
 
-/* If any links still show a light background, make sure anchors inherit */
-.header-scope .nav-actions a,
-.header-scope .nav-actions a:hover,
-.header-scope .nav-actions a:focus {
-  color: #fff;
-  text-decoration: none;
-  background: transparent;
-}
+  /* If any links still show a light background, make sure anchors inherit */
+  .header-scope .nav-actions a,
+  .header-scope .nav-actions a:hover,
+  .header-scope .nav-actions a:focus {
+    color: #fff;
+    text-decoration: none;
+    background: transparent;
+  }
 
-/* Sidenav link hover should also feel blue (desktop links often mirror mobile) */
-.header-scope .sidenav li > a:hover,
-.header-scope .sidenav li > a:focus {
-  background: rgba(255,255,255,0.04);
-  color: #fff !important;
-}
+  /* Sidenav link hover should also feel blue (desktop links often mirror mobile) */
+  .header-scope .sidenav li > a:hover,
+  .header-scope .sidenav li > a:focus {
+    background: rgba(255,255,255,0.04);
+    color: #fff !important;
+  }
 
 
-    /* Profile */
-    .header-scope .hdr-profile {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      color: #fff;
-      padding: 6px 8px;
-      border-radius: 8px;
-      text-decoration: none;
-    }
+      /* Profile */
+      .header-scope .hdr-profile {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        color: #fff;
+        padding: 6px 8px;
+        border-radius: 8px;
+        text-decoration: none;
+      }
 
-    .header-scope .hdr-profile img {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.25);
-      object-fit: cover;
-    }
+      .header-scope .hdr-profile img {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.25);
+        object-fit: cover;
+      }
 
-    /* Hamburger for mobile */
-    .header-scope .sidenav-trigger {
-      display: none;
-      color: #fff;
-      font-size: 30px;
-    }
-
-    /* Mobile brand centering */
-    @media (max-width: 992px) {
-
+      /* Hamburger for mobile */
       .header-scope .sidenav-trigger {
-        display: inline-block;
-        position: absolute;
-        left: 16px;
-      }
-
-      .header-scope .nav-actions {
         display: none;
+        color: #fff;
+        font-size: 30px;
       }
 
-      .header-scope .nav-ctr {
-        justify-content: center !important;
-        position: relative;
+      /* Mobile brand centering */
+      @media (max-width: 992px) {
+
+        .header-scope .sidenav-trigger {
+          display: inline-block;
+          position: absolute;
+          left: 16px;
+        }
+
+        .header-scope .nav-actions {
+          display: none;
+        }
+
+        .header-scope .nav-ctr {
+          justify-content: center !important;
+          position: relative;
+        }
+
+        .header-scope .brand {
+          margin: 0 auto;
+        }
       }
 
-      .header-scope .brand {
-        margin: 0 auto;
+      /* ================= Sidenav ================= */
+      .header-scope .sidenav {
+        width: 270px;
+        background: linear-gradient(180deg, #003d8a, #005fcc);
+        padding-top: 0;
       }
-    }
 
-    /* ================= Sidenav ================= */
-    .header-scope .sidenav {
-      width: 270px;
-      background: linear-gradient(180deg, #003d8a, #005fcc);
-      padding-top: 0;
-    }
+      .header-scope .sidenav-header {
+        text-align: center;
+        padding: 28px 16px 20px;
+        border-bottom: 1px solid rgba(255,255,255,0.15);
+      }
 
-    .header-scope .sidenav-header {
-      text-align: center;
-      padding: 28px 16px 20px;
-      border-bottom: 1px solid rgba(255,255,255,0.15);
-    }
+      .header-scope .sidenav-header img {
+        width: 70px;
+        height: 70px;
+        border-radius: 50%;
+        border: 3px solid rgba(255,255,255,0.35);
+        object-fit: cover;
+      }
 
-    .header-scope .sidenav-header img {
-      width: 70px;
-      height: 70px;
-      border-radius: 50%;
-      border: 3px solid rgba(255,255,255,0.35);
-      object-fit: cover;
-    }
+      .header-scope .sidenav-header .name {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: #fff;
+        margin-top: 10px;
+      }
 
-    .header-scope .sidenav-header .name {
-      font-size: 1.15rem;
-      font-weight: 600;
-      color: #fff;
-      margin-top: 10px;
-    }
+      .header-scope .sidenav-header .welcome {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.70);
+      }
 
-    .header-scope .sidenav-header .welcome {
-      font-size: 0.85rem;
-      color: rgba(255,255,255,0.70);
-    }
+      .header-scope .sidenav li > a {
+        color: #fff !important;
+        font-weight: 600;
+        padding-left: 20px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
 
-    .header-scope .sidenav li > a {
-      color: #fff !important;
-      font-weight: 600;
-      padding-left: 20px;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
+      /* Remove ripple / white flash */
+      .header-scope .waves-ripple,
+      .header-scope span[class*="waves-ripple"] {
+        display: none !important;
+        opacity: 0 !important;
+      }
 
-    /* Remove ripple / white flash */
-    .header-scope .waves-ripple,
-    .header-scope span[class*="waves-ripple"] {
-      display: none !important;
-      opacity: 0 !important;
-    }
+      /* ================= Modal ================= */
+      .header-scope .modal { border-radius: 8px; }
+      .header-scope .modal-content { padding: 24px 30px; }
 
-    /* ================= Modal ================= */
-    .header-scope .modal { border-radius: 8px; }
-    .header-scope .modal-content { padding: 24px 30px; }
+      .header-scope .input-field input:focus {
+        border-bottom: 2px solid var(--primary2) !important;
+        box-shadow: 0 1px 0 0 var(--primary2) !important;
+      }
+      .header-scope .input-field input:focus + label {
+        color: var(--primary2) !important;
+      }
 
-    .header-scope .input-field input:focus {
-      border-bottom: 2px solid var(--primary2) !important;
-      box-shadow: 0 1px 0 0 var(--primary2) !important;
-    }
-    .header-scope .input-field input:focus + label {
-      color: var(--primary2) !important;
-    }
+      .header-scope .input-field .prefix {
+        color: var(--primary2) !important;
+      }
 
-    .header-scope .input-field .prefix {
-      color: var(--primary2) !important;
-    }
+      /* Eye icon */
+      .header-scope .password-container { position: relative; }
+      .header-scope .toggle-password {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--primary2);
+        cursor: pointer;
+      }
 
-    /* Eye icon */
-    .header-scope .password-container { position: relative; }
-    .header-scope .toggle-password {
-      position: absolute;
-      right: 10px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--primary2);
-      cursor: pointer;
-    }
+      .header-scope .login-btn {
+        width: 100%;
+        border-radius: 8px;
+        background: linear-gradient(90deg, var(--primary1), var(--primary2));
+        color: #fff;
+        font-weight: 700;
+      }
 
-    .header-scope .login-btn {
-      width: 100%;
-      border-radius: 8px;
-      background: linear-gradient(90deg, var(--primary1), var(--primary2));
-      color: #fff;
-      font-weight: 700;
-    }
+  /* ===== Login Modal Background Match Index ===== */
+  .header-scope #loginModal {
+    background: linear-gradient(90deg, var(--primary1), var(--primary2)) !important;
+  }
 
-/* ===== Login Modal Background Match Index ===== */
-.header-scope #loginModal {
-  background: linear-gradient(90deg, var(--primary1), var(--primary2)) !important;
-}
+  .header-scope #loginModal .modal-content {
+    background: transparent !important;
+    color: #fff !important;
+  }
 
-.header-scope #loginModal .modal-content {
-  background: transparent !important;
-  color: #fff !important;
-}
+  /* make text/icons inside modal white */
+  .header-scope #loginModal .input-field label,
+  .header-scope #loginModal .input-field .prefix,
+  .header-scope #loginModal h5 {
+    color: #fff !important;
+  }
 
-/* make text/icons inside modal white */
-.header-scope #loginModal .input-field label,
-.header-scope #loginModal .input-field .prefix,
-.header-scope #loginModal h5 {
-  color: #fff !important;
-}
+  /* underline for input fields */
+  .header-scope #loginModal input {
+    border-bottom: 1px solid rgba(255,255,255,0.6) !important;
+    color: #fff !important;
+  }
 
-/* underline for input fields */
-.header-scope #loginModal input {
-  border-bottom: 1px solid rgba(255,255,255,0.6) !important;
-  color: #fff !important;
-}
+  .header-scope #loginModal input:focus {
+    border-bottom: 2px solid #fff !important;
+    box-shadow: 0 1px 0 0 #fff !important;
+  }
 
-.header-scope #loginModal input:focus {
-  border-bottom: 2px solid #fff !important;
-  box-shadow: 0 1px 0 0 #fff !important;
-}
-
-.header-scope #loginModal .toggle-password {
-  color: #fff !important;
-}
+  .header-scope #loginModal .toggle-password {
+    color: #fff !important;
+  }
 
 
-  </style>
+</style>
 </head>
 
 <body>
-<div class="header-scope">
+  <div class="header-scope">
 
   <!-- ================== TOP NAV ================== -->
   <nav class="topbar">
@@ -365,7 +370,11 @@ $sn_name_html   = htmlspecialchars($sn_name, ENT_QUOTES);
       </a>
 
       <div class="nav-actions">
+        <?php if($acc_role  === 'admin'): ?>
+        <a href="admin.php" class="btn-ticket"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a>
+        <?php else: ?>
         <a href="takequiz.php" class="btn-ticket"><i class="material-icons left">airplane_ticket</i>Get Your Ticket</a>
+        <?php endif; ?>
 
         <?php if (!empty($_SESSION['acc_id'])): ?>
             <a href="students_edit.php" class="hdr-profile" title="Profile">

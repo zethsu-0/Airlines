@@ -1,7 +1,7 @@
 <?php
 // admin.php — robust, auto-detecting column names (paste to server)
 
-include('templates/header_admin.php');
+include('templates/header.php');
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
 $host='localhost'; $user='root'; $pass=''; $db='airlines';

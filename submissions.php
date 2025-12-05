@@ -8,8 +8,10 @@ if ($conn->connect_error) {
 }
 $conn->set_charset('utf8mb4');
 
-// ---------- CONFIG: enable exact legs-sequence matching ----------
-$requireLegsSequenceMatch = true; // set to false to disable the exact-sequence requirement
+// ---------- CONFIG ----------
+$requireLegsSequenceMatch = true; // still used to gate behaviour
+$allowSingleLegFallback = true;   // if true, derive submission single-leg from legacy origin/destination when quiz has exactly 1 leg
+$enableDebugLogs = true;         // set to false to disable error_log debug messages
 
 // ---------- Helper normalizers ----------
 function norm_type_quiz($type) {
@@ -40,15 +42,40 @@ function norm_label($s) {
 
 /**
  * Normalize a date string to YYYY-MM-DD if possible.
- * Returns normalized date string or original trimmed string if not valid.
+ * Returns normalized date string or empty string if not valid/placeholder.
  */
 function norm_date($d) {
     $d = trim((string)$d);
-    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
-        $dt = DateTime::createFromFormat('Y-m-d', $d);
-        if ($dt && $dt->format('Y-m-d') === $d) return $d;
+    if ($d === '' ) return '';
+
+    // treat common invalid placeholders as empty
+    $invalidPlaceholders = [
+        '0000-00-00',
+        '0000-00-00 00:00:00',
+    ];
+    if (in_array($d, $invalidPlaceholders, true)) {
+        return '';
     }
-    return $d;
+
+    // Try exact Y-m-d
+    $dt = DateTime::createFromFormat('Y-m-d', $d);
+    if ($dt && $dt->format('Y-m-d') === $d) {
+        return $d;
+    }
+
+    // Try Y-m-d H:i:s -> convert to date only
+    $dt = DateTime::createFromFormat('Y-m-d H:i:s', $d);
+    if ($dt) {
+        return $dt->format('Y-m-d');
+    }
+
+    // Fallback: try strtotime and format (conservative)
+    $ts = strtotime($d);
+    if ($ts !== false && $ts > 0) {
+        return date('Y-m-d', $ts);
+    }
+
+    return '';
 }
 
 // ---------- 1. Load airports for code <-> label mapping ----------
@@ -99,7 +126,7 @@ function label_to_code($label, $map) {
 /**
  * Normalize a legs array to a canonical list of legs with origin/destination as IATA codes (when possible)
  * Input: array of ['origin'=>..., 'destination'=>..., 'date'=>...]
- * Returns: array of ['origin'=>'MNL','destination'=>'CEB','date'=>'2025-12-01'] (codes uppercase, date normalized)
+ * Returns: array of ['origin'=>'MNL','destination'=>'CEB','date'=>'2025-12-01'] (codes uppercase, date normalized or empty)
  */
 function normalize_legs_to_codes(array $legs, array $labelToCode, array $codeToLabel) {
     $out = [];
@@ -113,7 +140,7 @@ function normalize_legs_to_codes(array $legs, array $labelToCode, array $codeToL
 
         // If looks like a 3-letter code, keep it
         if (!preg_match('/^[A-Z]{3}$/', $o)) {
-            // try map label->code
+            // try map label->code (map keys are uppercase labels)
             $mapped = $labelToCode[$o] ?? null;
             if ($mapped) $o = $mapped;
             // else keep uppercase label fallback (won't match codes)
@@ -131,20 +158,25 @@ function normalize_legs_to_codes(array $legs, array $labelToCode, array $codeToL
 }
 
 /**
- * Compare two legs sequences for exact match (order, origin,destination,date).
- * Both $a and $b should be arrays of normalized legs (origin/destination codes uppercased, date normalized).
- * Returns true if exact equal.
+ * Compare two legs sequences for exact match (order, origin,destination).
+ * Dates are IGNORED for the comparison (useful if student submissions omit dates).
+ * Both $a and $b should be arrays of normalized legs (origin/destination codes uppercased).
+ * Returns true if origin/destination sequence matches exactly.
  */
 function compare_legs_sequence(array $a, array $b) {
     if (count($a) !== count($b)) return false;
     for ($i = 0; $i < count($a); $i++) {
         $la = $a[$i];
         $lb = $b[$i];
-        if ((($la['origin'] ?? '') !== ($lb['origin'] ?? '')) ||
-            ((($la['destination'] ?? '') !== ($lb['destination'] ?? '')) ||
-            ((($la['date'] ?? '') !== ($lb['date'] ?? ''))))) {
-            return false;
-        }
+
+        $originA = ($la['origin'] ?? '');
+        $originB = ($lb['origin'] ?? '');
+        $destA   = ($la['destination'] ?? '');
+        $destB   = ($lb['destination'] ?? '');
+
+        if ($originA !== $originB) return false;
+        if ($destA   !== $destB)   return false;
+        // NOTE: date intentionally ignored
     }
     return true;
 }
@@ -257,7 +289,6 @@ while ($quiz = $quizResult->fetch_assoc()) {
     // Origin / destination comparison values depend on input_type:
     //  - airport-code:   student answers CODE, so we compare by CODE
     //  - code-airport:   student answers LABEL, so we compare by LABEL
-    // We'll still derive a quizOriginCmp/quizDestCmp for fallback comparisons
     $quizOriginRaw = $quiz['origin'];
     $quizDestRaw   = $quiz['destination'];
 
@@ -318,17 +349,26 @@ while ($quiz = $quizResult->fetch_assoc()) {
             }
         }
 
-        // If quiz has legs sequence and the matching option is enabled, compare sequences
-        $legsExactMatch = null; // null = not applicable, true/false = result
-        if ($requireLegsSequenceMatch && $quizLegsNormalized !== null) {
-            // If submission provided legs -> compare normalized sequences
-            if ($submissionLegsNormalized !== null) {
-                $legsExactMatch = compare_legs_sequence($quizLegsNormalized, $submissionLegsNormalized);
-            } else {
-                // submission has no legs -> cannot match an exact legs-sequence
-                $legsExactMatch = false;
+        // --- BEGIN: Derive single-leg submission fallback when quiz has exactly 1 reference leg ---
+        if ($allowSingleLegFallback && $quizLegsNormalized !== null && $submissionLegsNormalized === null) {
+            // only auto-derive when quiz reference is a single leg (one-way / single segment)
+            if (count($quizLegsNormalized) === 1) {
+                $derived = [
+                    [
+                        'origin' => $subOriginRaw,
+                        'destination' => $subDestRaw,
+                        'date' => '' // ignored by compare_legs_sequence()
+                    ]
+                ];
+                $submissionLegsNormalized = normalize_legs_to_codes($derived, $labelToCode, $codeToLabel);
+                // populate $submissionLegs for display consistency
+                $submissionLegs = [['origin' => $subOriginRaw, 'destination' => $subDestRaw, 'date' => '']];
+                if ($enableDebugLogs) {
+                    error_log("Derived submission legs from origin/dest for submission_id={$row['submission_id']}: " . json_encode($submissionLegsNormalized));
+                }
             }
         }
+        // --- END: Derive single-leg submission fallback ---
 
         // Transform submission values depending on quiz input_type for fallback origin/destination comparison
         if ($quizInputType === 'airport-code') {
@@ -355,22 +395,42 @@ while ($quiz = $quizResult->fetch_assoc()) {
             $quizDestCmpNorm   = norm_label($quizDestCmp);
         }
 
-        // Final comparison: if legs-exact-match is required and applicable, include it in match criteria
-        $baseMatch = (
-            $subAdults    === $quizAdults &&
-            $subChildren  === $quizChildren &&
-            $subInfants   === $quizInfants &&
-            $subTypeNorm  === $quizTypeNorm &&
-            $subOriginCmp === $quizOriginCmpNorm &&
-            $subDestCmp   === $quizDestCmpNorm &&
+        // -------------------- Simplified matching logic --------------------
+        // Match requirements: adults, children, infants, flight_type, travel_class.
+        // Additionally:
+        //  - If the quiz provides legs_json (multi-city), require exact legs-sequence match.
+        //  - Otherwise require single origin -> destination equality (based on input_type mapping).
+
+        // core counts & type/class checks (always required)
+        $coreCountsAndTypesMatch = (
+            $subAdults   === $quizAdults &&
+            $subChildren === $quizChildren &&
+            $subInfants  === $quizInfants &&
+            $subTypeNorm === $quizTypeNorm &&
             $subClassNorm === $quizClassNorm
         );
 
-        if ($requireLegsSequenceMatch && $quizLegsNormalized !== null) {
-            // require legsExactMatch to be true in addition to baseMatch
-            $is_match = ($baseMatch && $legsExactMatch === true);
+        // If quiz expects legs_json, compare sequences (submission may have been derived above)
+        if ($quizLegsNormalized !== null && $requireLegsSequenceMatch) {
+            // debug logging: show normalized arrays being compared
+            if ($enableDebugLogs) {
+                error_log("Comparing quizLegsNormalized for quiz_id={$quiz_id}: " . json_encode($quizLegsNormalized));
+                error_log("Comparing submissionLegsNormalized for submission_id={$row['submission_id']}: " . json_encode($submissionLegsNormalized));
+            }
+
+            $legsMatchResult = ($submissionLegsNormalized !== null) ? compare_legs_sequence($quizLegsNormalized, $submissionLegsNormalized) : false;
+            $is_match = ($coreCountsAndTypesMatch && $legsMatchResult === true);
         } else {
-            $is_match = $baseMatch;
+            // No multi-city reference: match by single origin/destination (and core checks)
+            $originDestMatch = ($subOriginCmp === $quizOriginCmpNorm) && ($subDestCmp === $quizDestCmpNorm);
+            $is_match = ($coreCountsAndTypesMatch && $originDestMatch);
+        }
+
+        // For output/debugging parity with prior script:
+        if ($quizLegsNormalized !== null) {
+            $legsExactMatch = isset($legsMatchResult) ? $legsMatchResult : false;
+        } else {
+            $legsExactMatch = null;
         }
 
         // Output
