@@ -935,6 +935,75 @@ unset($_SESSION['account_info']);
     .browser-default + label, label[for] { display:block; margin-bottom:6px; }
     select.browser-default { min-height:40px; padding:6px 10px; border-radius:6px; border:1px solid rgba(0,0,0,0.06); background:#fff; }
 
+/* --- Paste into your existing <style> --- */
+
+/* make avatars perfectly circular everywhere */
+.teacher-avatar,
+.id-photo,
+.table-avatar-img,
+.delete-list-avatar {
+  border-radius: 50% !important;    /* circular */
+}
+
+/* elevated, animated primary buttons */
+.btn-air {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  background: linear-gradient(135deg, #2e7ef7 0%, #0b59d8 100%);
+  color: #fff;
+  border-radius: 28px;
+  padding: 10px 18px;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 8px 30px rgba(11,89,216,0.18);
+  cursor: pointer;
+  transition: transform .14s ease, box-shadow .14s ease;
+}
+.btn-air:hover { transform: translateY(-3px); box-shadow: 0 14px 36px rgba(11,89,216,0.22); }
+
+/* subtle animated sheen */
+.btn-air::after{
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: -30%;
+  width: 60%;
+  height: 180%;
+  background: linear-gradient(120deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02), rgba(255,255,255,0.18));
+  transform: rotate(25deg);
+  transition: left .7s ease;
+  pointer-events: none;
+}
+.btn-air:hover::after{ left: 100%; }
+
+/* small pulse helper (used by toggle button) */
+.btn-pulse {
+  animation: pulse 1.6s infinite;
+}
+@keyframes pulse {
+  0%{ box-shadow: 0 6px 20px rgba(11,89,216,0.12); transform: none;}
+  50%{ box-shadow: 0 18px 40px rgba(11,89,216,0.18); transform: translateY(-1px); }
+  100%{ box-shadow: 0 6px 20px rgba(11,89,216,0.12); transform: none; }
+}
+
+/* nicer danger button */
+.btn-danger {
+  background: linear-gradient(180deg,#ff6b6b,#ff5252);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  border: none;
+  box-shadow: 0 8px 24px rgba(255,82,82,0.16);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.btn-danger:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(255,82,82,0.22); }
+
+/* ensure small flat icon buttons still look crisp */
+.btn-flat i.material-icons { font-size:20px; vertical-align:middle; }
+
+
+
     @media(max-width:700px){
       .id-card{flex-direction:column;align-items:flex-start}
       .id-photo{width:90px;height:90px}
@@ -1039,6 +1108,10 @@ unset($_SESSION['account_info']);
       </div>
     <?php endif; ?>
   </div>
+<!-- simple heading placed between Instructors and Students lists -->
+<div style="margin-bottom:18px;">
+  <h5 style="margin:6px 0 12px;">Students</h5>
+</div>
 
   <form id="deleteForm" method="post" style="display:none;"><input type="hidden" name="action" value="delete_selected"></form>
 
@@ -1051,7 +1124,9 @@ unset($_SESSION['account_info']);
         $teacherAvatar = htmlspecialchars($data['teacher_avatar'] ?? 'assets/avatar.png', ENT_QUOTES);
         $teachDom = 'teach_' . preg_replace('/[^a-z0-9_-]/i', '_', strtolower($teachKey));
     ?>
+
       <div class="section-wrap" id="<?php echo $teachDom; ?>_wrap">
+        
         <div class="section-header" data-section="<?php echo $teachDom; ?>">
           <div style="display:flex;align-items:center;gap:12px">
             <img src="<?php echo $teacherAvatar; ?>" style="width:40px;height:40px;border-radius:8px;object-fit:cover" onerror="this.onerror=null;this.src='assets/avatar.png'">
@@ -1126,13 +1201,32 @@ unset($_SESSION['account_info']);
             <input id="super_name" name="super_name" value="<?php echo htmlspecialchars($super_admin['name']); ?>" required>
             <label class="active" for="super_name">Display Name</label>
           </div>
-          <div class="input-field">
-            <input id="super_password" name="super_password" type="password" autocomplete="new-password">
-            <label for="super_password">New Password (leave blank to keep)</label>
-          </div>
+<!-- inside #modalEditSuper form (replace existing password input) -->
+<div class="input-field">
+  <input id="super_current_password" name="super_current_password" type="password" autocomplete="current-password">
+  <label for="super_current_password">Current Password (required to change)</label>
+</div>
+<div class="input-field">
+  <input id="super_new_password" name="super_new_password" type="password" autocomplete="new-password">
+  <label for="super_new_password">New Password</label>
+</div>
+<div class="input-field">
+  <input id="super_new_password_confirm" name="super_new_password_confirm" type="password" autocomplete="new-password">
+  <label for="super_new_password_confirm">Retype New Password</label>
+</div>
+
+<!-- add confirmation checkbox (required before save) -->
+<div style="margin-top:12px;" class="confirm-row">
+  <label><input type="checkbox" id="editSuperConfirmCheckbox"><span> I confirm I want to save these changes</span></label>
+</div>
+
+<!-- Save button: disabled by default -->
+<div class="right-align">
+  <button class="btn-air" type="submit" id="saveSuperBtn" disabled>Save Profile</button>
+</div>
+
         </div>
       </div>
-      <div class="right-align"><button class="btn-air" type="submit" id="saveSuperBtn">Save Profile</button></div>
     </form>
   </div>
 </div>
@@ -1207,16 +1301,59 @@ unset($_SESSION['account_info']);
             <input id="edit_display_name" name="display_name" required>
             <label class="active" for="edit_display_name">Instructor Name</label>
           </div>
-          <div class="input-field">
-            <input id="edit_password" name="edit_password" type="password" autocomplete="new-password">
-            <label for="edit_password">New Password (leave blank to keep)</label>
-          </div>
+<!-- inside #modalEditInstructor form (replace edit_password input) -->
+<div class="input-field">
+  <input id="edit_auth_current_password" name="edit_auth_current_password" type="password" autocomplete="current-password">
+  <label for="edit_auth_current_password">Your current password (required to change instructor password)</label>
+</div>
+<div class="input-field">
+  <input id="edit_new_password" name="edit_new_password" type="password" autocomplete="new-password">
+  <label for="edit_new_password">New Password for instructor</label>
+</div>
+<div class="input-field">
+  <input id="edit_new_password_confirm" name="edit_new_password_confirm" type="password" autocomplete="new-password">
+  <label for="edit_new_password_confirm">Retype New Password</label>
+</div>
+
+<!-- confirmation checkbox (required before save) -->
+<div style="margin-top:12px;" class="confirm-row">
+  <label><input type="checkbox" id="editInstructorConfirmCheckbox"><span> I confirm I want to save these changes</span></label>
+</div>
+
+<div class="right-align"><button class="btn-air" type="submit" id="saveInstructorBtn" disabled>Save</button></div>
+
         </div>
       </div>
-      <div class="right-align"><button class="btn-air" type="submit">Save</button></div>
     </form>
   </div>
 </div>
+
+<!-- Delete Instructor Confirm Modal -->
+<div id="modalDeleteInstructor" class="modal">
+  <div class="modal-content">
+    <h5>Delete Instructor</h5>
+    <p id="delInstructorMsg">You're about to delete <strong id="delInstructorName">—</strong>. This will unassign their students.</p>
+
+    <div style="margin-top:8px;">
+      <label><input type="checkbox" id="delInstructorCheck"><span> I understand this will unassign students and permanently remove the instructor</span></label>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label for="delInstructorConfirmInput" style="display:block;margin-bottom:6px;">To confirm, type the instructor's name exactly:</label>
+      <input id="delInstructorConfirmInput" type="text" placeholder="Type instructor name here" style="width:100%;padding:8px;border-radius:6px;border:1px solid rgba(0,0,0,0.08);">
+    </div>
+
+    <form method="post" id="delInstructorForm" style="margin-top:14px;">
+      <input type="hidden" name="action" value="delete_instructor">
+      <input type="hidden" name="admin_id" id="del_instructor_admin_id" value="">
+      <div class="right-align" style="margin-top:12px;">
+        <button type="button" class="btn grey modal-close" id="cancelDelInstructor">Cancel</button>
+        <button type="submit" class="btn-danger" id="confirmDelInstructorBtn" disabled>Delete Instructor</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 
 <!-- Add Student Modal -->
 <div id="addStudentModal" class="modal">
@@ -1402,6 +1539,44 @@ document.addEventListener('DOMContentLoaded', function() {
   try { M.Modal.init(document.querySelectorAll('.modal'), {preventScrolling:true}); } catch(e) {}
   try { M.Tooltip.init(document.querySelectorAll('.tooltipped')); } catch(e) {}
 
+  // ---- Inject small UI CSS tweaks for buttons (pulse, hover, ripple) ----
+  (function injectButtonCSS(){
+    var css = `
+      .btn-air { transition: transform .18s ease, box-shadow .18s ease; will-change: transform; }
+      .btn-air:hover { transform: translateY(-3px) scale(1.02); box-shadow:0 12px 30px rgba(11,89,216,0.16); }
+      .btn-air.btn-pulse { animation: pulse 1400ms infinite; }
+      @keyframes pulse { 0%{ box-shadow:0 6px 20px rgba(11,89,216,0.08);} 50%{ box-shadow:0 20px 40px rgba(11,89,216,0.12);} 100%{ box-shadow:0 6px 20px rgba(11,89,216,0.08);} }
+      .btn-ghost-hover:hover { background: rgba(11,89,216,0.06); transform:none; }
+      .ripple { position:relative; overflow:hidden; }
+      .ripple .ripple-effect { position:absolute; border-radius:50%; transform: scale(0); opacity:0.6; pointer-events:none; animation: ripple-anim .6s linear; background: rgba(255,255,255,0.6); }
+      @keyframes ripple-anim { to { transform: scale(4); opacity:0; } }
+    `;
+    var s = document.createElement('style'); s.type='text/css'; s.appendChild(document.createTextNode(css));
+    document.head.appendChild(s);
+  })();
+
+  // Small function to add ripple to elements
+  function addRipple(el){
+    if(!el) return;
+    el.classList.add('ripple');
+    el.addEventListener('click', function(e){
+      var rect = el.getBoundingClientRect();
+      var circle = document.createElement('span');
+      circle.className = 'ripple-effect';
+      var size = Math.max(rect.width, rect.height) * 1.2;
+      circle.style.width = circle.style.height = size + 'px';
+      circle.style.left = (e.clientX - rect.left - size/2) + 'px';
+      circle.style.top = (e.clientY - rect.top - size/2) + 'px';
+      el.appendChild(circle);
+      setTimeout(function(){ try{ el.removeChild(circle); }catch(e){} }, 650);
+    }, false);
+  }
+
+  // Attach ripple to relevant buttons for nicer UI
+  Array.from(document.querySelectorAll('.btn-air, .btn-danger, .btn-flat')).forEach(function(b){
+    addRipple(b);
+  });
+
   // initialize selects (browser-default used mostly)
   try {
     var selectEls = document.querySelectorAll('select:not(.browser-default)');
@@ -1445,10 +1620,12 @@ document.addEventListener('DOMContentLoaded', function() {
   if (toggleBtn) toggleBtn.addEventListener('click', function(){ var toCollapse = !areAllCollapsed(); setAllSectionsCollapsed(toCollapse); });
 
   // open modals
-  document.getElementById('btnAddInstructor').addEventListener('click', function(){
+  var btnAddInstructor = document.getElementById('btnAddInstructor');
+  if (btnAddInstructor) btnAddInstructor.addEventListener('click', function(){
     try { M.Modal.getInstance(document.getElementById('modalAddInstructor')).open(); } catch(e){ document.getElementById('modalAddInstructor').style.display='block'; }
   });
-  document.getElementById('btnAddStudent').addEventListener('click', function(){
+  var btnAddStudent = document.getElementById('btnAddStudent');
+  if (btnAddStudent) btnAddStudent.addEventListener('click', function(){
     try { M.Modal.getInstance(document.getElementById('addStudentModal')).open(); } catch(e){ document.getElementById('addStudentModal').style.display='block'; }
   });
 
@@ -1508,8 +1685,11 @@ document.addEventListener('DOMContentLoaded', function() {
   var editInAvatar = document.getElementById('edit_instructor_avatar');
   if (editInAvatar) editInAvatar.addEventListener('change', function(){ /* handled above */ });
 
-  // Add Student image preview (handled above)
-  var addPhoto = document.getElementById('addStudentPhoto');
+  // Make all avatars circular via JS in case some markup missed CSS
+  (function enforceCircularAvatars(){
+    var sel = ['.table-avatar-img', '.teacher-avatar', '.id-photo', '.delete-list-avatar', '.id-photo-button img'];
+    sel.forEach(function(q){ Array.from(document.querySelectorAll(q)).forEach(function(img){ try{ img.style.borderRadius = '50%'; img.style.objectFit = 'cover'; }catch(e){} }); });
+  })();
 
   // edit student open/populate
   function openEditModal(btn){
@@ -1579,18 +1759,144 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('edit_acc_name').value = acct_name;
     document.getElementById('edit_display_name').value = acct_name;
     try { M.updateTextFields(); M.Modal.getInstance(document.getElementById('modalEditInstructor')).open(); } catch(e){ document.getElementById('modalEditInstructor').style.display='block'; }
+
+    // reset instructor-change password fields (if present)
+    var auth = document.getElementById('edit_auth_current_password');
+    var newPw = document.getElementById('edit_new_password');
+    var newPw2 = document.getElementById('edit_new_password_confirm');
+    if (auth) auth.value = '';
+    if (newPw) newPw.value = '';
+    if (newPw2) newPw2.value = '';
+    var chk = document.getElementById('editInstructorConfirmCheckbox'); if (chk) chk.checked = false;
+    var saveBtn = document.getElementById('saveInstructorBtn'); if (saveBtn) saveBtn.disabled = true;
   };
 
+  // ---------- Two-layer instructor delete flow (modal + final confirm) ----------
+  // Replace window.confirmDeleteInstructor with modal flow
   window.confirmDeleteInstructor = function(admin_id, name) {
-    if (confirm('Delete instructor \"' + name + '\"? This will unassign their students.')) {
-      var f = document.createElement('form'); f.method='post'; f.style.display='none';
-      var a = document.createElement('input'); a.name='action'; a.value='delete_instructor'; f.appendChild(a);
-      var i = document.createElement('input'); i.name='admin_id'; i.value=admin_id; f.appendChild(i);
-      document.body.appendChild(f); f.submit();
-    }
+    try {
+      var modalEl = document.getElementById('modalDeleteInstructor');
+      var nameEl = document.getElementById('delInstructorName');
+      var check = document.getElementById('delInstructorCheck');
+      var input = document.getElementById('delInstructorConfirmInput');
+      var adminHidden = document.getElementById('del_instructor_admin_id');
+      var submitBtn = document.getElementById('confirmDelInstructorBtn');
+
+      if (!modalEl || !nameEl || !check || !input || !adminHidden || !submitBtn) {
+        // fallback to single confirm if modal not present
+        if (confirm('Delete instructor \"' + name + '\"? This will unassign their students.')) {
+          var f = document.createElement('form'); f.method='post'; f.style.display='none';
+          var a = document.createElement('input'); a.name='action'; a.value='delete_instructor'; f.appendChild(a);
+          var i = document.createElement('input'); i.name='admin_id'; i.value=admin_id; f.appendChild(i);
+          document.body.appendChild(f); f.submit();
+        }
+        return;
+      }
+
+      // populate
+      nameEl.textContent = name || '(unknown)';
+      adminHidden.value = admin_id;
+      check.checked = false;
+      input.value = '';
+      submitBtn.disabled = true;
+
+      // validation: checkbox + exact name typed (case-sensitive)
+      function updateDeleteButton(){
+        var ok = false;
+        try {
+          if (check.checked && input.value.trim() === (name || '')) ok = true;
+        } catch(e) {}
+        submitBtn.disabled = !ok;
+      }
+      check.onchange = updateDeleteButton;
+      input.oninput = updateDeleteButton;
+
+      // wire submit button to do final confirmation before POST
+      submitBtn.onclick = function(ev){
+        ev.preventDefault();
+        // final confirm dialog (second layer)
+        var finalMsg = 'Are you absolutely sure you want to delete instructor \"' + (name || '') + '\"? This action will unassign their students and cannot be undone.';
+        if (!confirm(finalMsg)) return;
+        // build and submit form (POST)
+        var form = document.createElement('form'); form.method = 'post'; form.style.display = 'none';
+        var a = document.createElement('input'); a.type = 'hidden'; a.name = 'action'; a.value = 'delete_instructor'; form.appendChild(a);
+        var i = document.createElement('input'); i.type = 'hidden'; i.name = 'admin_id'; i.value = adminHidden.value; form.appendChild(i);
+        document.body.appendChild(form); form.submit();
+      };
+
+      // show modal
+      try { M.Modal.getInstance(modalEl).open(); } catch(e) { modalEl.style.display='block'; }
+      setTimeout(function(){ if (input) input.focus(); }, 220);
+    } catch (err) { console.error(err); }
   };
 
-  // delete selected students flow
+  // --- Super Admin password + confirm checkbox validation ---
+  (function(){
+    var chk = document.getElementById('editSuperConfirmCheckbox');
+    var saveBtn = document.getElementById('saveSuperBtn');
+    var newPw = document.getElementById('super_new_password');
+    var confirmPw = document.getElementById('super_new_password_confirm');
+    var curPw = document.getElementById('super_current_password');
+
+    // fallback to existing id names if different - keep older IDs for compatibility
+    if (!newPw) newPw = document.getElementById('super_password');
+    if (!confirmPw) confirmPw = document.getElementById('super_password_confirm');
+
+    function validateSuperForm(){
+      // if new password fields used -> ensure they match and length >=8 and curPw present
+      if (newPw && newPw.value.trim() !== '') {
+        if (!curPw || curPw.value.trim() === '') return false;
+        if (!confirmPw || newPw.value !== confirmPw.value) return false;
+        if (newPw.value.length < 8) return false;
+      }
+      // checkbox must be checked
+      if (chk && !chk.checked) return false;
+      return true;
+    }
+
+    if (chk && saveBtn) {
+      chk.addEventListener('change', function(){ saveBtn.disabled = !validateSuperForm(); });
+      if (newPw) newPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
+      if (confirmPw) confirmPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
+      if (curPw) curPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
+      // initialize state
+      saveBtn.disabled = !validateSuperForm();
+    }
+  })();
+
+  // --- Instructor edit password + confirm checkbox validation ---
+  (function(){
+    var chk = document.getElementById('editInstructorConfirmCheckbox');
+    var saveBtn = document.getElementById('saveInstructorBtn') || document.querySelector('#formEditInstructor button[type=submit]');
+    var newPw = document.getElementById('edit_new_password');
+    var confirmPw = document.getElementById('edit_new_password_confirm');
+    var authPw = document.getElementById('edit_auth_current_password');
+
+    // fallback to older IDs if missing
+    if (!newPw) newPw = document.getElementById('edit_password');
+    if (!confirmPw) confirmPw = document.getElementById('edit_password_confirm');
+
+    function validateInstructorForm(){
+      if (newPw && newPw.value.trim() !== '') {
+        if (!authPw || authPw.value.trim() === '') return false;
+        if (!confirmPw || newPw.value !== confirmPw.value) return false;
+        if (newPw.value.length < 8) return false;
+      }
+      if (chk && !chk.checked) return false;
+      return true;
+    }
+
+    if (chk && saveBtn) {
+      chk.addEventListener('change', function(){ saveBtn.disabled = !validateInstructorForm(); });
+      if (newPw) newPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
+      if (confirmPw) confirmPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
+      if (authPw) authPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
+      // initialize state
+      saveBtn.disabled = !validateInstructorForm();
+    }
+  })();
+
+  // delete selected students flow (unchanged, kept for compatibility)
   var delBtn = document.getElementById('deleteSelectedBtn');
   if (delBtn) delBtn.addEventListener('click', function(e){
     e.preventDefault();
@@ -1676,6 +1982,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 });
 </script>
+
 </body>
 </html>
 
@@ -1684,4 +1991,3 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
-
