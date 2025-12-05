@@ -133,13 +133,6 @@ if (!is_logged_in()) {
             </div>
           </div>
 
-          <div class="sa-card" style="margin-top:12px;">
-            <div style="font-weight:700; margin-bottom:8px;color:var(--text)">Quick actions</div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn btn--primary modal-trigger" id="startQuizBtn" type="button">Start New Quiz</button>
-              <a class="btn btn--ghost" href="contact.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">help</i>Contact Instructor</a>
-            </div>
-          </div>
         </aside>
       </div>
     </div>
@@ -644,13 +637,6 @@ body {
         </div>
       </div>
 
-      <div class="sa-card" style="margin-top:12px;">
-        <div style="font-weight:700; margin-bottom:8px;color:#fff">Quick actions</div>
-        <div style="display:flex;flex-direction:column;gap:8px">
-          <a class="btn btn--primary" href="ticket.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">quiz</i>Start New Quiz</a>
-          <a class="btn btn--ghost" href="contact.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">help</i>Contact Instructor</a>
-        </div>
-      </div>
     </aside>
   </div>
 </div>
@@ -737,3 +723,4 @@ document.addEventListener('DOMContentLoaded', function() {
 $conn->close();
 include('templates/footer.php');
 ?>
+
