@@ -868,6 +868,39 @@ unset($_SESSION['account_info']);
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="materialize/css/materialize.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <style>/* --- Make success notification seamless for dark theme --- */
+.card-panel {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--text, #e9f1ff) !important;
+  padding: 10px 14px !important;
+  margin: 12px 0 !important;
+  border-radius: 10px !important;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Success variant: subtle glass panel with left accent */
+.card-panel.green.lighten-5 {
+  background: linear-gradient(90deg, rgba(46,126,247,0.06), rgba(11,89,216,0.04)) !important;
+  border-left: 4px solid rgba(46,126,247,0.22) !important;
+  color: #dff4ff !important;
+  padding-left: 18px !important;
+}
+
+/* Make the notification text selectable but with a subtle selection color */
+.card-panel ::selection {
+  background: rgba(46,126,247,0.12);
+  color: inherit;
+}
+
+/* Keep small-screen spacing tidy */
+@media (max-width:700px) {
+  .card-panel { padding: 8px 12px !important; border-radius: 8px !important; }
+  .card-panel.green.lighten-5 { border-left-width: 3px !important; }
+}
+</style>
   <style>
     :root{
       --air-blue: #0b59d8;
@@ -1031,6 +1064,371 @@ input[type="checkbox"].filled-in:checked + span:not(.lever):before {
       .id-photo{width:90px;height:90px}
       .table-avatar-img{width:48px;height:48px}
     }
+
+/* ================================
+   SUPER ADMIN DARK GRADIENT THEME
+   ================================ */
+
+/* Page background */
+html, body {
+  background: linear-gradient(180deg, #071428, #0b1830) !important;
+  color: #e9f1ff !important;
+}
+
+/* Top Navbar */
+nav.blue {
+  background: linear-gradient(90deg, #0052cc, #1e90ff) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+}
+
+/* Page wrapper */
+.page-wrap {
+  padding: 20px 0 48px;
+}
+
+/* Banner (Admin Information + Title) */
+header.banner {
+  background: linear-gradient(90deg, #0d1b33, #0f1f3a) !important;
+  color: #fff !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* Text adjustments */
+.banner h1 {
+  color: #ffffff !important;
+}
+.banner .sub {
+  color: #cdd9ff !important;
+}
+
+/* Buttons */
+.btn-air {
+  background: linear-gradient(135deg, #1e90ff, #0052cc) !important;
+  color: #fff !important;
+  box-shadow: 0px 6px 20px rgba(0,120,255,0.35) !important;
+}
+.btn-air:hover {
+  box-shadow: 0px 12px 28px rgba(0,120,255,0.45) !important;
+}
+
+/* Ghost button */
+.btn-air.ghost {
+  border: 2px solid #1e90ff !important;
+  color: #1e90ff !important;
+}
+.btn-air.ghost:hover {
+  background: rgba(30,144,255,0.10) !important;
+}
+
+/* Danger button */
+.btn-danger {
+  background: linear-gradient(180deg, #ff5252, #d62828) !important;
+  color: #fff !important;
+  box-shadow: 0px 6px 20px rgba(255,50,50,0.30) !important;
+}
+
+/* Teacher & Student Cards */
+.teacher-card,
+.section-wrap {
+  background: rgba(255,255,255,0.04) !important;
+  backdrop-filter: blur(6px);
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0px 8px 30px rgba(0,0,0,0.35) !important;
+  color: #e9f1ff !important;
+}
+
+/* Section headers */
+.section-header {
+  background: rgba(255,255,255,0.04) !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255,255,255,0.08);
+  color: #d1ddff !important;
+}
+.section-header strong {
+  color: #5dadef !important;
+}
+
+/* Table styling */
+table.section-table thead th {
+  background: rgba(255,255,255,0.05) !important;
+  color: #9dcaff !important;
+  border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+}
+table.section-table tbody tr {
+  background: transparent !important;
+  color: #e9f1ff !important;
+  border-bottom: 1px solid rgba(255,255,255,0.04) !important;
+}
+table.section-table tbody tr:hover {
+  background: rgba(255,255,255,0.03) !important;
+}
+
+/* Avatar border glow */
+.table-avatar-img,
+.teacher-avatar {
+  border: 2px solid rgba(255,255,255,0.10) !important;
+}
+
+/* Section dividers */
+.section-hr {
+  background: rgba(255,255,255,0.07) !important;
+}
+
+/* Modals */
+.modal {
+  background: linear-gradient(180deg, #0b1528, #0f1a33) !important;
+  color: #e9f1ff !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.modal .modal-content {
+  background: transparent !important;
+}
+
+/* Inputs inside modals */
+.modal input,
+.modal select {
+  color: #fff !important;
+  border-bottom: 1px solid rgba(255,255,255,0.35) !important;
+}
+.modal input:focus {
+  border-bottom: 2px solid #1e90ff !important;
+  box-shadow: 0px 1px 0 0 #1e90ff !important;
+}
+.modal label {
+  color: #9fc6ff !important;
+}
+
+/* Cards inside modals */
+.id-card {
+  background: rgba(255,255,255,0.05) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.07) !important;
+}
+
+/* Delete confirmation list */
+#deleteNamesList li {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+  color: #e9f1ff !important;
+}
+
+/* ==========================
+   GLOBAL ROUND EDIT BUTTON
+   ========================== */
+.edit-btn,
+a.edit-btn,
+button.edit-btn {
+    background: #1976d2 !important;       /* Blue */
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    min-height: 40px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(25,118,210,0.35) !important;
+    color: #fff !important;
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease !important;
+    padding: 0 !important;
+}
+
+/* White pencil icon */
+.edit-btn i.material-icons {
+    color: #fff !important;
+    font-size: 22px !important;
+}
+
+/* Hover animation */
+.edit-btn:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 8px 20px rgba(25,118,210,0.45) !important;
+}
+
+
+/* ==========================
+   GLOBAL ROUND DELETE BUTTON
+   ========================== */
+.delete-btn,
+a.delete-btn,
+button.delete-btn,
+.btn-flat.red-text { /* force existing delete btns */
+    background: #ff3b3b !important;        /* Strong red */
+    width: 40px !important;
+    height: 40px !important;
+    min-width: 40px !important;
+    min-height: 40px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    color: #fff !important;
+    padding: 0 !important;
+    cursor: pointer;
+    transition: transform .15s ease, box-shadow .15s ease !important;
+    box-shadow: 0 4px 12px rgba(255, 59, 59, 0.35) !important;
+}
+
+/* White trash icon */
+.delete-btn i.material-icons,
+.btn-flat.red-text i.material-icons {
+    color: #fff !important;
+    font-size: 22px !important;
+}
+
+/* Hover animation */
+.delete-btn:hover,
+.btn-flat.red-text:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 8px 20px rgba(255, 59, 59, 0.45) !important;
+}
+
+/* FIX: make the EDIT button match the blue round icon from your second screenshot */
+.edit-btn {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+/* Style the inner icon into a blue circle */
+.edit-btn i.material-icons {
+    background: #2e7ef7 !important;
+    color: white !important;
+    border-radius: 50%;
+    padding: 10px;
+    font-size: 20px !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* === FORCE: blue circular edit icon for both <a.edit-btn> and .btn-flat edit buttons === */
+
+/* Ensure the edit wrapper is inline-flex and has no extra padding/margins */
+.edit-btn,
+.teacher-card .btn-flat,
+.section-table .edit-btn,
+.section-table .btn-flat {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* The circular icon itself (works for <i> inside any edit control) */
+.edit-btn i.material-icons,
+.teacher-card .btn-flat i.material-icons,
+.section-table .edit-btn i.material-icons,
+.section-table .btn-flat i.material-icons {
+  /* sizing */
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  font-size: 20px !important;
+
+  /* visual */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+
+  /* colors (use your air-blue gradient / solid) */
+  background: linear-gradient(135deg, #2e7ef7 0%, #0b59d8 100%) !important;
+  color: #fff !important;
+
+  /* remove Materialize overrides */
+  box-shadow: 0 8px 20px rgba(11,89,216,0.18) !important;
+  border: 0 !important;
+  vertical-align: middle !important;
+  text-decoration: none !important;
+}
+
+/* smaller devices: slightly smaller circle */
+@media (max-width: 680px) {
+  .edit-btn i.material-icons,
+  .teacher-card .btn-flat i.material-icons,
+  .section-table .edit-btn i.material-icons,
+  .section-table .btn-flat i.material-icons {
+    width: 34px !important;
+    height: 34px !important;
+    line-height: 34px !important;
+    font-size: 18px !important;
+  }
+}
+
+/* If Materialize still applies color to i via .btn-flat i selector, increase specificity */
+nav .edit-btn i.material-icons,
+.container .edit-btn i.material-icons,
+.section-table tbody tr .edit-btn i.material-icons {
+  color: #fff !important;
+  background: linear-gradient(135deg, #2e7ef7 0%, #0b59d8 100%) !important;
+}
+
+/* ----- Restrict edit icon styling to edit controls only ----- */
+/* Make edit rule very specific so it doesn't touch .btn-flat.red-text (delete) */
+a.edit-btn i.material-icons,
+.section-table tbody tr a.edit-btn i.material-icons,
+.teacher-card > .btn-flat:not(.red-text) i.material-icons,
+.section-table .edit-btn i.material-icons {
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
+  font-size: 20px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #2e7ef7 0%, #0b59d8 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(11,89,216,0.18) !important;
+  border: 0 !important;
+}
+
+/* smaller devices */
+@media (max-width: 680px) {
+  a.edit-btn i.material-icons,
+  .section-table tbody tr a.edit-btn i.material-icons,
+  .teacher-card > .btn-flat:not(.red-text) i.material-icons {
+    width: 34px !important;
+    height: 34px !important;
+    line-height: 34px !important;
+    font-size: 18px !important;
+  }
+}
+
+/* ----- Explicitly restore visual style for delete buttons (red) ----- */
+/* Instructor delete uses .btn-flat.red-text; table delete icons may have .btn-flat.red-text too */
+.btn-flat.red-text i.material-icons,
+a.btn-flat.red-text i.material-icons,
+.section-table tbody tr .btn-flat.red-text i.material-icons {
+  background: transparent !important;
+  color: #e53935 !important;          /* red icon color */
+  box-shadow: none !important;
+  width: auto !important;
+  height: auto !important;
+  line-height: normal !important;
+  font-size: 20px !important;         /* keep size but not circular */
+  border-radius: 4px !important;
+}
+
+/* If you also have a .btn-danger delete button (not .btn-flat.red-text),
+   make sure its icon/text remains red */
+.btn-danger i.material-icons,
+.btn-danger { color: #fff !important; background: linear-gradient(180deg,#ff6b6b,#ff5252) !important; }
+
+/* Finally, ensure general btn-flat rules do not override the specific edit/delete ones */
+a.edit-btn i.material-icons { /* keep highest specificity for edit */ }
+
   </style>
 </head>
 <body>
@@ -1369,7 +1767,7 @@ input[type="checkbox"].filled-in:checked + span:not(.lever):before {
       <input type="hidden" name="action" value="delete_instructor">
       <input type="hidden" name="admin_id" id="del_instructor_admin_id" value="">
       <div class="right-align" style="margin-top:12px;">
-        <button type="button" class="btn grey modal-close" id="cancelDelInstructor">Cancel</button>
+        <button type="button" class="btn blue modal-close" id="cancelDelInstructor">Cancel</button>
         <button type="submit" class="btn-danger" id="confirmDelInstructorBtn" disabled>Delete Instructor</button>
       </div>
     </form>
