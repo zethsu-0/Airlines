@@ -1,5 +1,6 @@
 <?php
-// students.php - full corrected version (includes POST handlers, UI fixes, JS fixes)
+// students.php - DARK THEME (super_admin style) applied
+// Full corrected version (includes POST handlers, UI fixes, JS fixes)
 // Make a backup of your existing file before replacing.
 
 session_start();
@@ -559,67 +560,321 @@ unset($_SESSION['account_info']);
   <link rel="stylesheet" href="materialize/css/materialize.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
   <style>
+    /* ========== DARK THEME (super_admin style) ========== */
     :root{
+      --navy-900: #071428;
+      --navy-800: #0b1830;
+      --card-bg: rgba(255,255,255,0.03);
+      --glass: rgba(255,255,255,0.04);
+      --accent-1: #0d47a1;
+      --accent-2: #1976d2;
       --air-blue: #0b59d8;
       --air-sky: #2e7ef7;
-      --muted: #7b89a6;
+      --muted: #9fc6ff;
+      --text: #e9f1ff;
+      --muted-2: #a8bedf;
+      --danger-red: #ff5252;
+      --max-width: 1200px;
+      --card-radius: 12px;
     }
-    html,body{margin:0;padding:0;background:linear-gradient(180deg,#eaf4ff 0%, #f5f9ff 40%);font-family:Inter,Roboto,Arial,sans-serif;color:#20314b}
-    .page-wrap{padding:20px 0 48px}
-    nav.blue{background:var(--air-blue) !important}
+
+    html,body{
+      margin:0;padding:0;
+      background: linear-gradient(180deg, var(--navy-900), var(--navy-800));
+      font-family: Inter, Roboto, Arial, sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      min-height:100vh;
+    }
+
+    /* NAVBAR */
+    nav.blue{
+      background: linear-gradient(90deg, #0052cc, #1e90ff) !important;
+      box-shadow: 0 6px 26px rgba(0,0,0,0.6);
+    }
+    .nav-wrapper .brand-logo { font-weight:700; color: #fff; letter-spacing:0.6px; }
+
+    .page-wrap { padding: 20px 0 48px; max-width: calc(var(--max-width) + 48px); margin: 0 auto; }
+
     header.banner{
-      background:linear-gradient(90deg,var(--air-blue),var(--air-sky));
-      color:#fff;padding:18px;border-radius:8px;margin:18px 0;display:flex;align-items:center;gap:18px;box-shadow:0 8px 30px rgba(11,89,216,0.12)
+      background: linear-gradient(90deg, var(--navy-800), rgba(15,31,58,0.9));
+      color: var(--text);
+      padding:18px;border-radius:8px;margin:18px 0;
+      display:flex;align-items:center;gap:18px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.03);
     }
-    .banner h1{margin:0;font-size:20px;letter-spacing:0.6px}
-    .banner .sub{opacity:0.92;font-size:13px}
+    .banner h1{margin:0;font-size:20px}
+    .banner .sub{opacity:0.9;color:var(--muted-2)}
 
     .top-controls{display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
     .btn-air{
-      background:linear-gradient(180deg,var(--air-sky),var(--air-blue));
-      color:#fff;border-radius:28px;padding:10px 18px;font-weight:700;border:none;box-shadow:0 8px 24px rgba(11,89,216,0.18);cursor:pointer
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+      background: linear-gradient(135deg, var(--air-sky) 0%, var(--air-blue) 100%);
+      color: #fff;
+      border-radius: 28px;
+      padding: 10px 18px;
+      font-weight: 700;
+      border: none;
+      box-shadow: 0 12px 36px rgba(11,89,216,0.16);
+      cursor: pointer;
+      transition: transform .14s ease, box-shadow .14s ease;
     }
-    .btn-air.ghost{background:transparent;border:2px solid var(--air-blue);color:var(--air-blue);padding:8px 12px}
-    .btn-danger{background:#ff5252;color:#fff;border-radius:8px;padding:8px 12px}
-
-    .table-avatar-img{width:64px;height:64px;border-radius:50%;object-fit:cover;display:block;border:2px solid rgba(0,0,0,0.04)}
-    table.section-table thead th{background:rgba(11,89,216,0.06);color:#0b3b7a}
-    .edit-btn{background:var(--air-sky);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;color:#fff}
-
-    .section-wrap{margin-bottom:18px;background:#fff;padding:10px;border-radius:10px;box-shadow:0 6px 24px rgba(16,39,77,0.06)}
-    .section-header{display:flex;align-items:center;justify-content:space-between;padding:2px 6px 6px 6px;color:#3b4b6b;text-transform:uppercase;font-weight:700;letter-spacing:.6px;font-size:13px;cursor:pointer}
-    .section-count{color:#6b7aa0;font-weight:600;font-size:12px;text-transform:none}
-    .section-hr{border:0;height:1px;background:linear-gradient(to right, rgba(0,0,0,.02), rgba(0,0,0,.06));margin:8px 0 12px}
-
-    #deleteNamesList li{display:flex;align-items:center;gap:10px;margin:6px 0;font-size:14px;color:#333;padding:8px;border-radius:8px;background:#fafcff;border:1px solid rgba(11,89,216,0.04)}
-    .delete-list-avatar{width:36px;height:36px;max-width:36px;max-height:36px;border-radius:50%;object-fit:cover;margin-right:10px}
-
-    /* ID-card modal style with rounded corners */
-    .id-card {
-      display:flex;gap:18px;align-items:center;background:linear-gradient(90deg,#fff,#f7fbff);padding:14px;border-radius:12px;border:0;
-      box-shadow:0 8px 30px rgba(16,39,77,0.06)
+    .btn-air:hover { transform: translateY(-3px); box-shadow: 0 18px 46px rgba(11,89,216,0.22); }
+    .btn-air.ghost{
+      background: transparent;
+      border: 2px solid rgba(46,126,247,0.16);
+      color: var(--muted-2);
+      padding: 8px 12px;
+      border-radius: 28px;
     }
-    .id-photo{width:110px;height:110px;border-radius:50%;object-fit:cover;border:0;background:#fff}
-    .id-photo-button{display:inline-block;padding:6px 10px;border-radius:8px;background:var(--air-blue);color:#fff;cursor:pointer}
-    .id-info{flex:1}
-    .id-info h3{margin:0;color:var(--air-blue);font-size:18px}
-    .id-info p{margin:6px 0;color:#475b7a}
-    .field-row{display:flex;gap:10px;flex-wrap:wrap}
-    .input-field .required-star:after{content:" *";color:#d32f2f}
 
-    /* collapse animations: use explicit max-height to animate reliably */
-    .section-body { transition: max-height .28s cubic-bezier(.4,0,.2,1), opacity .22s; overflow: hidden; max-height: 2000px; opacity:1; }
-    .section-body.collapsed { max-height: 0 !important; opacity:0; padding:0; margin:0; }
+    /* ensure logout / reset (ghost/secondary) are blue-highlighted */
+    .btn-ghost, .btn.btn-ghost {
+      background: transparent !important;
+      color: var(--air-sky) !important;
+      border: 1px solid rgba(46,126,247,0.18) !important;
+      box-shadow: none !important;
+      padding: 8px 12px !important;
+      border-radius: 10px !important;
+      height:44px !important;
+      display:inline-flex !important;
+      align-items:center !important;
+      justify-content:center !important;
+    }
+    /* Make small plain buttons (cancel) use muted-blue */
+    .btn-plain {
+      background: transparent;
+      color: var(--muted-2);
+      border-radius: 8px;
+      padding: 8px 12px;
+      border: 1px solid rgba(255,255,255,0.03);
+    }
 
-    /* rounded modals */
-    .modal { border-radius:12px; }
+    /* Danger button (delete) - remains red */
+    .btn-danger {
+      background: linear-gradient(180deg,#ff6b6b,#ff5252);
+      color: #fff;
+      border-radius: 10px;
+      padding: 8px 12px;
+      border: none;
+      box-shadow: 0 8px 24px rgba(255,82,82,0.16);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+    .btn-danger:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(255,82,82,0.22); }
+
+    /* card / section */
+    .section-wrap{
+      margin-bottom:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      padding:10px;border-radius:var(--card-radius);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+
+    .section-header{
+      display:flex;align-items:center;justify-content:space-between;padding:8px 6px 6px 6px;color:var(--muted-2);
+      text-transform:uppercase;font-weight:700;letter-spacing:.6px;font-size:13px;cursor:pointer;
+      background: transparent;
+    }
+    .section-count{color: #89b6ff;font-weight:600;font-size:12px;text-transform:none}
+    .section-hr{border:0;height:1px;background:linear-gradient(to right, rgba(255,255,255,0.02), rgba(255,255,255,0.03));margin:8px 0 12px}
+
+    /* table */
+    table.section-table thead th{
+      background: rgba(255,255,255,0.02);
+      color: #9fc6ff;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    table.section-table tbody tr { color: var(--text); border-bottom:1px solid rgba(255,255,255,0.02); background: transparent; }
+    table.section-table tbody tr:hover { background: rgba(255,255,255,0.01); }
+
+    .table-avatar-img{width:64px;height:64px;border-radius:50%;object-fit:cover;display:block;border:2px solid rgba(255,255,255,0.04)}
+    .delete-list-avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;margin-right:10px}
+
+    /* id-card & avatar styling */
+    .id-card { display:flex;gap:18px;align-items:center;background: rgba(255,255,255,0.02); padding:14px;border-radius:12px;border:0; box-shadow: 0 12px 30px rgba(0,0,0,0.5) }
+    .id-photo{width:110px;height:110px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,0.04);background:transparent}
+
+    /* badges / notices */
+    .card-panel { background: rgba(255,255,255,0.02); color: var(--text); border-left: 4px solid rgba(255,255,255,0.02); padding:10px; border-radius:8px; }
+    .card-panel.green { border-left-color: #2e7d32; background: rgba(46,125,50,0.06); color: #d7ffdf; }
+
+    /* modals */
+    .modal { border-radius:12px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color:var(--text); box-shadow: 0 24px 80px rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.03); }
     .modal .modal-content { padding: 18px 24px; }
 
-    @media(max-width:700px){
-      .id-card{flex-direction:column;align-items:flex-start}
-      .id-photo{width:90px;height:90px}
-      .table-avatar-img{width:48px;height:48px}
+    /* global round edit button style (blue circular) */
+    .edit-btn,
+    a.edit-btn,
+    button.edit-btn {
+        background: transparent !important;
+        width: auto !important;
+        height: auto !important;
+        min-width: 40px !important;
+        min-height: 40px !important;
+        border-radius: 50% !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        box-shadow: none !important;
+        color: #fff !important;
+        cursor: pointer;
+        padding: 0 !important;
+        border: none !important;
     }
+    .edit-btn i.material-icons {
+        background: linear-gradient(135deg, var(--air-sky), var(--air-blue));
+        color: #fff;
+        border-radius: 50%;
+        padding: 10px;
+        font-size: 20px !important;
+        width: 40px; height:40px; line-height:40px;
+        display:inline-flex; align-items:center; justify-content:center;
+        box-shadow: 0 8px 22px rgba(11,89,216,0.18);
+    }
+
+    /* ensure delete icons remain red & non-circular */
+    .btn-flat.red-text i.material-icons,
+    a.btn-flat.red-text i.material-icons,
+    .delete-btn i.material-icons {
+        background: transparent !important;
+        color: #ff6b6b !important;
+        box-shadow: none !important;
+        width: auto !important;
+        height: auto !important;
+        border-radius: 4px !important;
+        font-size: 20px !important;
+    }
+
+    /* inputs and labels */
+    .input-field input { color: var(--text) !important; border-bottom: 1px solid rgba(255,255,255,0.04) !important; }
+    .input-field label { color: var(--muted-2) !important; }
+
+    /* responsive */
+    @media(max-width:900px){
+      .table-avatar-img{width:48px;height:48px}
+      .id-photo{width:90px;height:90px}
+      .section-wrap { padding: 12px; }
+    }
+
+    /* small helpers */
+    .muted { color: var(--muted-2); }
+    .right-align { text-align: right; }
+
+/* ===== Patch: solid edit modal, blue input focus, dark select ===== */
+
+/* Make edit modal solid (no transparency) and slightly elevated */
+#editStudentModal.modal,
+#editStudentModal .modal-content {
+  background: linear-gradient(180deg, rgba(6,18,36,0.98), rgba(8,18,34,0.99)) !important;
+  color: var(--text) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(46,126,247,0.08) !important; /* subtle blue outline */
+  box-shadow: 0 30px 80px rgba(0,0,0,0.75) !important;
+}
+
+/* If your .modal rule is global, ensure the edit modal specifically is fully opaque */
+#editStudentModal { background: none; } /* keep container clean */
+#editStudentModal .modal-content { background: none; padding: 20px 24px; }
+
+/* Blue highlight for focused text inputs (works with Materialize-like structure) */
+.input-field input:focus {
+  border-bottom: 2px solid var(--air-sky) !important; /* blue underline */
+  box-shadow: 0 4px 14px rgba(46,126,247,0.14) !important;
+  color: var(--text) !important;
+}
+
+/* Move the label to blue when input is focused or active */
+.input-field input:focus + label,
+.input-field input.active + label,
+.input-field input.valid + label {
+  color: var(--air-sky) !important;
+}
+
+/* Also make textarea same (if any) */
+textarea:focus {
+  border-bottom: 2px solid var(--air-sky) !important;
+  box-shadow: 0 4px 14px rgba(46,126,247,0.14) !important;
+  color: var(--text) !important;
+}
+
+/* Browser-default select (sex dropdown): dark background + blue outline + white text */
+select.browser-default {
+  background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  color: var(--text) !important;
+  border: 1px solid rgba(46,126,247,0.14) !important;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Focus state for select */
+select.browser-default:focus {
+  outline: none;
+  border-color: var(--air-sky) !important;
+  box-shadow: 0 8px 28px rgba(46,126,247,0.12) !important;
+}
+
+/* Make the select arrow visible and white (works in many blink engines) */
+select.browser-default::-ms-expand { display: none; } /* hide default on IE */
+.select-wrapper.browser-default { position: relative; }
+.select-wrapper.browser-default::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+/* Ensure the select width & text alignment */
+select.browser-default { width: 100%; box-sizing: border-box; }
+
+/* Make the small "Reset password" plain button use blue highlight (if you use .btn-plain) */
+.btn-plain {
+  color: var(--air-sky) !important;
+  border-color: rgba(46,126,247,0.18) !important;
+  background: rgba(46,126,247,0.02);
+}
+
+/* Safety: ensure the edit modal body text uses high contrast */
+#editStudentModal .id-info, #editStudentModal .input-field label, #editStudentModal .muted {
+  color: var(--muted-2) !important;
+}
+
+/* Slightly increase z-index of modal content in case overlays were causing translucency */
+#editStudentModal.modal { z-index: 10010 !important; }
+#editStudentModal .modal-content { z-index: 10011 !important; }
+
+/* FORCE dark dropdown list for native selects */
+select.browser-default option {
+  background-color: #0e1a2b !important; /* deep navy */
+  color: #ffffff !important;            /* white text */
+  padding: 8px 10px;
+}
+
+/* Hover highlight (works on Chrome & Edge) */
+select.browser-default option:hover {
+  background-color: #173255 !important;
+  color: #fff !important;
+}
+
+/* Selected item highlight inside dropdown */
+select.browser-default option:checked {
+  background-color: #1976d2 !important; /* your blue */
+  color: #fff !important;
+}
+
+
   </style>
 </head>
 <body>
@@ -651,17 +906,17 @@ unset($_SESSION['account_info']);
   </div>
 
   <?php if (!empty($errors_flash)): ?>
-    <div class="card-panel red lighten-4 red-text text-darken-4">
+    <div class="card-panel" style="background: rgba(198,40,40,0.06); color: #ffd6d6; border-left: 4px solid rgba(198,40,40,0.14);">
       <?php foreach ($errors_flash as $err): ?><div><?php echo htmlspecialchars($err, ENT_QUOTES); ?></div><?php endforeach; ?>
     </div>
   <?php endif; ?>
 
   <?php if ($account_flash): ?>
-    <div class="card-panel green lighten-5" style="border-left:4px solid #2e7d32;">
+    <div class="card-panel green" style="margin-bottom:12px;">
       <strong>Account created/updated:</strong>
-      <div><strong>Account ID:</strong> <?php echo htmlspecialchars($account_flash['acc_id'], ENT_QUOTES); ?></div>
-      <div><strong>Initial password:</strong> <code><?php echo htmlspecialchars($account_flash['password'], ENT_QUOTES); ?></code></div>
-      <small class="grey-text">Shown only once — password is stored hashed in the DB.</small>
+      <div style="margin-top:6px;"><strong>Account ID:</strong> <?php echo htmlspecialchars($account_flash['acc_id'], ENT_QUOTES); ?></div>
+      <div><strong>Initial password:</strong> <code style="background: rgba(255,255,255,0.03); padding:2px 6px; border-radius:4px;"><?php echo htmlspecialchars($account_flash['password'], ENT_QUOTES); ?></code></div>
+      <small class="muted">Shown only once — password is stored hashed in the DB.</small>
     </div>
   <?php endif; ?>
 
@@ -680,7 +935,7 @@ unset($_SESSION['account_info']);
           <span><?php echo $safeSection; ?></span>
           <span class="section-count">&nbsp;&nbsp;•&nbsp;&nbsp;<?php echo $count . ' student' . ($count === 1 ? '' : 's'); ?></span>
         </div>
-        <i class="material-icons collapse-icon">expand_less</i>
+        <i class="material-icons collapse-icon" style="color:var(--muted-2);">expand_less</i>
       </div>
       <hr class="section-hr">
       <div class="section-body" id="<?php echo $domId; ?>_body">
@@ -711,11 +966,11 @@ unset($_SESSION['account_info']);
 
 </div>
 
-<!-- ===== Replace Add Modal HTML (paste over your existing addStudentModal block) ===== -->
+<!-- Add modal -->
 <div id="addStudentModal" class="modal">
   <div class="modal-content">
-    <h5 style="margin-top:0;">Add Student</h5>
-    <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
+    <h5 style="margin-top:0;color:var(--text)">Add Student</h5>
+    <div style="height:4px;background:linear-gradient(90deg,var(--air-blue),var(--air-sky));width:100%;border-radius:4px;margin:8px 0 14px;"></div>
 
     <form method="post" enctype="multipart/form-data" id="addForm">
       <input type="hidden" name="action" value="add_student">
@@ -725,7 +980,7 @@ unset($_SESSION['account_info']);
         <div style="flex:0 0 120px; text-align:center;">
           <img id="addPreview" src="assets/avatar.png" class="id-photo" alt="photo">
           <div style="margin-top:8px;">
-            <label class="id-photo-button" style="border-radius:8px;cursor:pointer">
+            <label class="id-photo-button" style="border-radius:8px;cursor:pointer;background:linear-gradient(135deg,var(--air-sky),var(--air-blue));color:#fff;padding:8px 12px;display:inline-block">
               Upload
               <input id="addStudentPhoto" type="file" name="student_photo" accept="image/*" style="display:none">
             </label>
@@ -765,7 +1020,7 @@ unset($_SESSION['account_info']);
           <div class="input-field"><input id="addBirthday" name="birthday" type="date"><label class="active" for="addBirthday">Birthday</label></div>
         </div>
         <div style="flex:0 0 160px;">
-          <label for="addSex" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Sex <span style="color:#d32f2f">*</span></label>
+          <label for="addSex" style="display:block;margin-bottom:6px;color:var(--muted-2);font-weight:600">Sex <span style="color:#d32f2f">*</span></label>
           <select id="addSex" name="sex" class="browser-default" required>
             <option value="">Select</option>
             <option value="M">M</option>
@@ -776,7 +1031,7 @@ unset($_SESSION['account_info']);
 
       <?php if (is_super_admin()): ?>
       <div style="margin-bottom:8px;">
-        <label for="addTeacherSelect" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Assign Teacher</label>
+        <label for="addTeacherSelect" style="display:block;margin-bottom:6px;color:var(--muted-2);font-weight:600">Assign Teacher</label>
         <select id="addTeacherSelect" name="teacher_id" class="browser-default">
           <option value="">Unassigned</option>
           <?php foreach ($teachers_list as $t): ?>
@@ -792,24 +1047,23 @@ unset($_SESSION['account_info']);
     </form>
   </div>
 </div>
-<!-- ===== end Add Modal HTML ===== -->
 
-<!-- Edit modal (fixed: Change Photo input moved INSIDE the <form> so it uploads correctly) -->
+<!-- Edit modal -->
 <div id="editStudentModal" class="modal">
   <div class="modal-content">
-    <h5 style="margin-top:0;">Edit Student Information</h5>
-    <div style="height:4px;background:var(--air-blue);width:100%;border-radius:4px;margin:8px 0 14px;"></div>
+    <h5 style="margin-top:0;color:var(--text)">Edit Student Information</h5>
+    <div style="height:4px;background:linear-gradient(90deg,var(--air-blue),var(--air-sky));width:100%;border-radius:4px;margin:8px 0 14px;"></div>
 
     <div class="id-card" style="margin-bottom:12px;">
       <img id="editPreview" src="assets/avatar.png" class="id-photo" alt="photo">
       <div class="id-info">
-        <h3 id="editName">Student Name</h3>
+        <h3 id="editName" style="color:var(--text)">Student Name</h3>
         <p><strong>ID:</strong> <span id="editIDLabel">—</span></p>
-        <p id="editSectionLabel" style="margin-top:6px;color:var(--muted)"></p>
+        <p id="editSectionLabel" style="margin-top:6px;color:var(--muted-2)"></p>
 
         <div style="margin-top:8px;">
-          <span class="id-photo-button" style="border-radius:8px;cursor:pointer;display:inline-block;">Change Photo</span>
-          <small style="display:block;margin-top:6px;color:#666;">Choose a new avatar below after opening the form.</small>
+          <span class="id-photo-button" style="border-radius:8px;cursor:pointer;display:inline-block;background:linear-gradient(135deg,var(--air-sky),var(--air-blue));color:#fff;padding:8px 12px;">Change Photo</span>
+          <small style="display:block;margin-top:6px;color:var(--muted-2);">Choose a new avatar below after opening the form.</small>
         </div>
       </div>
     </div>
@@ -865,7 +1119,7 @@ unset($_SESSION['account_info']);
         </div>
 
         <div style="flex:0 0 140px;">
-          <label for="editSex" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Sex <span style="color:#d32f2f">*</span></label>
+          <label for="editSex" style="display:block;margin-bottom:6px;color:var(--muted-2);font-weight:600">Sex <span style="color:#d32f2f">*</span></label>
           <select id="editSex" name="edit_sex" class="browser-default" required>
             <option value="">Select</option>
             <option value="M">M</option>
@@ -874,10 +1128,9 @@ unset($_SESSION['account_info']);
         </div>
       </div>
 
-      <!-- Teacher assign (kept native too) -->
       <?php if (is_super_admin()): ?>
       <div class="input-field" style="margin-top:12px;">
-        <label for="editTeacherSelect" style="display:block;margin-bottom:6px;color:#475b7a;font-weight:600">Assign Teacher</label>
+        <label for="editTeacherSelect" style="display:block;margin-bottom:6px;color:var(--muted-2);font-weight:600">Assign Teacher</label>
         <select id="editTeacherSelect" name="edit_teacher_id" class="browser-default">
           <option value="">Unassigned</option>
           <?php foreach ($teachers_list as $t): ?>
@@ -887,15 +1140,15 @@ unset($_SESSION['account_info']);
       </div>
       <?php endif; ?>
 
-      <div class="confirm-row" style="margin-top:12px;"><label><input type="checkbox" id="editConfirmCheckbox"><span>I confirm I want to save these changes</span></label></div>
+      <div class="confirm-row" style="margin-top:12px;"><label><input type="checkbox" id="editConfirmCheckbox"><span style="color:var(--muted-2)">I confirm I want to save these changes</span></label></div>
 
       <div style="margin-top:12px;" class="divider"></div>
 
       <div style="margin-top:12px;">
-        <label><input type="checkbox" id="enableResetCheckbox"><span>Enable password reset</span></label>
+        <label><input type="checkbox" id="enableResetCheckbox"><span style="color:var(--muted-2)">Enable password reset</span></label>
         <div style="margin-top:8px;">
-          <button type="button" id="resetPwdBtn" class="btn-danger" style="display:none;">Reset password to birthday</button>
-          <div style="margin-top:6px;"><small class="grey-text">Sets account password to birthday (YYYY-MM-DD).</small></div>
+          <button type="button" id="resetPwdBtn" class="btn btn-plain" style="display:none;color:var(--air-sky);border:1px solid rgba(46,126,247,0.16)">Reset password to birthday</button>
+          <div style="margin-top:6px;"><small class="muted">Sets account password to birthday (YYYY-MM-DD).</small></div>
         </div>
       </div>
 
@@ -904,19 +1157,16 @@ unset($_SESSION['account_info']);
   </div>
 </div>
 
-<!-- ===== End edit modal replacement ===== -->
-
-
 <!-- Delete modal -->
 <div id="deleteConfirmModal" class="modal">
   <div class="modal-content">
-    <h5>Delete Selected Students</h5>
+    <h5 style="color:var(--text)">Delete Selected Students</h5>
     <p id="deleteConfirmText">You are about to delete <strong id="deleteCount">0</strong> student(s).</p>
-    <div id="deleteNamesContainer"><small class="grey-text">Selected students:</small><ul id="deleteNamesList"></ul></div>
-    <div class="confirm-row"><label><input type="checkbox" id="deleteConfirmCheckbox"><span>I confirm I want to permanently delete the selected student(s)</span></label></div>
+    <div id="deleteNamesContainer"><small class="muted">Selected students:</small><ul id="deleteNamesList" style="list-style:none;padding-left:0;margin-top:6px;"></ul></div>
+    <div class="confirm-row" style="margin-top:8px;"><label><input type="checkbox" id="deleteConfirmCheckbox"><span style="color:var(--muted-2)">I confirm I want to permanently delete the selected student(s)</span></label></div>
 
     <form method="post" id="deleteConfirmForm"><input type="hidden" name="action" value="delete_selected"><div id="deleteHiddenInputs"></div>
-      <div class="right-align" style="margin-top:16px;"><button type="button" class="btn grey modal-close" id="cancelDeleteBtn">Cancel</button> <button type="submit" class="btn-danger" id="confirmDeleteBtn" disabled>Delete</button></div>
+      <div class="right-align" style="margin-top:16px;"><button type="button" class="btn btn-plain modal-close" id="cancelDeleteBtn">Cancel</button> <button type="submit" class="btn-danger" id="confirmDeleteBtn" disabled>Delete</button></div>
     </form>
   </div>
 </div>
@@ -924,7 +1174,6 @@ unset($_SESSION['account_info']);
 <!-- scripts -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="materialize/js/materialize.min.js"></script>
-<!-- place this AFTER materialize/js/materialize.min.js and BEFORE </body> -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   // Initialize Materialize modals (do NOT use AutoInit)
@@ -1109,7 +1358,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('deleteCount').textContent = items.length;
     var namesList = document.getElementById('deleteNamesList'); namesList.innerHTML = '';
-    items.forEach(function(it){ var li=document.createElement('li'); var img=document.createElement('img'); img.src=it.avatar; img.className='delete-list-avatar'; img.onerror=function(){this.src='assets/avatar.png'}; var span=document.createElement('span'); span.textContent=it.name; li.appendChild(img); li.appendChild(span); namesList.appendChild(li); });
+    items.forEach(function(it){ var li=document.createElement('li'); li.style.display='flex'; li.style.alignItems='center'; li.style.gap='10px'; li.style.margin='6px 0'; var img=document.createElement('img'); img.src=it.avatar; img.className='delete-list-avatar'; img.onerror=function(){this.src='assets/avatar.png'}; var span=document.createElement('span'); span.textContent=it.name; span.style.color='var(--text)'; li.appendChild(img); li.appendChild(span); namesList.appendChild(li); });
 
     var hid = document.getElementById('deleteHiddenInputs'); hid.innerHTML = '';
     items.forEach(function(it){ var i=document.createElement('input'); i.type='hidden'; i.name='delete_ids[]'; i.value=it.id; hid.appendChild(i); });
@@ -1214,4 +1463,3 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
-
