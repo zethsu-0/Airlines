@@ -650,12 +650,11 @@ unset($_SESSION['account_info']);
       background: transparent;
       color: var(--muted-2);
       border-radius: 8px;
-      padding: 8px 12px;
       border: 1px solid rgba(255,255,255,0.03);
     }
 
     /* Danger button (delete) - remains red */
-    .btn-danger {
+    .desel {
       background: linear-gradient(180deg,#ff6b6b,#ff5252);
       color: #fff;
       border-radius: 10px;
@@ -664,6 +663,16 @@ unset($_SESSION['account_info']);
       box-shadow: 0 8px 24px rgba(255,82,82,0.16);
       transition: transform .12s ease, box-shadow .12s ease;
     }
+
+        .btn-danger {
+      background: linear-gradient(180deg,#ff6b6b,#ff5252);
+      color: #fff;
+      border-radius: 10px;
+      border: none;
+      box-shadow: 0 8px 24px rgba(255,82,82,0.16);
+      transition: transform .12s ease, box-shadow .12s ease;
+    }
+
     .btn-danger:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(255,82,82,0.22); }
 
     /* card / section */
@@ -874,6 +883,431 @@ select.browser-default option:checked {
   color: #fff !important;
 }
 
+/* === STACKED + ALIGNED INPUTS (keep old stacked layout) === */
+
+/* Force stacked layout inside add/edit modals (no flex) */
+#addStudentModal .field-row,
+#editStudentModal .field-row,
+#addStudentModal .field-row > div,
+#editStudentModal .field-row > div {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 0 10px 0 !important;
+}
+
+/* Ensure input-field inside modals places label above input */
+.modal .input-field { margin-bottom: 12px !important; }
+.modal .input-field label,
+#addStudentModal .file-label,
+#editStudentModal .id-info h3 {
+  display: block !important;
+  margin-bottom: 8px !important;
+  color: var(--muted) !important;
+  font-weight: 600;
+}
+
+/* Full-width, rounded inputs with consistent inner padding (stacked) */
+.modal .input-field input,
+.modal input[type="text"],
+.modal input[type="date"],
+.modal input[type="number"],
+.modal input[type="password"],
+.modal textarea,
+.modal select.browser-default {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 12px 14px !important;
+  height: 46px !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,0.03) !important; /* dark subtle */
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  color: #e9f1ff !important;
+  font-size: 14px !important;
+}
+
+/* Make selects visually match inputs and not appear white */
+.modal select.browser-default {
+  background: rgba(255,255,255,0.03) !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  padding-right: 36px !important; /* room for dropdown arrow */
+}
+
+/* Try to make the option list dark (browser support varies) */
+.modal select.browser-default option {
+  background: #0f1a33 !important;
+  color: #e9f1ff !important;
+}
+
+/* Blue highlight when input focused (clear visual feedback) */
+.modal .input-field input:focus,
+.modal select.browser-default:focus,
+.modal textarea:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(46,126,247,0.12) !important;
+  border-color: #2e7ef7 !important;
+}
+
+/* Keep Upload / Photo buttons aligned with stacked fields */
+#addStudentModal .id-photo,
+#addStudentModal .id-photo-button,
+#editStudentModal .id-photo,
+#editStudentModal .id-photo-button {
+  display: block !important;
+  margin-bottom: 10px !important;
+}
+
+/* Smaller screens: keep stacked layout and comfortable padding */
+@media (max-width: 880px) {
+  .modal .input-field input,
+  .modal select.browser-default {
+    padding: 10px 12px !important;
+    height:44px !important;
+  }
+}
+/* ===== Add Student modal: stacked + aligned inputs, keep Edit modal untouched ===== */
+/* Place this at the end of your <style> in students.php */
+
+/* Force stacked layout only inside Add modal */
+#addStudentModal .field-row,
+#addStudentModal .field-row > div {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 0 10px 0 !important;
+}
+
+/* Labels above inputs in Add modal */
+#addStudentModal .input-field label,
+#addStudentModal .file-label {
+  display: block !important;
+  margin-bottom: 8px !important;
+  color: var(--muted) !important;
+  font-weight: 600;
+}
+
+/* Full-width rounded inputs only for Add modal */
+#addStudentModal .input-field input,
+#addStudentModal input[type="text"],
+#addStudentModal input[type="date"],
+#addStudentModal select.browser-default,
+#addStudentModal textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 12px 14px !important;
+  height: 46px !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  color: #e9f1ff !important;
+  font-size: 14px !important;
+}
+
+/* Select inside Add modal: match inputs (avoid white selected area) */
+#addStudentModal select.browser-default {
+  background: rgba(255,255,255,0.03) !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  padding-right: 36px !important;
+  color: #e9f1ff !important;
+}
+
+/* Options styling (browser dependent) */
+#addStudentModal select.browser-default option {
+  background: #0f1a33 !important;
+  color: #e9f1ff !important;
+}
+
+/* Blue focus highlight for Add modal inputs */
+#addStudentModal .input-field input:focus,
+#addStudentModal select.browser-default:focus,
+#addStudentModal textarea:focus {
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(46,126,247,0.12) !important;
+  border-color: #2e7ef7 !important;
+}
+
+/* Revert Upload button size — center under photo and keep compact */
+#addStudentModal .id-photo-button,
+#addStudentModal .file-btn {
+  display: inline-block !important;
+  padding: 8px 12px !important;        /* compact size */
+  border-radius: 8px !important;
+  background: linear-gradient(90deg, var(--air-blue), var(--air-sky)) !important;
+  color: #fff !important;
+  cursor: pointer !important;
+  box-shadow: 0 8px 18px rgba(13,71,161,0.08);
+  font-weight: 700 !important;
+  text-align: center !important;
+  width: auto !important;               /* ensure not full-width */
+  margin: 8px auto 0 auto !important;   /* center horizontally under photo */
+}
+
+/* Center the photo + upload button container in the Add modal */
+#addStudentModal .field-row > div:first-child {
+  text-align: center !important;
+}
+
+/* Ensure the photo itself stays as intended and centered */
+#addStudentModal .id-photo {
+  display: inline-block !important;
+  margin: 0 auto !important;
+  border-radius: 12px !important;
+}
+
+/* Small screens: slightly smaller paddings */
+@media (max-width: 520px) {
+  #addStudentModal .input-field input,
+  #addStudentModal select.browser-default {
+    padding: 10px 12px !important;
+    height: 44px !important;
+  }
+  #addStudentModal .id-photo { width: 88px !important; height: 88px !important; }
+  #addStudentModal .id-photo-button, #addStudentModal .file-btn { padding: 7px 10px !important; }
+}
+/* ============================
+   FIX: Make ALL admin modals solid
+   ============================ */
+
+/* Solid dark modal surface (no transparency) */
+.modal {
+  background: #0e1625 !important; /* deep navy solid */
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  backdrop-filter: none !important;
+}
+
+/* Modal interior also solid */
+.modal .modal-content {
+  background: #0e1625 !important;
+}
+
+/* Dark solid header bar inside modals */
+#addStudentModal .modal-content,
+#editStudentModal .modal-content,
+#deleteConfirmModal .modal-content {
+  background: #0e1625 !important;
+}
+
+/* Override ID card background so it doesn’t become transparent */
+#editStudentModal .id-card {
+  background: #132035 !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+#addStudentModal .id-card {
+  background: #132035 !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+/* Fix input fields inside dark modals */
+.modal input,
+.modal select,
+.modal textarea {
+  background: rgba(255,255,255,0.05) !important;
+  color: #fff !important;
+}
+
+/* Blue highlight borders */
+.modal input:focus,
+.modal select:focus,
+.modal textarea:focus {
+  border-bottom: 2px solid #1e90ff !important;
+  box-shadow: 0 1px 0 0 #1e90ff !important;
+}
+
+/* Sex dropdown background */
+.modal select.browser-default {
+  background: #1a273c !important;
+  color: #fff !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+.modal select.browser-default option {
+  background: #0e1625 !important;
+  color: #fff !important;
+}
+/* ===========================================
+   FIX: Make ALL textboxes wider & add padding
+   =========================================== */
+
+.input-field input[type="text"],
+.input-field input[type="password"],
+.input-field input[type="date"],
+.input-field input[type="number"],
+.input-field textarea,
+.modal input[type="text"],
+.modal input[type="password"],
+.modal input[type="date"],
+.modal input[type="number"],
+.modal textarea {
+    padding-left: 12px !important;     /* extra left spacing */
+    padding-right: 12px !important;    /* extra right spacing */
+    height: 44px !important;           /* taller input (cleaner) */
+    line-height: 44px !important;
+    box-sizing: border-box !important;
+}
+
+/* Make fields stretch further horizontally */
+.input-field {
+    width: 100% !important;
+}
+
+/* Fix for flex rows (textboxes inside form rows) */
+.field-row .input-field {
+    flex: 1 1 auto !important;
+}
+
+/* Make label float higher so it doesn't overlap the input */
+.input-field label {
+    left: 12px !important;
+}
+
+/* When label is active (float mode) */
+.input-field label.active {
+    transform: translateY(-18px) scale(0.9) !important;
+    left: 12px !important;
+}
+
+/* Ensure text does not touch borders in modals */
+.modal .input-field input {
+    padding-left: 12px !important;
+}
+
+/* Make selects also align with the new field width */
+select.browser-default {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: 44px !important;
+    border-radius: 8px !important;
+}
+
+
+/* Smooth collapse/expand for section body + horizontal scroll on small screens */
+.section-body {
+  overflow-y: hidden;           /* keeps vertical collapse working */
+  overflow-x: auto;             /* allows horizontal scroll on small screens */
+  max-height: 800px;            /* large enough to fit your tables */
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    max-height 0.3s ease,
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.section-body.collapsed {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Keep table wide so it scrolls instead of squishing */
+.section-body table.section-table {
+  min-width: 800px;   /* adjust if you want it narrower/tighter */
+}
+
+
+.section-body.collapsed {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Smooth line hide/show */
+.section-hr {
+  transition: opacity 0.25s ease, height 0.25s ease, margin 0.25s ease;
+}
+
+.section-wrap.collapsed .section-hr {
+  opacity: 0;
+  height: 0;
+  margin: 0;
+}
+
+/* Icon rotation with animation */
+.section-header .collapse-icon {
+  transition: transform 0.25s ease;
+  transform: rotate(0deg);
+}
+
+.section-wrap.collapsed .section-header .collapse-icon {
+  transform: rotate(-90deg);
+}
+
+
+/* ========== RESPONSIVE LAYOUT TWEAKS ========== */
+
+/* Tablet-ish and below */
+@media (max-width: 992px) {
+  .page-wrap {
+    padding: 16px 10px 32px;
+  }
+
+  header.banner {
+    padding: 14px;
+    margin: 12px 0;
+  }
+}
+
+/* Phones */
+@media (max-width: 600px) {
+  /* Brand logo: smaller text */
+  nav .brand-logo {
+    font-size: 16px;
+    left: 50% !important;
+    transform: translateX(-50%);
+  }
+
+  /* Banner stacks vertically */
+  header.banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .banner h1 {
+    font-size: 18px;
+  }
+
+  /* Top buttons become full-width */
+  .top-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .top-controls .btn-air,
+  .top-controls .btn-danger {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .section-wrap {
+    padding: 10px 8px;
+  }
+}
+/* Modals: fit nicely on small screens */
+@media (max-width: 600px) {
+  .modal {
+    width: 95% !important;
+    max-height: 92vh !important;
+  }
+
+  .modal .modal-content {
+    padding: 14px 14px !important;
+  }
+
+  /* ID card in edit modal stacks vertically */
+  .id-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .id-card .id-photo {
+    margin-bottom: 8px;
+  }
+}
 
   </style>
 </head>
@@ -899,7 +1333,7 @@ select.browser-default option:checked {
     <div class="col s12 m12">
       <div class="top-controls">
         <button id="addBtn" class="btn-air modal-trigger">+ Add Student</button>
-        <button id="deleteSelectedBtn" class="btn-danger">Delete Selected</button>
+        <button id="deleteSelectedBtn" class="btn-danger desel">Delete Selected</button>
         <button id="toggleCollapseBtn" class="btn-air ghost" type="button">Collapse All</button>
       </div>
     </div>
@@ -916,7 +1350,7 @@ select.browser-default option:checked {
       <strong>Account created/updated:</strong>
       <div style="margin-top:6px;"><strong>Account ID:</strong> <?php echo htmlspecialchars($account_flash['acc_id'], ENT_QUOTES); ?></div>
       <div><strong>Initial password:</strong> <code style="background: rgba(255,255,255,0.03); padding:2px 6px; border-radius:4px;"><?php echo htmlspecialchars($account_flash['password'], ENT_QUOTES); ?></code></div>
-      <small class="muted">Shown only once — password is stored hashed in the DB.</small>
+      <small class="muted">Shown only once — password </small>
     </div>
   <?php endif; ?>
 
@@ -1147,7 +1581,7 @@ select.browser-default option:checked {
       <div style="margin-top:12px;">
         <label><input type="checkbox" id="enableResetCheckbox"><span style="color:var(--muted-2)">Enable password reset</span></label>
         <div style="margin-top:8px;">
-          <button type="button" id="resetPwdBtn" class="btn btn-plain" style="display:none;color:var(--air-sky);border:1px solid rgba(46,126,247,0.16)">Reset password to birthday</button>
+          <button type="button" id="resetPwdBtn" class="btn btn-danger white-text" style="display:none;color:var(--air-sky);border:1px solid rgba(46,126,247,0.16)">Reset password to birthday</button>
           <div style="margin-top:6px;"><small class="muted">Sets account password to birthday (YYYY-MM-DD).</small></div>
         </div>
       </div>
@@ -1463,4 +1897,3 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
-
