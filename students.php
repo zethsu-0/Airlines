@@ -891,7 +891,7 @@ select.browser-default option:checked {
     <div style="flex:0 0 auto"><img src="assets/logo.png" alt="logo" style="height:46px;width:72px;object-fit:cover;border-radius:6px"></div>
     <div>
       <h1>Students</h1>
-      <div class="sub">Manage students — boarding-pass inspired UI</div>
+      <div class="sub">Manage students</div>
     </div>
   </header>
 
@@ -1463,3 +1463,4 @@ document.addEventListener('DOMContentLoaded', function() {
 if ($acc_db_ok && isset($acc_conn) && $acc_conn instanceof mysqli) $acc_conn->close();
 if (isset($conn) && $conn instanceof mysqli) $conn->close();
 ?>
+
