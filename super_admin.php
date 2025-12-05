@@ -1002,6 +1002,28 @@ unset($_SESSION['account_info']);
 /* ensure small flat icon buttons still look crisp */
 .btn-flat i.material-icons { font-size:20px; vertical-align:middle; }
 
+/* Make checkbox checkmark and filled state blue */
+input[type="checkbox"].filled-in:checked + span:not(.lever):after {
+    border: 2px solid #0b59d8 !important;
+    background-color: #0b59d8 !important;
+}
+
+/* Outline when checked */
+input[type="checkbox"].filled-in:checked + span:not(.lever):before {
+    border-right: 2px solid #0b59d8 !important;
+    border-bottom: 2px solid #0b59d8 !important;
+}
+/* Force Materialize filled-in checkbox to use blue theme */
+input[type="checkbox"].filled-in:checked + span:not(.lever):after {
+    border: 2px solid #0b59d8 !important;
+    background-color: #0b59d8 !important;
+}
+
+/* The checkmark “tick” inside the filled-in checkbox */
+input[type="checkbox"].filled-in:checked + span:not(.lever):before {
+    border-right: 2px solid white !important;
+    border-bottom: 2px solid white !important;
+}
 
 
     @media(max-width:700px){
@@ -1571,6 +1593,40 @@ document.addEventListener('DOMContentLoaded', function() {
       setTimeout(function(){ try{ el.removeChild(circle); }catch(e){} }, 650);
     }, false);
   }
+
+    /* --- UNIVERSAL: Show Save button only when confirm checkbox is ticked --- */
+(function(){
+
+  const rule = [
+    // Super admin profile
+    { checkbox: "#editSuperConfirmCheckbox", button: "#saveSuperBtn" },
+
+    // Instructor edit
+    { checkbox: "#editInstructorConfirmCheckbox", button: "#saveInstructorBtn" },
+
+    // Student edit
+    { checkbox: "#editConfirmCheckbox", button: "#saveEditBtn" }
+  ];
+
+  rule.forEach(item => {
+    const chk = document.querySelector(item.checkbox);
+    const btn = document.querySelector(item.button);
+
+    if (!chk || !btn) return;
+
+    // Hide button initially
+    btn.style.display = "none";
+
+    chk.addEventListener("change", function() {
+      btn.style.display = this.checked ? "inline-block" : "none";
+    });
+
+    // Ensure correct initial state
+    btn.style.display = chk.checked ? "inline-block" : "none";
+  });
+
+})();
+
 
   // Attach ripple to relevant buttons for nicer UI
   Array.from(document.querySelectorAll('.btn-air, .btn-danger, .btn-flat')).forEach(function(b){
