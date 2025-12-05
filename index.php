@@ -70,8 +70,9 @@ $logged_in = !empty($_SESSION['acc_id']);
 
         <div class="input-field col s12 m8">
           <label class="native-label" for="passenger_type">Passenger Type</label>
-          <select name="passenger_type" id="passenger_type" required class="native-select">
+          <select name="passenger_type" id="passenger_type" required class="native-select auto-passenger" aria-readonly="true">
             <option value="">Choose passenger type</option>
+            <option value="Elderly">Elder</option>
             <option value="Adult">Adult</option>
             <option value="Child">Child</option>
             <option value="Infant">Infant</option>
@@ -283,7 +284,6 @@ $logged_in = !empty($_SESSION['acc_id']);
 
 /* booking card */
 .main-container { padding: 28px 0 8px; }
-.booking-wrap.elevated { border-radius: 12px; padding: 18px; background: #fff; box-shadow: 0 12px 30px rgba(13,71,161,0.06); margin-bottom: 26px; }
 .card-heading { margin: 6px 0 18px; font-weight:700; color:#0d47a1; }
 
 /* destination cards */
@@ -302,27 +302,803 @@ $logged_in = !empty($_SESSION['acc_id']);
 .native-select { margin-top: 0 !important; padding-top: 14px !important; padding-bottom: 12px !important; min-height: 48px; box-sizing: border-box !important; }
 
 /* Seat picker styles (copied + tuned from your ticket.php) */
+
+/* Use your accent color variables for seat states */
+:root {
+  --sa-accent: #1976d2;   /* blue accent */
+  --seat-bg: rgba(255,255,255,0.03);
+  --seat-text: #e6eef8;
+  --seat-disabled-bg: rgba(255,255,255,0.02);
+  --seat-disabled-text: #88929d;
+}
+
+/* seat map container */
 .seat-map { display:flex; flex-direction:column; gap:8px; padding:16px; max-width:960px; margin:0 auto; }
 .seat-row { display:flex; align-items:center; gap:8px; justify-content:center; }
-.row-label { width:44px; min-width:44px; text-align:center; font-weight:600; color:#444; }
-.seat { width:44px; height:44px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; user-select:none; border:1px solid rgba(0,0,0,0.12); transition: transform .08s ease, box-shadow .12s ease; background:#fff; font-weight:600; }
-.seat:hover { transform: translateY(-3px); box-shadow: 0 6px 14px rgba(0,0,0,0.08); }
-.seat.selected { color:white; border-color: rgba(0,0,0,0.15); }
-.seat.disabled { background:#efefef; color:#9e9e9e; cursor:not-allowed; transform:none; box-shadow:none; }
+.row-label { width:44px; min-width:44px; text-align:center; font-weight:600; color:var(--sa-accent); }
+
+/* seat tile */
+.seat {
+  width:44px;
+  height:44px;
+  border-radius:8px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  user-select:none;
+  border:1px solid rgba(255,255,255,0.04);
+  transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+  background: var(--seat-bg);
+  color: var(--seat-text);
+  font-weight:600;
+  box-shadow: 0 6px 14px rgba(2,6,23,0.28);
+}
+
+/* hover effect */
+.seat:hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(2,6,23,0.42); }
+
+/* seat types use soft tints; keep text readable */
+.seat.first { background-color: rgba(30,136,229,0.12); }
+.seat.business { background-color: rgba(251,140,0,0.08); }
+.seat.premium { background-color: rgba(126,87,194,0.08); }
+.seat.economy { background-color: rgba(67,160,71,0.06); }
+
+/* selected seat - use strong accent */
+.seat.selected {
+  color: white !important;
+  background: linear-gradient(90deg, var(--sa-accent), #0b84ff) !important;
+  box-shadow: 0 20px 44px rgba(11,132,255,0.22);
+  transform: translateY(-6px);
+  border-color: rgba(0,0,0,0.12);
+}
+
+/* disabled/muted seats */
+.seat.disabled {
+  background: var(--seat-disabled-bg);
+  color: var(--seat-disabled-text);
+  cursor:not-allowed;
+  transform:none;
+  box-shadow: none;
+  border-color: rgba(0,0,0,0.06);
+}
+
+/* aisle spacing */
 .aisle { width:28px; min-width:28px; }
+
+/* legend */
 .legend { display:flex; gap:12px; align-items:center; margin:8px 16px 18px; flex-wrap:wrap; justify-content:center; }
-.legend .box { width:18px;height:18px;border-radius:4px;border:1px solid rgba(0,0,0,0.12); display:inline-block;vertical-align:middle;margin-right:6px; }
-.legend .box.selected { background:#26a69a; border:none; }
-.legend .box.disabled { background:#efefef; color:#9e9e9e; border:none; }
+.legend .box { width:18px;height:18px;border-radius:4px;border:1px solid rgba(255,255,255,0.04); display:inline-block;vertical-align:middle;margin-right:6px; }
+.legend .box.selected { background: linear-gradient(90deg, var(--sa-accent), #0b84ff); border:none; }
+.legend .box.disabled { background: var(--seat-disabled-bg); color: var(--seat-disabled-text); border:none; }
+
+/* summary */
 .selection-summary { margin-top:12px; max-width:960px; margin-left:auto; margin-right:auto; padding:0 16px 16px; }
 .cabin-header { margin-top:10px; margin-bottom:4px; text-align:left; max-width:960px; margin-left:auto; margin-right:auto; padding:0 18px; display:flex; align-items:center; gap:8px; }
-.cabin-header h6 { margin:0; font-weight:600; }
-.cabin-header .line { flex:1; height:1px; background: rgba(0,0,0,0.12); }
-.seat.first { background-color:#e3f2fd; } .seat.business { background-color:#fff3e0; } .seat.premium { background-color:#ede7f6; } .seat.economy { background-color:#e8f5e9; }
-.seat.first.selected { background-color:#1e88e5; } .seat.business.selected { background-color:#fb8c00; } .seat.premium.selected { background-color:#7e57c2; } .seat.economy.selected { background-color:#43a047; }
-.cabin-header.first h6 { color:#1e88e5; } .cabin-header.business h6 { color:#fb8c00; } .cabin-header.premium h6 { color:#7e57c2; } .cabin-header.economy h6 { color:#43a047; }
+.cabin-header h6 { margin:0; font-weight:600; color: var(--sa-accent); }
+.cabin-header .line { flex:1; height:1px; background: rgba(255,255,255,0.04); }
 
+/* text sizing adjustments on smaller screens */
 @media(max-width:680px){ .seat{ width:36px;height:36px;border-radius:6px; } .row-label{ width:36px; min-width:36px; font-size:0.9rem; } }
+
+/* ---------- SUPER-ADMIN DEEP NAVY THEME (use in place of page's white background rules) ---------- */
+:root{
+  --sa-bg: #071428;        /* deep navy */
+  --sa-bg2: #071826;       /* slightly lighter */
+  --sa-surface: rgba(255,255,255,0.02);
+  --sa-card: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  --sa-text: #e6eef8;
+  --sa-muted: #98a0b3;
+  --sa-accent: #1976d2;
+  --sa-accent-2: #0b84ff;
+}
+
+:root {
+  --sa-bg: #071428;
+  --sa-bg2: #071826;
+  --sa-text: #e6eef8;
+  --sa-muted: #98a0b3;
+  --sa-surface-2: rgba(255,255,255,0.03);
+  --sa-surface-3: rgba(255,255,255,0.05);
+  --sa-accent: #1976d2;
+}
+/* Make input fields transparent/dark and text readable */
+.input-field input[type="text"],
+.input-field input[type="number"],
+.input-field input[type="date"],
+.input-field input[type="password"],
+.input-field textarea {
+  background: transparent !important;
+  color: var(--sa-text) !important;
+  border-radius: 4px;
+}
+
+select.native-select,
+select:not(.browser-default) /* fallback for any non-browser-default selects */ {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-color: var(--sa-surface-2) !important; /* dark panel */
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  padding: 10px 14px !important;
+  padding-right: 36px !important; /* space for arrow if present */
+  border-radius: 8px !important;
+  box-shadow: inset 0 2px 8px rgba(2,6,23,0.35);
+  min-height: 44px;
+}
+
+/* page background */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(180deg, var(--sa-bg) 0%, var(--sa-bg2) 100%);
+  color: var(--sa-text);
+  font-family: "Roboto", "Helvetica", Arial, sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+
+/* parallax overlay should remain dark but slightly stronger for contrast */
+.top-parallax-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(3,8,20,0.56); /* stronger dim for legibility */
+  z-index: 1;
+}
+
+/* overlay content text */
+.parallax-overlay-inner { z-index:3; }
+.parallax-left, .parallax-cta-title, .parallax-cta-sub {
+  color: var(--sa-text);
+  text-shadow: 0 3px 12px rgba(0,0,0,0.6);
+}
+
+/* Get Started button (keeps accent blue) */
+.parallax-bottomleft .btn-primary {
+  background: linear-gradient(90deg,var(--sa-accent),var(--sa-accent-2));
+  color:#fff;
+  border-radius:8px;
+  padding: 10px 20px;
+  box-shadow: 0 8px 18px rgba(11,132,255,0.14);
+}
+
+/* main container spacing */
+.main-container { padding: 28px 0 28px; }
+
+/* booking card: use dark card surface like takequiz */
+.booking-wrap.elevated {
+  border-radius: 12px;
+  padding: 22px;
+  background: var(--sa-card);
+  border: 1px solid rgba(255,255,255,0.03);
+  box-shadow: 0 12px 30px rgba(2,6,23,0.6);
+  color: var(--sa-text);
+  margin-bottom: 26px;
+}
+
+/* card heading color */
+.card-heading { margin: 6px 0 18px; font-weight:700; color: var(--sa-text); }
+
+/* input placeholders / labels */
+.input-field label { color: var(--sa-muted); }
+.input-field input, .input-field textarea, select {
+  color: var(--sa-text);
+}
+
+/* input underline when focused */
+.input-field input[type="text"]:focus,
+.input-field input[type="number"]:focus,
+.input-field input[type="date"]:focus {
+  border-bottom: 2px solid var(--sa-accent) !important;
+  box-shadow: 0 1px 0 0 var(--sa-accent) !important;
+}
+.input-field input[type="text"]:focus + label,
+.input-field input[type="number"]:focus + label,
+.input-field input[type="date"]:focus + label {
+  color: var(--sa-accent) !important;
+}
+
+/* make native labels more readable */
+.native-label { color: var(--sa-muted) !important; }
+
+/* seats styling stays but text color adjusted for dark bg */
+/* (already adjusted above) */
+.seat { background: #0f2232; color: var(--sa-text); border: 1px solid rgba(255,255,255,0.04); }
+.seat:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(2,6,23,0.6); }
+.seat.disabled { background:#10202b; color:#88929d; border-color: rgba(0,0,0,0.15); }
+
+/* legend text */
+.legend { color: var(--sa-text); opacity: 0.92; }
+
+/* buttons: primary and transparent behaviors */
+.btn-primary, .actions .btn-primary {
+  background: linear-gradient(90deg,var(--sa-accent),var(--sa-accent-2)) !important;
+  color: #fff !important;
+  border-radius: 8px;
+  padding: 10px 20px;
+  box-shadow: 0 8px 18px rgba(11,132,255,0.12);
+}
+
+/* transparent / flat buttons: keep transparent, highlight blue on hover */
+.btn-flat, .btn--ghost, .btn-transparent {
+  background: transparent !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+.btn-flat:hover, .btn--ghost:hover, .btn-transparent:hover {
+  background: linear-gradient(180deg, rgba(25,118,210,0.12), rgba(11,132,255,0.16)) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(11,132,255,0.06);
+}
+
+/* form small notes */
+.grey-text { color: var(--sa-muted) !important; }
+
+/* carousel overlay / destination cards: darken surfaces */
+.destination-card { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); box-shadow: 0 8px 24px rgba(2,6,23,0.6); color: var(--sa-text); }
+.card-reveal-overlay { background: rgba(5,10,20,0.86); color: var(--sa-text); }
+
+/* make chips and summary text readable */
+.chips, .chip, .selection-summary, #summaryText { color: var(--sa-text); }
+
+/* small responsive tweaks for readability */
+@media (max-width: 680px) {
+  .parallax-overlay-inner { padding: 18px; }
+  .top-parallax-bg { height: 320px; }
+  .booking-wrap.elevated { padding: 14px; }
+}
+
+
+  .btn {
+    font-weight: bold;
+    font-size: 20px;
+    color: white;
+    background-color: #2196f3;
+  }
+  .btn:hover {
+    background-color: #4993de;
+  }
+
+  /* Carousel Section */
+  .hero-carousel {
+    position: relative;
+    background: url('assets/island.jpg') center/cover fixed no-repeat;
+    padding: 80px 0;
+  }
+  .hero-carousel .overlay-bg {
+    background: rgba(0, 0, 0, 0.45);
+    padding: 40px 0;
+  }
+
+  /* Destination Cards */
+  .destination-card {
+    position: relative;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    cursor: pointer;
+    transition: transform 0.3s ease;
+    width: 90%;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .destination-card img {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    display: block;
+    border-radius: 15px;
+  }
+
+  .country-label {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 1rem;
+  }
+
+  .card-reveal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(20, 20, 20, 0.85);
+    color: white;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(20px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 15px;
+    text-align: center;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+
+  .card-reveal-overlay.active {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  .reveal-content { max-width: 90%; }
+  .reveal-content .card-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .close-reveal { cursor: pointer; color: #fff; }
+
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .destination-card img { height: 130px; }
+    .country-label { font-size: 0.9rem; }
+  }
+
+  @media (max-width: 480px) {
+    .destination-card img { height: 110px; }
+    .country-label { font-size: 0.8rem; bottom: 6px; left: 6px; }
+  }
+    a #tours{
+    left: 50px; 
+    size: 100px;
+    
+    }
+  .page-footer {
+      margin: 0;      
+      padding-bottom: 0;
+    }
+
+     #urs-logo{
+
+    height: 100px;
+    width: 140px;
+    
+
+  }
+  #sayd{
+    left: -25;
+  }
+  #mat{
+    color: purple;
+  }
+
+  #seatModalDoneBtn{
+      background: linear-gradient(90deg,#0d47a1,#1976d2);
+  color:#fff;
+  border-radius:8px;
+  padding: 10px 20px;
+  box-shadow: 0 8px 18px rgba(13,71,161,0.16);
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  }
+
+  /* =========================
+     NEW: HERO RESPONSIVE
+     ========================= */
+  @media (max-width: 992px) {
+    .parallax-overlay-inner {
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
+      padding: 20px;
+    }
+    .parallax-left {
+      max-width: 100%;
+    }
+  }
+
+  @media (max-width: 600px) {
+    .top-parallax-bg {
+      height: 320px;
+    }
+    .parallax-overlay-inner {
+      align-items: center;
+      text-align: center;
+    }
+    .parallax-left {
+      text-align: center;
+      max-width: 100%;
+    }
+    .parallax-cta-title {
+      font-size: 22px;
+    }
+    .parallax-cta-sub {
+      font-size: 0.95rem;
+    }
+    .parallax-bottomleft {
+      align-self: center;
+      margin-top: 12px;
+    }
+  }
+
+  /* =========================
+     NEW: INPUT BLUE ON FOCUS
+     ========================= */
+
+  .input-field input[type="text"]:focus,
+  .input-field input[type="number"]:focus,
+  .input-field input[type="date"]:focus {
+    border-bottom: 2px solid #1976d2 !important;
+    box-shadow: 0 1px 0 0 #1976d2 !important;
+  }
+
+  .input-field input[type="text"]:focus + label,
+  .input-field input[type="number"]:focus + label,
+  .input-field input[type="date"]:focus + label {
+    color: #1976d2 !important;
+  }
+
+  /* Native selects focus outline slightly blue */
+  .native-select:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* =========================
+     NEW: CHECKBOX BLUE WHEN TICKED
+     (Materialize pattern)
+     ========================= */
+
+  /* normal checkbox tick (outline type) */
+  [type="checkbox"]:checked + span:not(.lever)::before {
+    border-right: 2px solid #1976d2;
+    border-bottom: 2px solid #1976d2;
+  }
+
+  /* filled-in variation if you ever add class="filled-in" */
+  [type="checkbox"].filled-in:checked + span:not(.lever)::after {
+    border: 2px solid #1976d2;
+    background-color: #1976d2;
+  }
+/* Passenger type: auto only, not manually clickable */
+.native-select.auto-passenger {
+  pointer-events: none;      /* cannot open / click */
+  cursor: default;
+}
+/* Hide dropdown arrow for auto passenger select */
+.native-select.auto-passenger {
+  -webkit-appearance: none;  /* Chrome / Safari */
+  -moz-appearance: none;     /* Firefox */
+  appearance: none;          /* Standard */
+  background-image: none !important; /* remove any default bg arrow */
+  padding-right: 8px;        /* optional: adjust padding */
+}
+
+/* Hide arrow in old Edge/IE */
+.native-select.auto-passenger::-ms-expand {
+  display: none;
+}
+
+/* =========================
+   RADIO BUTTON BLUE + LABEL HIGHLIGHT
+   ========================= */
+
+/* Use modern accent-color so native radio dot is blue */
+input[type="radio"] {
+  accent-color: var(--sa-accent);
+  margin-right: 6px;
+}
+
+/* When radio is checked, highlight the adjacent label text */
+.gender-inline label span {
+  color: var(--sa-text);
+  transition: color .12s ease, font-weight .12s ease;
+}
+
+/* This selector targets the DOM structure: <label><input type="radio" /><span>Label</span></label> */
+.gender-inline label input[type="radio"]:checked + span,
+.gender-inline label input[type="radio"]:focus + span {
+  color: var(--sa-accent);
+  font-weight: 700;
+}
+
+/* fallback for older browsers: if accent-color not supported, style appearance for the label when checked */
+.gender-inline label input[type="radio"] {
+  /* keep layout stable */
+}
+
+/* end style block */
+
+
+/* ---------- QUICK PATCH: radios + seat-number background (paste near end of your style block) ---------- */
+
+/* Make sure CSS variables exist (safe fallback) */
+:root { --sa-accent: #1976d2; --sa-surface-2: rgba(255,255,255,0.03); --sa-text: #e6eef8; }
+
+/* --- RADIO (gender) - custom visual that uses the accent blue on checked --- */
+/* HTML structure: <label><input type="radio"><span>Label text</span></label> */
+.gender-inline label { position: relative; display:inline-flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+.gender-inline input[type="radio"] {
+  /* keep the input accessible but hide native circle */
+  position: absolute;
+  opacity: 0;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+/* draw a custom circle before the span text */
+.gender-inline input[type="radio"] + span {
+  position: relative;
+  padding-left: 26px; /* space for the custom circle */
+  color: var(--sa-text);
+  font-weight: 700;
+  display: inline-block;
+}
+
+/* the circle */
+.gender-inline input[type="radio"] + span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.32);
+  background: transparent;
+  box-sizing: border-box;
+  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+
+/* checked state: fill with accent blue */
+.gender-inline input[type="radio"]:checked + span::before {
+  background: var(--sa-accent);
+  border-color: var(--sa-accent);
+  box-shadow: 0 6px 14px rgba(25,118,210,0.18);
+}
+
+/* focus ring for keyboard users */
+.gender-inline input[type="radio"]:focus + span::before {
+  outline: 3px solid rgba(11,132,255,0.12);
+  outline-offset: 2px;
+}
+
+/* If other styles are aggressively overriding labels, increase specificity */
+label.gender-inline input[type="radio"] + span::before { /* no-op but higher specificity */ }
+
+/* --- Force seat-number input to dark panel --- */
+/* increase specificity and use !important to override Materialize */
+.input-field input#seat_number,
+.input-field input#seat_number[readonly] {
+  background: var(--sa-surface-2) !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  box-shadow: inset 0 2px 8px rgba(2,6,23,0.32) !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+}
+
+/* the pick button next to the input */
+#pickSeatBtn { border: 1px solid rgba(255,255,255,0.04) !important; background: transparent !important; color: var(--sa-text) !important; }
+
+/* --- make sure seat visuals are not overridden elsewhere --- */
+.seat {
+  background: var(--sa-surface-2) !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  box-shadow: 0 10px 26px rgba(2,6,23,0.28) !important;
+}
+
+/* selected seat */
+.seat.selected {
+  background: var(--sa-accent) !important;
+  color: #fff !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  box-shadow: 0 12px 34px rgba(11,132,255,0.28) !important;
+}
+
+/* disabled seat */
+.seat.disabled {
+  background: rgba(255,255,255,0.02) !important;
+  color: rgba(255,255,255,0.36) !important;
+  border: 1px solid rgba(255,255,255,0.02) !important;
+  box-shadow: none !important;
+}
+
+/* ===== FINAL OVERRIDE: radios + seat-number + seats =====
+   Paste this at the VERY END of your <style> block (after all other rules)
+   then hard-refresh the page (Ctrl+F5 / Cmd+Shift+R) */
+
+:root {
+  --sa-accent: #1976d2 !important;   /* your blue */
+  --sa-text: #e6eef8 !important;
+  --sa-surface-2: rgba(255,255,255,0.03) !important;
+}
+
+/* 1) Force native/nonnative radio accent to blue where supported */
+input[type="radio"] {
+  -webkit-appearance: radio !important;
+  appearance: radio !important;
+  accent-color: var(--sa-accent) !important;    /* modern browsers */
+}
+
+/* 2) Fallback custom radio visuals for browsers that ignore accent-color.
+   This targets structure: <label><input type="radio" /><span>Label</span></label> */
+.gender-inline label { position: relative; display:inline-flex; align-items:center; gap:8px; cursor:pointer; }
+.gender-inline label input[type="radio"] {
+  /* keep input accessible but visually hidden so we can draw custom circle */
+  position: absolute !important;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 0;
+  z-index: 2;
+}
+
+/* create the circle using the adjacent span */
+.gender-inline label span {
+  display: inline-block;
+  padding-left: 28px; /* room for circle */
+  color: var(--sa-text);
+  font-weight: 700;
+  position: relative;
+}
+
+/* outer circle */
+.gender-inline label span::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.28);
+  background: transparent;
+  transition: all .12s ease;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+/* inner dot when checked */
+.gender-inline label input[type="radio"]:checked + span::before {
+  background: var(--sa-accent) !important;
+  border-color: var(--sa-accent) !important;
+  box-shadow: 0 6px 14px rgba(25,118,210,0.18);
+}
+
+/* label color highlight when checked/focus */
+.gender-inline label input[type="radio"]:checked + span,
+.gender-inline label input[type="radio"]:focus + span {
+  color: var(--sa-accent) !important;
+  font-weight: 700;
+}
+
+/* 3) Force the seat_number input background (override Materialize) */
+#seat_number,
+.input-field input#seat_number,
+.input-field input#seat_number[readonly] {
+  background: var(--sa-surface-2) !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+  box-shadow: inset 0 2px 8px rgba(2,6,23,0.32) !important;
+  padding: 10px 12px !important;
+  border-radius: 8px !important;
+  width: auto !important;
+}
+
+/* ensure the pick button looks consistent beside it */
+#pickSeatBtn {
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  background: transparent !important;
+  color: var(--sa-text) !important;
+  padding: 8px 10px !important;
+  border-radius: 8px !important;
+}
+
+/* 4) Strong seat visuals so they show on top of other CSS */
+.seat {
+  background: var(--sa-surface-2) !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+  box-shadow: 0 10px 26px rgba(2,6,23,0.28) !important;
+}
+
+/* selected seat */
+.seat.selected {
+  background: linear-gradient(90deg, var(--sa-accent), #0b84ff) !important;
+  color: #fff !important;
+  border-color: rgba(0,0,0,0.12) !important;
+  box-shadow: 0 12px 34px rgba(11,132,255,0.28) !important;
+  transform: translateY(-6px) !important;
+}
+
+/* disabled seat */
+.seat.disabled {
+  background: rgba(255,255,255,0.02) !important;
+  color: rgba(255,255,255,0.36) !important;
+  border: 1px solid rgba(255,255,255,0.02) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+/* 5) Extra specificity in case Materialize injects inline styles later */
+.modal .seat,
+.modal .seat.selected,
+.modal input#seat_number {
+  /* repeat important overrides inside modal scope */
+  background: var(--sa-surface-2) !important;
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(255,255,255,0.04) !important;
+}
+/* ================================
+   MATCH SEAT PICKER MODAL TO DARK NAVY THEME
+   ================================= */
+
+/* Modal background */
+#seatPickerModal,
+#seatPickerModal .modal-content {
+  background: linear-gradient(180deg, #071428, #071826) !important;
+  color: var(--sa-text) !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.05) !important;
+  box-shadow: 0 12px 30px rgba(2,6,23,0.6) !important;
+}
+
+/* Modal footer */
+#seatPickerModal .modal-footer {
+  background: rgba(255,255,255,0.02) !important;
+  border-top: 1px solid rgba(255,255,255,0.05) !important;
+}
+
+/* Make the H5 title white */
+#seatPickerModal h5 {
+  color: var(--sa-text) !important;
+  font-weight: 700;
+}
+
+/* The seat map container */
+#seatMap,
+#cabinContainer,
+.selection-summary,
+.legend {
+  background: transparent !important;
+  color: var(--sa-text) !important;
+}
+
+/* Row label color */
+.row-label {
+  color: var(--sa-accent) !important;
+}
+
+/* Modal overlay darker like takequiz */
+.modal-overlay {
+  background: rgba(0,0,0,0.65) !important;
+}
+
+/* Improve "Done" and "Clear" buttons */
+#seatModalDoneBtn {
+  background: linear-gradient(90deg,#1976d2,#0b84ff) !important;
+  color: #fff !important;
+  border-radius: 8px !important;
+}
+
+#clearSeatSelectionBtn {
+  color: var(--sa-text) !important;
+}
 
 </style>
 
@@ -356,14 +1132,48 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   setTimeout(fixFloatingLabels, 120);
 
-  // Age -> passenger_type auto
-  (function(){
-    var ageEl = document.getElementById('age');
-    var passengerSelect = document.getElementById('passenger_type');
-    function computeType(ageNum){ if (ageNum < 2) return 'Infant'; if (ageNum <= 11) return 'Child'; return 'Adult'; }
-    function handleAge(){ if (!ageEl || !passengerSelect) return; var v = ageEl.value===''?NaN:Number(ageEl.value); if(!isNaN(v)) { passengerSelect.value = computeType(v); fixFloatingLabels(); passengerSelect.dispatchEvent(new Event('change',{bubbles:true})); } }
-    if (ageEl) { ageEl.addEventListener('input', function(){ clearTimeout(ageEl._t); ageEl._t = setTimeout(handleAge,140); }); handleAge(); }
-  })();
+// Age -> passenger_type auto (Infant, Child, Adult, Elderly)
+(function(){
+  var ageEl = document.getElementById('age');
+  var passengerSelect = document.getElementById('passenger_type');
+
+  // 0–1: Infant, 2–11: Child, 12–58: Adult, 59+: Elderly
+  function computeType(ageNum) {
+    if (ageNum < 2)  return 'Infant';
+    if (ageNum <= 11) return 'Child';
+    if (ageNum <= 58) return 'Adult';
+    return 'Elderly';          // must match <option value="Elderly">
+  }
+
+  function handleAge() {
+    if (!ageEl || !passengerSelect) return;
+    var v = ageEl.value === '' ? NaN : Number(ageEl.value);
+
+    if (!isNaN(v)) {
+      passengerSelect.value = computeType(v);
+    } else {
+      // if age is cleared, reset passenger type
+      passengerSelect.value = '';
+    }
+
+    // refresh labels
+    if (typeof fixFloatingLabels === 'function') {
+      fixFloatingLabels();
+    }
+    passengerSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  if (ageEl) {
+    ageEl.addEventListener('input', function () {
+      clearTimeout(ageEl._t);
+      ageEl._t = setTimeout(handleAge, 140);
+    });
+    // run once on load (in case there is an existing age)
+    handleAge();
+  }
+})();
+
+
 
   // Disability toggle
   (function(){
@@ -444,20 +1254,6 @@ document.addEventListener('DOMContentLoaded', function () {
       // include global taken example
       takenSeats.forEach(s => set.add(s));
       return set;
-    }
-
-    function markTakenSeatsDisabled() {
-      const taken = getTakenSeatsExcludingCurrent();
-      document.querySelectorAll('.seat').forEach(seatEl => {
-        const id = seatEl.getAttribute('data-seat');
-        if (taken.has(id)) {
-          seatEl.classList.add('disabled');
-          seatEl.setAttribute('aria-disabled','true');
-        } else {
-          seatEl.classList.remove('disabled');
-          seatEl.removeAttribute('aria-disabled');
-        }
-      });
     }
 
     function onSeatClick(ev, seatBtn) {
@@ -625,4 +1421,3 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 </body>
 </html>
-
