@@ -1,5 +1,5 @@
 <?php
-// admin_quiz_maker.php (cleaned, now supports EDIT mode)
+// quizmaker.php (cleaned, now supports EDIT mode)
 include('templates/header_admin.php');
 
 // ---------------- AIRPORTS FOR AUTOCOMPLETE ----------------
