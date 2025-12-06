@@ -1099,6 +1099,71 @@ input[type="radio"] {
 #clearSeatSelectionBtn {
   color: var(--sa-text) !important;
 }
+/* Seat type dropdown matches dark navy + blue accent */
+#seat_type {
+  background: var(--sa-surface-2) !important; /* same panel as other fields */
+  color: var(--sa-text) !important;
+  border: 1px solid rgba(25,118,210,0.55) !important; /* blue border */
+  box-shadow: inset 0 2px 8px rgba(2,6,23,0.45) !important;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Focus outline in blue */
+#seat_type:focus {
+  outline: 2px solid var(--sa-accent);
+  outline-offset: 2px;
+}
+
+/* The options inside the opened dropdown */
+#seat_type option {
+  background: #071428;            /* deep navy like page */
+  color: var(--sa-text);
+}
+
+/* Selected option highlight */
+#seat_type option:checked,
+#seat_type option:focus {
+  background: var(--sa-accent);
+  color: #ffffff;
+}
+/* Remove Materialize teal highlight from seat dropdown */
+.input-field select:focus,
+select.native-select:focus,
+#seat_type:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  border-color: var(--sa-accent) !important; /* keep your blue border */
+}
+/* REMOVE MATERIALIZE TEAL RADIO HIGHLIGHT */
+[type="radio"]:focus + span::after,
+[type="radio"]:checked + span::after,
+[type="radio"] + span::before {
+  box-shadow: none !important;
+  border-color: var(--sa-accent) !important; /* force blue border */
+}
+
+/* Force checked color to blue */
+[type="radio"]:checked + span::before {
+  border-color: var(--sa-accent) !important;
+}
+
+/* Inner dot (if visible) */
+[type="radio"]:checked + span::after {
+  background-color: var(--sa-accent) !important;
+}
+
+/* Kill any focus glow */
+[type="radio"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 
 </style>
 
