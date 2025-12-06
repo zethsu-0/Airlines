@@ -79,6 +79,25 @@ if ($quiz_id > 0) {
 }
 
 /* -------------------------
+   Get flight_number from quiz_items
+--------------------------*/
+$flight_number = '';
+
+if ($quiz_id > 0) {
+    $qs2 = $mysqli->prepare("SELECT flight_number FROM quiz_items WHERE quiz_id = ? LIMIT 1");
+    if ($qs2) {
+        $qs2->bind_param("i", $quiz_id);
+        $qs2->execute();
+        $r2 = $qs2->get_result();
+        if ($row2 = $r2->fetch_assoc()) {
+            $flight_number = trim($row2['flight_number'] ?? '');
+        }
+        $qs2->close();
+    }
+}
+
+
+/* -------------------------
    Flight fields (from hidden inputs in bookingForm)
 --------------------------*/
 $origin      = strtoupper(clean($_POST['origin'] ?? ''));
@@ -320,23 +339,23 @@ try {
     if ($useLegsColumn && $submitted_has_public) {
         $sql = "INSERT INTO submitted_flights
             (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, seat_number, travel_class, legs_json, public_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+             origin, destination, departure, return_date, flight_number, seat_number, travel_class, legs_json, public_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     } elseif ($useLegsColumn && !$submitted_has_public) {
         $sql = "INSERT INTO submitted_flights
             (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, seat_number, travel_class, legs_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+             origin, destination, departure, return_date, flight_number, seat_number, travel_class, legs_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     } elseif (!$useLegsColumn && $submitted_has_public) {
         $sql = "INSERT INTO submitted_flights
             (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, seat_number, travel_class, public_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+             origin, destination, departure, return_date, flight_number, seat_number, travel_class, public_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     } else {
         $sql = "INSERT INTO submitted_flights
             (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, seat_number, travel_class)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+             origin, destination, departure, return_date, flight_number, seat_number, travel_class)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     }
 
     // If public_id will be inserted, we must handle rare collisions by retrying
@@ -367,7 +386,7 @@ try {
         // Bind parameters according to selected SQL
         if ($useLegsColumn && $submitted_has_public) {
             // 14 params: i, s, i, i, i, s, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 9); // "isiiissssssss"
+            $types = "isiii" . str_repeat('s', 10); // added 1 more 's' for flight_number
             $bindVars = [
                 $quiz_id,
                 $acc_id,
@@ -379,6 +398,7 @@ try {
                 $destination,
                 $departure,
                 $return_date,
+                $flight_number,       // <-- added
                 $seat_number,
                 $travel_class,
                 $legs_json_to_store,
@@ -386,7 +406,7 @@ try {
             ];
         } elseif ($useLegsColumn && !$submitted_has_public) {
             // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 8); // "isiiisssssss"
+            $types = "isiii" . str_repeat('s', 9); // added 1 more 's' for flight_number
             $bindVars = [
                 $quiz_id,
                 $acc_id,
@@ -398,13 +418,14 @@ try {
                 $destination,
                 $departure,
                 $return_date,
+                $flight_number,       // <-- added
                 $seat_number,
                 $travel_class,
                 $legs_json_to_store
             ];
         } elseif (!$useLegsColumn && $submitted_has_public) {
             // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 8); // "isiiisssssss"
+            $types = "isiii" . str_repeat('s', 9); // added 1 more 's' for flight_number
             $bindVars = [
                 $quiz_id,
                 $acc_id,
@@ -416,13 +437,14 @@ try {
                 $destination,
                 $departure,
                 $return_date,
+                $flight_number,       // <-- added
                 $seat_number,
                 $travel_class,
                 $final_public_id
             ];
         } else {
             // 12 params: i, s, i, i, i, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 7); // "isiiissssss"
+            $types = "isiii" . str_repeat('s', 8); // added 1 more 's' for flight_number
             $bindVars = [
                 $quiz_id,
                 $acc_id,
@@ -434,6 +456,7 @@ try {
                 $destination,
                 $departure,
                 $return_date,
+                $flight_number,       // <-- added
                 $seat_number,
                 $travel_class
             ];

@@ -7,6 +7,11 @@
 include('templates/header.php');
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
+// Ensure CSRF token exists (needed by generate_ticket.php)
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
+}
+
 // --- GLOBAL escape helper (available everywhere in this file) ---
 if (!function_exists('h')) {
     function h($s) {
@@ -24,15 +29,9 @@ function is_logged_in() {
 }
 
 // If not logged in — show login prompt and stop further processing.
-// If not logged in — render the same dark theme layout but show a login prompt and open the modal
 if (!is_logged_in()) {
-    // NOTE: removed duplicate h() here to avoid redeclaration issues
-
-    // We'll render the same container / card layout as the logged-in view,
-    // but with a prompt and "Open Login" button that triggers #loginModal.
     ?>
     <style>
-      /* Minimal subset of the dark theme used on the logged-in page so the unauth view matches exactly */
       :root{
         --bg-900:#071428; --bg-800:#071b2a; --panel: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
         --muted:#98a0b3; --accent-1:#1976d2; --accent-2:#0b84ff; --text:#e6eef8; --card-border:rgba(255,255,255,0.03);
@@ -49,7 +48,6 @@ if (!is_logged_in()) {
       .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; text-transform:none; border:none; }
       .btn--primary{ background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); color:#fff; box-shadow:0 10px 28px rgba(11,132,255,0.10); }
       .btn--ghost{ background:transparent; color:var(--text); border:1px solid rgba(255,255,255,0.06); }
-      /* ensure modal sits on top */
       .modal { z-index: 9999 !important; }
       .modal-overlay { z-index: 9998 !important; background: rgba(0,0,0,0.6) !important; }
       #loginModal .modal-content { background: linear-gradient(90deg,var(--accent-1),var(--accent-2)); color:#fff; border-radius:8px; }
@@ -73,7 +71,6 @@ if (!is_logged_in()) {
       </div>
 
       <div class="sa-grid">
-        <!-- LEFT: big card with the login prompt -->
         <div>
           <div class="sa-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -98,7 +95,6 @@ if (!is_logged_in()) {
           </div>
         </div>
 
-        <!-- RIGHT: sidebar with overview / quick actions but disabled-looking -->
         <aside>
           <div class="sa-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -127,17 +123,14 @@ if (!is_logged_in()) {
             </div>
 
             <div style="margin-top:12px; display:flex;flex-direction:column;gap:8px;">
-              <a class="btn btn--ghost" href="submissions.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">list</i> View All Quizzes</a>
               <a class="btn btn--ghost" href="students_edit.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">person</i> My Student Profile</a>
               <a class="btn btn--ghost" href="logout.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">logout</i> Logout</a>
             </div>
           </div>
-
         </aside>
       </div>
     </div>
 
-    <!-- Make sure the modal exists in header.php; we only init + open it here -->
     <script>
     document.addEventListener("DOMContentLoaded", function(){
       try {
@@ -145,22 +138,18 @@ if (!is_logged_in()) {
           var elems = document.querySelectorAll('.modal');
           M.Modal.init(elems, { dismissible: false, opacity: 0.65, inDuration: 180, outDuration: 120 });
 
-          // Ensure the login modal opens when clicking our buttons
           var loginEl = document.getElementById('loginModal');
           if (loginEl) {
             var inst = M.Modal.getInstance(loginEl) || M.Modal.init(loginEl, { dismissible:false, opacity:0.65 });
-            // Auto-open when the page loads so the user sees the login box at once
             try { inst.open(); } catch(e) {}
           }
 
-          // wire the Open Login / Start New Quiz buttons
           var openBtn = document.getElementById('openLoginBtn');
           if (openBtn) openBtn.addEventListener('click', function(){ try { inst.open(); } catch(e){} });
 
           var startBtn = document.getElementById('startQuizBtn');
           if (startBtn) startBtn.addEventListener('click', function(){ try { inst.open(); } catch(e){} });
         } else {
-          // jQuery/materialize fallback
           try {
             $('.modal').modal({ dismissible:false, opacity:0.65 });
             $('#loginModal').modal('open');
@@ -173,7 +162,6 @@ if (!is_logged_in()) {
     </script>
 
     <?php
-    // include footer so scripts (materialize, etc) remain loaded and then exit
     include('templates/footer.php');
     exit;
 }
@@ -182,7 +170,7 @@ if (!is_logged_in()) {
 // User is logged in: detect which session key holds the account ID (VARCHAR)
 // ---------------------------------------------
 
-$currentAccId   = null;   // string ID that should match submitted_flights.acc_id
+$currentAccId   = null;
 $currentAccKey  = null;
 
 $sessionCandidates = [
@@ -192,7 +180,6 @@ $sessionCandidates = [
     'user.id'    => $_SESSION['user']['id']     ?? null,
 ];
 
-// pick the FIRST non-empty value (don't cast to int; acc_id is VARCHAR)
 foreach ($sessionCandidates as $key => $val) {
     if ($val !== null && $val !== '') {
         $currentAccId  = (string)$val;
@@ -201,7 +188,6 @@ foreach ($sessionCandidates as $key => $val) {
     }
 }
 
-// debug: show all candidate values so you can see what's actually set
 echo "<!-- DEBUG session IDs: ";
 foreach ($sessionCandidates as $k => $v) {
     echo $k . '=' . htmlspecialchars((string)$v) . ' ';
@@ -221,7 +207,7 @@ if ($conn->connect_error) {
 $conn->set_charset('utf8mb4');
 
 // ---------------------------------------------
-// Build main query – submitted_flights has quiz_id + acc_id (both VARCHAR-compatible)
+// Build main query
 // ---------------------------------------------
 $quizzes = [];
 
@@ -254,7 +240,6 @@ if ($currentAccId !== null && $currentAccId !== '') {
     if (!$stmt) {
         die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
     }
-    // acc_id is VARCHAR → bind as string
     $stmt->bind_param('s', $currentAccId);
     $stmt->execute();
     $res = $stmt->get_result();
@@ -263,7 +248,6 @@ if ($currentAccId !== null && $currentAccId !== '') {
     }
     $stmt->close();
 
-    // extra debug: which quiz_ids this ID has actually submitted
     $dbg = $conn->prepare("SELECT DISTINCT quiz_id FROM submitted_flights WHERE acc_id = ?");
     if ($dbg) {
         $dbg->bind_param('s', $currentAccId);
@@ -278,7 +262,6 @@ if ($currentAccId !== null && $currentAccId !== '') {
     }
 
 } else {
-    // No usable ID found in session: still show quizzes but all as not submitted
     $sql = "
       SELECT
         q.id AS quiz_id,
@@ -304,6 +287,7 @@ if ($currentAccId !== null && $currentAccId !== '') {
     }
     $res->free();
 }
+
 // ---------------------------------------------
 // Load submitted_flights per quiz for this student
 // ---------------------------------------------
@@ -316,7 +300,6 @@ if ($currentAccId !== null && $currentAccId !== '') {
         $subStmt->execute();
         $subRes = $subStmt->get_result();
         while ($row = $subRes->fetch_assoc()) {
-            // Make sure quiz_id is treated as string (consistent with $q['quiz_id'])
             $qid = (string)$row['quiz_id'];
             if (!isset($submissionsByQuiz[$qid])) {
                 $submissionsByQuiz[$qid] = [];
@@ -336,23 +319,16 @@ foreach ($quizzes as $q) {
     }
 }
 $notSubmitted = $total - $submittedCount;
-
-// Helper
 ?>
 
-<!-- Scoped styles to integrate with templates/header.php -->
 <style>
-/* Scoped super-admin styles (minimal, safe to inject inside existing page) */
-/* Prevent collisions by prefixing with .sa- */
-
-/* SUPER ADMIN THEME BACKGROUND + TEXT COLORS */
 :root{
-  --sa-bg: #071428;         /* Deep navy background */
-  --sa-bg2: #071826;        /* Slight gradient */
-  --sa-text: #e6eef8;       /* Light text */
-  --sa-muted: #98a0b3;      /* Muted text */
-  --sa-accent: #1976d2;     /* Blue primary */
-  --sa-accent-2: #0b84ff;   /* Lighter blue */
+  --sa-bg: #071428;
+  --sa-bg2: #071826;
+  --sa-text: #e6eef8;
+  --sa-muted: #98a0b3;
+  --sa-accent: #1976d2;
+  --sa-accent-2: #0b84ff;
 }
 
 body {
@@ -362,14 +338,12 @@ body {
   min-height: 100vh;
 }
 
-/* Container pushes content away from header */
 .sa-container {
   max-width: 1200px;
   margin: 32px auto;
   padding: 0 18px;
 }
 
-/* Card backgrounds */
 .sa-card {
   background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
   border-radius: 14px;
@@ -379,10 +353,6 @@ body {
   color: var(--sa-text);
 }
 
-
-
-
-/* Header area inside content (not site header) */
 .sa-top {
   display:flex;
   justify-content:space-between;
@@ -391,11 +361,9 @@ body {
   margin-bottom:12px;
 }
 
-/* Grid layout */
 .sa-grid { display:grid; grid-template-columns: 1fr 320px; gap:18px; align-items:start; }
 @media (max-width:980px) { .sa-grid { grid-template-columns: 1fr; } }
 
-/* Quiz list rows */
 .quiz-list { display:flex; flex-direction:column; gap:12px; margin-top:12px; }
 .quiz-row {
   display:flex;
@@ -420,17 +388,15 @@ body {
 .quiz-title { font-weight:700; font-size:15px; color:#fff; }
 .quiz-meta { color:#98a0b3; font-size:13px; margin-top:6px; }
 
-/* Actions column: ensure vertically-centered buttons and labels */
 .quiz-actions {
   min-width:200px;
   display:flex;
   flex-direction:column;
-  justify-content:center; /* vertically center content so "Not submitted" and button align */
+  justify-content:center;
   align-items:flex-end;
   gap:8px;
 }
 
-/* Button styles: keep consistent with site but ensure alignment */
 .btn {
   display:inline-flex;
   align-items:center;
@@ -443,21 +409,18 @@ body {
   cursor:pointer;
 }
 
-/* primary colored button */
 .btn--primary {
   background: linear-gradient(180deg,#1976d2,#0b84ff);
   color:white;
   border:none;
 }
 
-/* ghost button to match header theme */
 .btn--ghost {
   background:transparent;
   color:#e6eef8;
   border:1px solid rgba(255,255,255,0.06);
 }
 
-/* small "view" control */
 .view-submissions-btn {
   background:transparent;
   color:#0b84ff;
@@ -468,13 +431,10 @@ body {
   font-weight:700;
 }
 
-/* small note text */
 .small-note { color:#98a0b3; font-size:13px; }
 
-/* Ensure modal content inherits dark background if your modal container is light */
 .modal .modal-content { color: #e6eef8; background: transparent; }
 
-/* Transparent default buttons */
 .btn--ghost,
 .btn-flat,
 .btn-transparent {
@@ -485,7 +445,6 @@ body {
   box-shadow: none !important;
 }
 
-/* Hover = BLUE highlight */
 .btn--ghost:hover,
 .btn-flat:hover,
 .btn-transparent:hover {
@@ -494,7 +453,6 @@ body {
   border-color: transparent !important;
 }
 
-/* Focus / Active = same blue */
 .btn--ghost:focus,
 .btn--ghost:active,
 .btn-flat:focus,
@@ -505,13 +463,35 @@ body {
   color: #fff !important;
 }
 
-/* Remove teal waves + replace with blue */
 .waves-effect .waves-ripple {
   background: rgba(11, 132, 255, 0.35) !important;
 }
+.modal.modal-fixed-footer .modal-content{
+  height: 100% !important;
+}
+.tall-modal {
+  max-height: 100% !important;
+  height: 85% !important;
+  top: 2% !important;
+}
 
-
-
+.tall-modal .modal-content {
+  overflow: hidden;
+}
+.modalTicket{
+  width: 80% !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+.modal-content{
+  overflow: hidden !important;
+}
+.modalTicket, .modal-footer{
+  background-color: transparent !important;
+}
+.modal .modal-footer .btn-flat{
+  margin-right: 20px;
+}
 </style>
 
 <div class="sa-container">
@@ -552,7 +532,7 @@ body {
                 $numQuestions    = isset($q['num_questions']) ? (int)$q['num_questions'] : 0;
                 $duration        = isset($q['duration']) ? (int)$q['duration'] : 0;
                 $numItems        = isset($q['num_items']) ? (int)$q['num_items'] : 0;
-                  $quizPublicId = !empty($q['public_id']) ? $q['public_id'] : $q['quiz_id'];
+                $quizPublicId    = !empty($q['public_id']) ? $q['public_id'] : $q['quiz_id'];
             ?>
             <div class="quiz-row">
               <div class="quiz-code">
@@ -575,26 +555,31 @@ body {
                   <?php else: ?>
                     <div class="small-note">&nbsp;</div>
                   <?php endif; ?>
-                    <?php
-                        $quizIdStr = (string)$q['quiz_id'];
-                        $flightsForQuiz = $submissionsByQuiz[$quizIdStr] ?? [];
-                        $dataFlightsAttr = htmlspecialchars(json_encode($flightsForQuiz), ENT_QUOTES, 'UTF-8');
-                    ?>
+
+                  <?php
+                    $quizIdStr      = (string)$q['quiz_id'];
+                    $flightsForQuiz = $submissionsByQuiz[$quizIdStr] ?? [];
+                    $firstFlight    = $flightsForQuiz[0] ?? null;
+                  ?>
+
                   <div style="margin-top:8px">
-                    <button
-                      type="button"
-                      class="view-submissions-btn"
-                      data-quiz-id="<?php echo h($q['quiz_id']); ?>"
-                      data-flights="<?php echo $dataFlightsAttr; ?>"
-                    >
-                      View submission
-                    </button>
+                    <?php if ($firstFlight): ?>
+                      <button
+                        type="button"
+                        class="view-submissions-btn view-ticket-btn"
+                        data-url="submitted_ticket.php?id=<?php echo (int)$firstFlight['id']; ?>"
+                      >
+                        View ticket
+                      </button>
+                    <?php else: ?>
+                      <div class="small-note">No submission data available.</div>
+                    <?php endif; ?>
                   </div>
                 <?php else: ?>
                   <div style="color:#ff8a80; font-weight:700">Not submitted</div>
                   <div class="small-note">&nbsp;</div>
                   <div style="margin-top:8px">
-                    <a class="btn btn--primary" href="ticket.php?id=<?php echo urlencode($q['public_id']); ?>">Take Quiz</a>
+                    <a class="btn btn--primary" href="ticket.php?id=<?php echo urlencode($quizPublicId); ?>">Take Quiz</a>
                   </div>
                 <?php endif; ?>
               </div>
@@ -633,96 +618,67 @@ body {
         </div>
 
         <div style="margin-top:12px; display:flex;flex-direction:column;gap:8px;">
-          <a class="btn btn--ghost" href="submissions.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">list</i> View All Quizzes</a>
           <a class="btn btn--ghost" href="students_edit.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">person</i> My Student Profile</a>
           <a class="btn btn--ghost" href="logout.php"><i class="material-icons" style="vertical-align:middle;margin-right:8px">logout</i> Logout</a>
         </div>
       </div>
-
     </aside>
   </div>
 </div>
-
-<!-- Modal for submitted flights -->
-<div id="submissionsModal" class="modal">
-  <div class="modal-content">
-    <h4>Submitted Details</h4>
-    <div id="submissionsContent">
-      <!-- JS will populate this -->
+    <!-- Ticket modal -->
+    <div id="ticketModal" class="modalTicket modal modal-fixed-footer tall-modal">
+      <div class="modal-content" style="padding:0;">
+        <!-- Simple responsive iframe wrapper -->
+        <div style="position:relative;padding-top:90%;height: 80% !important; overflow:hidden;">
+          <iframe
+            id="ticketFrame"
+            src=""
+            frameborder="0"
+            style="position:absolute;top:0;left:0;width:100%;height:80%;border:0;"
+          ></iframe>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <a href="#!" class="modal-close btn-flat">Close</a>
+      </div>
     </div>
-  </div>
-  <div class="modal-footer">
-    <a href="#!" class="modal-close btn-flat">Close</a>
-  </div>
-</div>
-
-<!-- Initialize modal and handle "View submission" -->
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-  if (typeof M !== 'undefined' && M.Modal) {
-    var elems = document.querySelectorAll('.modal');
-    M.Modal.init(elems);
-  }
-
-  var submissionsModal = document.getElementById('submissionsModal');
-  var submissionsContent = document.getElementById('submissionsContent');
-
-  document.querySelectorAll('.view-submissions-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var flightsJson = btn.getAttribute('data-flights') || '[]';
-      var flights = [];
-      try {
-        flights = JSON.parse(flightsJson);
-      } catch (e) {
-        console.error('Invalid flights JSON', e);
-      }
-
-      if (!flights || !flights.length) {
-        submissionsContent.innerHTML = '<p class="small-note">No submission details found for this quiz.</p>';
-      } else {
-        var keys = Object.keys(flights[0] || {});
-        var hiddenCols = ['id', 'acc_id', 'quiz_id'];
-        var visibleKeys = keys.filter(function(k) { return hiddenCols.indexOf(k) === -1; });
-
-        var html = '<table class="striped responsive-table" style="color:#e6eef8">';
-        html += '<thead><tr>';
-        visibleKeys.forEach(function(k) { html += '<th>' + k.replace(/_/g, ' ').toUpperCase() + '</th>'; });
-        html += '</tr></thead><tbody>';
-
-        flights.forEach(function(row) {
-          html += '<tr>';
-          visibleKeys.forEach(function(k) {
-            var val = (row[k] === null || row[k] === undefined) ? '' : String(row[k]);
-            html += '<td>' + escapeHtml(val) + '</td>';
-          });
-          html += '</tr>';
-        });
-
-        html += '</tbody></table>';
-        submissionsContent.innerHTML = html;
-      }
-
-      if (typeof M !== 'undefined' && M.Modal) {
-        var instance = M.Modal.getInstance(submissionsModal);
-        if (instance) instance.open();
-      }
-    });
-  });
-
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
-});
-</script>
-
 <?php
-// close DB connection
 $conn->close();
 include('templates/footer.php');
 ?>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Init Materialize modals
+  if (typeof M !== 'undefined' && M.Modal) {
+    var elems = document.querySelectorAll('.modal');
+    M.Modal.init(elems, { dismissible: true, opacity: 0.7 });
+  } else if (window.jQuery && typeof jQuery.fn.modal === 'function') {
+    // jQuery fallback if needed
+    jQuery('.modal').modal({ dismissible: true, opacity: 0.7 });
+  }
+
+  var ticketModal = document.getElementById('ticketModal');
+  var ticketFrame = document.getElementById('ticketFrame');
+
+  // Attach click handlers to all "View ticket" buttons
+  document.querySelectorAll('.view-ticket-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      var url = this.getAttribute('data-url');
+      if (!url) return;
+
+      // Load the ticket page into iframe
+      ticketFrame.src = url;
+
+      // Open the modal
+      if (typeof M !== 'undefined' && M.Modal) {
+        var inst = M.Modal.getInstance(ticketModal) || M.Modal.init(ticketModal, { dismissible: true, opacity: 0.7 });
+        inst.open();
+      } else if (window.jQuery && typeof jQuery.fn.modal === 'function') {
+        jQuery('#ticketModal').modal('open');
+      }
+    });
+  });
+});
+</script>

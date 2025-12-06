@@ -449,9 +449,6 @@ if (isset($_GET['id']) && $_GET['id'] !== '') {
 <div id="seatPickerModal" class="modal modal-fixed-footer">
   <div class="modal-content">
     <h5>Seat Picker</h5>
-    <p class="grey-text text-darken-1" style="margin-top:-4px;">
-      First: rows 1–6 (1–2–1), Business: 7–20 (1–2–1), Premium: 25–27 (2–4–2), Economy: 30–40 (3–4–3)
-    </p>
 
     <!-- Cabin headers injected here -->
     <div id="cabinContainer"></div>
@@ -651,8 +648,7 @@ function generateMultiCabinLayout() {
 
   CABINS.forEach(cabin => {
     const rowsText = cabin.startRow + '–' + cabin.endRow;
-    const headerEl = createCabinHeader(cabin.name, rowsText, cabin.className, cabin.key);
-    cabinContainerEl.appendChild(headerEl);
+
 
     for (let r = cabin.startRow; r <= cabin.endRow; r++) {
       const rowEl = document.createElement('div');
@@ -731,7 +727,7 @@ function onSeatClick(ev, seatBtn) {
 
         // ENFORCE LIMIT: before selecting new seats
         const alreadySelected = s.classList.contains('selected');
-        if (!alreadySelected && selectedSeats.size >= maxSeatsForCurrentItem) {
+        if (!alreadySelected && selectedSeats.size === maxSeatsForCurrentItem) {
           if (typeof M !== 'undefined' && M.toast) {
             M.toast({html:`You can only select ${maxSeatsForCurrentItem} seats for this booking.`});
           }
@@ -744,7 +740,7 @@ function onSeatClick(ev, seatBtn) {
   } else {
     // ENFORCE LIMIT: this single seat click
     const isSelected = seatBtn.classList.contains('selected');
-    if (!isSelected && selectedSeats.size >= maxSeatsForCurrentItem) {
+    if (!isSelected && selectedSeats.size === maxSeatsForCurrentItem) {
       if (typeof M !== 'undefined' && M.toast) {
         M.toast({html:`You can only select ${maxSeatsForCurrentItem} seats for this booking.`});
       }
@@ -758,7 +754,7 @@ function onSeatClick(ev, seatBtn) {
   updateSeatSummary();
 
   // AUTO CLOSE when we've reached the limit
-  if (selectedSeats.size >= maxSeatsForCurrentItem) {
+  if (selectedSeats.size === maxSeatsForCurrentItem) {
     if (seatPickerTargetInput) {
       const seats = window.getSelectedSeats();
       seatPickerTargetInput.value = seats.join(', ');
@@ -860,6 +856,33 @@ window.getSelectedSeats = () => Array.from(selectedSeats).sort();
 // ======== ORIGINAL FORM/ITEM JS ========
 
 let seatPickerModalInstance = null;
+
+if (seatModalDoneBtn) {
+  seatModalDoneBtn.addEventListener('click', function(e) {
+    // block closing if seats != passengers
+    if (selectedSeats.size !== maxSeatsForCurrentItem) {
+      e.preventDefault();
+      e.stopImmediatePropagation(); // ⬅️ IMPORTANT
+
+      if (typeof M !== 'undefined' && M.toast) {
+        M.toast({html: `Please select ${maxSeatsForCurrentItem} seats to match the number of passengers.`});
+      }
+      return;
+    }
+
+    // OK: sync seats into input and close manually
+    if (seatPickerTargetInput) {
+      const seats = window.getSelectedSeats();
+      seatPickerTargetInput.value = seats.join(', ');
+      if (typeof M !== 'undefined' && M.updateTextFields) {
+        M.updateTextFields();
+      }
+    }
+    if (seatPickerModalInstance && seatPickerModalInstance.close) {
+      seatPickerModalInstance.close();
+    }
+  });
+}
 
 function createItemBlock(prefill = null){
   const idx = itemIndex++;
@@ -963,8 +986,8 @@ function createItemBlock(prefill = null){
       <div class="input-field" style="margin-top:6px;">
         <select class="travelClassInner" data-idx="${idx}">
           <option value="economy" selected>Economy</option>
+          <option value="premium">Premium Economy</option>
           <option value="business">Business</option>
-          <option value="premium">Premium</option>
           <option value="first">First Class</option>
         </select>
         <label>Class</label>
@@ -1037,7 +1060,7 @@ function createItemBlock(prefill = null){
         seatPickerModalInstance.open();
       } else if (typeof M !== 'undefined' && M.Modal) {
         const modalElem = document.getElementById('seatPickerModal');
-        const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem);
+        const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem, { dismissible: false });
         seatPickerModalInstance = instance;
         seatPickerModalInstance.open();
       }
