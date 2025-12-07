@@ -248,7 +248,7 @@ while ($q = $quizResult->fetch_assoc()) {
   body{
     margin:0;
     font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background: linear-gradient(180deg, #061017 0%, #07121a 100%);
+    background: linear-gradient(180deg, var(--navy-900), var(--navy-800));
     color: #e6eef3;
     padding:18px;
   }

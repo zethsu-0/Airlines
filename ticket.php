@@ -2050,7 +2050,7 @@ $flight = [
 /* ============= GLOBAL LAYOUT ============= */
 html, body {
   font-family: "Roboto", sans-serif;
-  background: linear-gradient(180deg, #061017 0%, #07121a 100%);
+  background: linear-gradient(180deg, #0b1830 0%, #07121a 100%);
   color: #e5e7eb;
 }
 
@@ -2097,7 +2097,8 @@ body {
 }
 
 .prompt-card .card {
-  background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%);
+  /* background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%); */
+  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
   border-radius: 18px;
   border: 1px solid rgba(250, 204, 21, 0.25);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
@@ -2264,7 +2265,8 @@ body {
 }
 
 .bg-container .card {
-  background: radial-gradient(circle at top right, #020617 0%, #020617 50%, #020617 100%);
+  /* background: radial-gradient(circle at top right, #020617 0%, #020617 50%, #020617 100%); */
+  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.4);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
@@ -2346,7 +2348,8 @@ body {
 }
 
 .ticket-card {
-  background: linear-gradient(135deg, #020617 0%, #020617 65%, #111827 100%);
+  /* background: linear-gradient(135deg, #020617 0%, #020617 65%, #111827 100%); */
+  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
   border-radius: 18px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
   padding: 18px 18px 16px;
