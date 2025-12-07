@@ -3,8 +3,9 @@ html, body {
   margin: 0;
   display: flex;
   flex-direction: column;
-  background: url('../assets/island.jpg') no-repeat center center fixed;
-  background-size: cover;
+  /* background: url('../assets/island.jpg') no-repeat center center fixed;
+  background-size: cover; */
+  background: linear-gradient(180deg, #061017 0%, #07121a 100%);
 }
 body { min-height: 100vh; }
 .container { flex: 1 0 auto; padding: 40px 15px 20px; }
