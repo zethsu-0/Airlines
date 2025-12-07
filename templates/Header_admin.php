@@ -1,14 +1,19 @@
 <?php
-session_start();
+// header_admin.php (screenshot-matching version)
 
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
-if (!isset($require_admin)) {
-    // default behaviour: force admin popup for this page
-    $require_admin = true;
+// Force admin requirement unless overridden
+if (!isset($require_admin)) $require_admin = true;
+
+// Redirect non-admins
+if (!empty($_SESSION['acc_id']) && ($_SESSION['acc_role'] ?? '') !== 'admin') {
+    header('Location: index.php');
+    exit;
 }
 
-// If session indicates already logged-in admin, don't require popup
-if (!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'admin') {
+// If already logged in as admin, disable modal
+if (!empty($_SESSION['acc_id']) && ($_SESSION['acc_role'] ?? '') === 'admin') {
     $require_admin = false;
 }
 ?>
@@ -16,286 +21,238 @@ if (!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['a
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>TOURS</title>
+  <title>TOURS - Admin</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" type="text/css" href="materialize/css/materialize.min.css">
-  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.0.13/css/all.css" integrity="sha384-DNOHZ68U8hZfKXOrtjWvjxusGo9WQnrNx2sqG0tfsghAvtVlRW3tvkXWZh58N9jp" crossorigin="anonymous">
+  <link rel="stylesheet" href="materialize/css/materialize.min.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
-<style type="text/css">
-  html, body { margin: 0; padding: 0; background-color: gray; }
+<style>
+/* ---------- Screenshot Matching Header ---------- */
 
-  /* Form styles */
-  .bg-container { padding: 20px; width: 90%; }
-  .submitbtn { padding-top: 20px !important; }
-  h2, h3 { font-weight: bold; }
-  input[type="text"] { text-transform: uppercase; }
+nav.admin-nav {
+  background: linear-gradient(90deg, #0b63d6 0%, #0b84ff 100%);
+  height: 64px;
+  line-height: 64px;
+  box-shadow: 0 3px 8px rgba(3,40,80,0.15);
+  position: relative;
+  padding: 0 20px;
+}
 
-  .btn {
-    font-weight: bold;
-    font-size: 20px;
-    color: white;
-    background-color: #2196f3;
-  }
-  .btn:hover {
-    background-color: #4993de;
-  }
+nav.admin-nav .nav-wrapper {
+  position: relative;
+  height: 64px;
+}
 
-  /* Carousel Section */
-  .hero-carousel {
-    position: relative;
-    /* background: url('assets/island.jpg') center/cover fixed no-repeat; */
-    padding: 80px 0;
-  }
-  .hero-carousel .overlay-bg {
-    background: rgba(0, 0, 0, 0.45);
-    padding: 40px 0;
-  }
+/* Centered logo + title */
+.brand-logo {
+  position: absolute;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #ffffff;
+  z-index: 5;
+}
 
-  /* Destination Cards */
-  .destination-card {
-    position: relative;
-    border-radius: 15px;
-    overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
-    cursor: pointer;
-    transition: transform 0.3s ease;
-    width: 90%;
-    max-width: 600px;
-    margin: 0 auto;
-  }
+/* Circle icon */
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #fff;
+  display: inline-block;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+}
+.brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
-  .destination-card img {
-    width: 100%;
-    height: 220px;
-    object-fit: cover;
-    display: block;
-    border-radius: 15px;
-  }
+/* Title text */
+.brand-text {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  letter-spacing: .2px;
+}
 
-  .country-label {
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(0, 0, 0, 0.55);
-    color: white;
-    padding: 5px 10px;
-    border-radius: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 1rem;
-  }
+/* Right-side logout */
+ul.right {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  z-index: 6;
+}
 
-  .card-reveal-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(20, 20, 20, 0.85);
-    color: white;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(20px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 15px;
-    text-align: center;
-    transition: opacity 0.4s ease, transform 0.4s ease;
-  }
+/* Logout button */
+.logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #ffffff !important;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent !important;
+  text-decoration: none;
+  font-weight: 500;
+  box-shadow: none !important;
+  transition: .15s ease;
+}
+.logout-btn i {
+  font-size: 18px;
+}
 
-  .card-reveal-overlay.active {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-  }
+/* Hover effect */
+.logout-btn:hover {
+  background: rgba(255,255,255,0.06) !important;
+  border-color: rgba(255,255,255,0.23);
+  transform: translateY(-1px);
+}
 
-  .reveal-content { max-width: 90%; }
-  .reveal-content .card-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    display: flex;
-    justify-content: space-between;
-  }
+/* Hide admin name entirely */
+.admin-name { display: none !important; }
 
-  .close-reveal { cursor: pointer; color: #fff; }
-
-  /* Responsive Adjustments */
-  @media (max-width: 768px) {
-    .destination-card img { height: 130px; }
-    .country-label { font-size: 0.9rem; }
-  }
-
-  @media (max-width: 480px) {
-    .destination-card img { height: 110px; }
-    .country-label { font-size: 0.8rem; bottom: 6px; left: 6px; }
-  }
-  nav{
-    background-image: url(assets/Banner.png);
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-position: center center;
-    height: 100px;
-  }
-  a #tours{
-    left: 50px; 
-    size: 100px;
-  }
-  .page-footer {
-      margin: 0;      
-      padding-bottom: 0;
-  }
-  #urs-logo{
-    height: 100px;
-    width: 140px;
-  }
-  #sayd{
-    left: -25;
-  }
-  #mat{
-    color: purple;
-  }
-
-  /* Admin blocker overlay & modal z-index */
-  #admin-blocker {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.45);
-    z-index: 998;
-    pointer-events: auto;
-  }
-  #admin-blocker.active { display: block; }
-  .modal.admin-gate { z-index: 9999 !important; }
+@media (max-width: 640px) {
+  .brand-text { font-size: 18px; }
+  .brand-icon { width: 32px; height: 32px; }
+}
 </style>
-</head>
 
+</head>
 <body>
-<nav class="blue">
+
+<!-- HEADER -->
+<nav class="admin-nav">
   <div class="nav-wrapper">
-    <a href="admin.php" class="brand-logo center">
-      <i class="material-icons hide-on-med-and-down">flight_takeoff</i>TOURS
+
+    <!-- CENTERED LOGO + TITLE -->
+    <a href="admin.php" class="brand-logo center bold" style="display:flex;align-items:center;gap:8px;">
+      <img src="assets/logo.png" alt="logo" style="height:34px;vertical-align:middle;"> 
+      Students & Quiz Management
     </a>
+
+    <!-- RIGHT LOGOUT BUTTON -->
+    <ul class="right">
+      <li>
+        <a id="logoutBtn" href="#!" class="logout-btn">
+          <i class="material-icons">exit_to_app</i> Logout
+        </a>
+      </li>
+    </ul>
+
   </div>
 </nav>
 
-<!-- ADMIN LOGIN MODAL (auto opens if $require_admin === true) -->
-<div id="loginModal" class="modal admin-gate">
-  <div class="modal-content">
-    <h4 class="center">Admin Login</h4>
 
-    <form id="adminLoginForm" method="POST" action="Ad_log.php" autocomplete="off" novalidate>
+<!-- ADMIN LOGIN MODAL -->
+<div id="loginModal" class="modal admin-gate" style="max-width:420px;">
+  <div class="modal-content">
+    <h5 class="center">Admin Login</h5>
+
+    <form id="adminLoginForm" autocomplete="off">
       <div class="input-field">
         <i class="material-icons prefix">person</i>
-        <input type="text" name="acc_id" id="acc_id" />
+        <input id="acc_id" type="text">
         <label for="acc_id">Account ID</label>
-        <div class="red-text" id="err-acc_id"></div>
+        <div id="err-acc_id" class="red-text"></div>
       </div>
 
       <div class="input-field">
         <i class="material-icons prefix">lock</i>
-        <input type="password" name="password" id="password" />
+        <input id="password" type="password">
         <label for="password">Password</label>
-        <div class="red-text" id="err-password"></div>
+        <div id="err-password" class="red-text"></div>
       </div>
 
-      <div class="red-text" id="err-general" style="margin-bottom:12px;"></div>
+      <div id="err-general" class="red-text"></div>
 
-      <button type="submit" class="btn blue waves-effect waves-light" style="width:100%;">Log In</button>
+      <button id="adminLoginBtn" class="btn blue waves-effect" style="width:100%;">Log In</button>
     </form>
   </div>
 </div>
 
-<div id="admin-blocker"></div>
+<div id="admin-blocker"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:998;"></div>
 
-<!-- JS includes (jQuery + Materialize) -->
+
+<!-- SCRIPTS -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 
 <script>
-  $(document).ready(function(){
-    $('.sidenav').sidenav();
+// ---------------------- INITIALIZE ----------------------
+document.addEventListener("DOMContentLoaded", function() {
+  M.Modal.init(document.querySelectorAll(".modal"), { dismissible: false });
 
-    // Initialize modal as non-dismissible (user can't click outside or press ESC to close)
-    var modalElems = document.querySelectorAll('.modal');
-    M.Modal.init(modalElems, {
-      dismissible: false,
-      startingTop: '10%',
-      endingTop: '10%'
+  const requireAdmin = <?= $require_admin ? "true" : "false" ?>;
+  const modal = M.Modal.getInstance(document.getElementById("loginModal"));
+
+  function openAdminModal() {
+    $('#acc_id,#password').val('');
+    $('#err-acc_id,#err-password,#err-general').text('');
+    M.updateTextFields();
+    $('#admin-blocker').show();
+    modal.open();
+  }
+
+  if (requireAdmin) openAdminModal();
+
+  // ---------------------- LOGIN ----------------------
+  $("#adminLoginForm").on("submit", function(e) {
+    e.preventDefault();
+    $("#err-acc_id,#err-password,#err-general").text("");
+
+    let payload = {
+      acc_id: $("#acc_id").val().trim(),
+      password: $("#password").val(),
+      require_role: "admin"
+    };
+
+    if (!payload.acc_id) return $("#err-acc_id").text("Account ID required");
+    if (!payload.password) return $("#err-password").text("Password required");
+
+    $("#adminLoginBtn").prop("disabled", true).text("Logging in...");
+
+    fetch("login.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+      $("#adminLoginBtn").prop("disabled", false).text("Log In");
+
+      if (data.success) location.reload();
+      else {
+        if (data.field === "acc_id") $("#err-acc_id").text(data.msg);
+        else if (data.field === "password") $("#err-password").text(data.msg);
+        else $("#err-general").text(data.msg || "Login failed");
+      }
+    })
+    .catch(() => {
+      $("#err-general").text("Server error");
+      $("#adminLoginBtn").prop("disabled", false).text("Log In");
     });
-
-    var requireAdmin = <?php echo $require_admin ? 'true' : 'false'; ?>;
-
-    function openAdminModal(){
-      var modalElem = document.getElementById('loginModal');
-      var instance = M.Modal.getInstance(modalElem);
-      // clear fields / errors
-      $('#acc_id').val(''); $('#password').val('');
-      $('#err-acc_id').text(''); $('#err-password').text(''); $('#err-general').text('');
-      M.updateTextFields();
-      $('#admin-blocker').addClass('active');
-      instance.open();
-    }
-
-    function closeAdminModal(){
-      var modalElem = document.getElementById('loginModal');
-      var instance = M.Modal.getInstance(modalElem);
-      instance.close();
-      $('#admin-blocker').removeClass('active');
-    }
-
-    if (requireAdmin) {
-      // Auto-open admin login modal and block interaction with page
-      openAdminModal();
-
-      // Extra guard: prevent ESC key from doing anything
-      $(document).on('keydown.adminblock', function(e){
-        if (e.key === 'Escape' || e.keyCode === 27) {
-          e.preventDefault();
-          return false;
-        }
-      });
-    }
-
-    // AJAX submit the login to login.php
-    $('#adminLoginForm').on('submit', function(e){
-      e.preventDefault();
-      $('#err-acc_id').text(''); $('#err-password').text(''); $('#err-general').text('');
-
-      var acc_id = $('#acc_id').val().trim();
-      var password = $('#password').val();
-
-      if (!acc_id) { $('#err-acc_id').text('Account ID required'); return; }
-      if (!password) { $('#err-password').text('Password required'); return; }
-
-      var payload = {
-        acc_id: acc_id,
-        password: password,
-        require_role: 'admin' // tell server we need admin role
-      };
-
-      fetch('Ad_log.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-        body: JSON.stringify(payload)
-      })
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        if (data.success) {
-          // success: reload page so server-side session reflects admin login
-          window.location.reload();
-        } else {
-          // show returned errors
-          if (data.field === 'acc_id') $('#err-acc_id').text(data.msg);
-          else if (data.field === 'password') $('#err-password').text(data.msg);
-          else $('#err-general').text(data.msg || 'Login failed');
-        }
-      })
-      .catch(function(err){
-        console.error(err);
-        $('#err-general').text('Network/server error');
-      });
-    });
-
   });
+
+  // ---------------------- LOGOUT ----------------------
+  $("#logoutBtn").on("click", function(e){
+    e.preventDefault();
+    fetch("logout.php", { method:"POST" }).finally(() => {
+      window.location.href = "index.php";
+    });
+  });
+});
 </script>
+
 </body>
 </html>
