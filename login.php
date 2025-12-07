@@ -18,7 +18,6 @@ ob_start();
 
 // Respond to preflight (if you enable CORS above)
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    // If CORS is enabled above, just exit for preflight
     http_response_code(204);
     exit;
 }
@@ -104,12 +103,35 @@ if (!isset($conn) || !($conn instanceof mysqli)) {
     exit;
 }
 
-// Get POST inputs
-$acc_id   = trim((string)($_POST['acc_id'] ?? ''));
-$password = (string)($_POST['password'] ?? '');
+/* ---------------------------------------------------------
+   READ INPUT (supports JSON body for fetch + normal POST)
+----------------------------------------------------------*/
+
+$rawBody     = file_get_contents('php://input');
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+$isJsonBody  = stripos($contentType, 'application/json') !== false;
+
+$acc_id       = '';
+$password     = '';
+$require_role = null;
+
+if ($expectsJson && $isJsonBody) {
+    // ✅ AJAX / fetch with JSON (used by header_admin.php)
+    $data = json_decode($rawBody, true) ?: [];
+    $acc_id       = trim((string)($data['acc_id'] ?? ''));
+    $password     = (string)($data['password'] ?? '');
+    $require_role = $data['require_role'] ?? null;
+} else {
+    // Normal form submit (non-AJAX)
+    $acc_id       = trim((string)($_POST['acc_id'] ?? ''));
+    $password     = (string)($_POST['password'] ?? '');
+    $require_role = $_POST['require_role'] ?? null;
+}
 
 if ($acc_id === '' || $password === '') {
-    if ($expectsJson) json_out(['success' => false, 'error' => 'Please enter account ID and password.']);
+    if ($expectsJson) {
+        json_out(['success' => false, 'error' => 'Please enter account ID and password.']);
+    }
     // Non-AJAX: go back to login (optionally you can append a query param for error)
     while (ob_get_level()) ob_end_clean();
     header('Location: index.php');
@@ -213,8 +235,8 @@ if (!$account) {
             if (verify_password_candidate($password, $stored)) {
 
                 // Try to fetch nicer display name from accounts (optional)
-                $displayName = $row['name'] ?? $acc_id;
-                $roleRawAdmin = $row['role'] ?? null;
+                $displayName   = $row['name'] ?? $acc_id;
+                $roleRawAdmin  = $row['role'] ?? null;
 
                 $q = @mysqli_prepare($conn,
                     "SELECT acc_name, acc_role FROM accounts WHERE acc_id = ? LIMIT 1"
@@ -258,9 +280,7 @@ if (!$account) {
     if ($expectsJson) {
         json_out(['success' => false, 'error' => $msg]);
     } else {
-        // Non-AJAX: redirect back to login (you can append error via query if desired)
         while (ob_get_level()) ob_end_clean();
-        // For security, avoid echoing DB errors to user; you may log them server-side instead
         header('Location: index.php');
         exit;
     }
@@ -270,7 +290,7 @@ if (!$account) {
    NORMALIZE ROLE
 ----------------------------------------------------------*/
 
-$roleRaw = strtolower((string)($account['role'] ?? ''));
+$roleRaw   = strtolower((string)($account['role'] ?? ''));
 $roleClean = str_replace([' ', '_', '-'], '', $roleRaw);
 
 if ($account['source'] === 'admins') {
@@ -287,13 +307,38 @@ if ($account['source'] === 'admins') {
 }
 
 /* ---------------------------------------------------------
+   OPTIONAL: ENFORCE REQUIRED ROLE (e.g., admin-only login)
+----------------------------------------------------------*/
+
+if (!empty($require_role)) {
+    $need = strtolower((string)$require_role);
+    if ($need === 'admin') {
+        // only allow admin/super_admin
+        if ($roleNorm !== 'admin' && $roleNorm !== 'super_admin') {
+            if ($expectsJson) {
+                json_out([
+                    'success' => false,
+                    'error'   => 'Admin access only.',
+                    'field'   => 'acc_id',
+                    'msg'     => 'This account is not an admin.'
+                ]);
+            } else {
+                while (ob_get_level()) ob_end_clean();
+                header('Location: index.php');
+                exit;
+            }
+        }
+    }
+}
+
+/* ---------------------------------------------------------
    SET SESSION + SUCCESS
 ----------------------------------------------------------*/
 
-$_SESSION['acc_id']   = $account['acc_id'];
-$_SESSION['acc_name'] = $account['acc_name'];
-$_SESSION['role']     = $roleNorm;
-$_SESSION['acc_role']  = $roleNorm;  
+$_SESSION['acc_id']    = $account['acc_id'];
+$_SESSION['acc_name']  = $account['acc_name'];
+$_SESSION['role']      = $roleNorm;
+$_SESSION['acc_role']  = $roleNorm;  // used by header_admin.php
 
 session_regenerate_id(true);
 
