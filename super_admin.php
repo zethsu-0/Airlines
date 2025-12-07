@@ -1429,6 +1429,46 @@ a.btn-flat.red-text i.material-icons,
 /* Finally, ensure general btn-flat rules do not override the specific edit/delete ones */
 a.edit-btn i.material-icons { /* keep highest specificity for edit */ }
 
+/* ============================================
+   DARK THEME FIX FOR browser-default SELECTS
+   ============================================ */
+
+/* The select box itself */
+select.browser-default {
+  background: linear-gradient(180deg,#071428,#0b1830) !important;
+  color: #e9f1ff !important;
+  border: 1px solid rgba(255,255,255,0.15) !important;
+  border-radius: 6px !important;
+  padding: 8px 10px !important;
+  height: 42px !important;
+}
+
+/* The dropdown list (Chrome/Edge/Firefox) */
+select.browser-default option {
+  background: #0b1830 !important;
+  color: #e9f1ff !important;
+}
+
+/* Hover highlight inside dropdown */
+select.browser-default option:hover,
+select.browser-default option:checked {
+  background: rgba(46,126,247,0.25) !important;
+  color: #fff !important;
+}
+
+/* Remove native blue outline */
+select.browser-default:focus {
+  outline: none !important;
+  border-color: #2e7ef7 !important;
+  box-shadow: 0 0 0 2px rgba(46,126,247,0.35) !important;
+}
+
+/* Remove Windows default arrow override (optional) */
+select.browser-default::-ms-expand {
+  display: none;
+}
+
+
   </style>
 </head>
 <body>
