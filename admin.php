@@ -1,341 +1,885 @@
 <?php
-// admin.php
+// admin.php — dashboard + profile modal
 
-// Start session first
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
-// include header (you may want header shown even for not-signed-in users)
-include('templates/header.php');
+// include header (shows nav + admin modal).
+include('templates/header_admin.php');
 
-// Quick login check: prevent quizzes / DB from loading if user not signed in
+// Quick signed-in check
 $isLoggedIn = !empty($_SESSION['acc_id']);
 if (!$isLoggedIn) {
-    // If you prefer to redirect, uncomment the header() redirect block below.
-    // But note: because we've already included header.php (which often outputs HTML),
-    // a redirect may fail if headers were already sent. The echo fallback is robust.
-
-    // if (!headers_sent()) {
-    //     header('Location: login.php');
-    //     exit;
-    // }
-
-    // Show a user-friendly notice and stop further processing so quizzes won't load
     echo '<div class="page-wrap" style="padding:28px;max-width:900px;margin:40px auto;">';
     echo '<div style="background:#fff;padding:20px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.04);text-align:center;">';
     echo '<h2 style="margin:0 0 8px;font-size:20px;">You are not signed in</h2>';
     echo '<p style="color:#666;margin:0 0 16px;">Please log in to access quizzes and admin features.</p>';
     echo '</div></div>';
-
     include('templates/footer.php');
     exit;
 }
 
-// Logged in — continue normally
-$host='localhost'; $user='root'; $pass=''; $db='airlines';
-$conn = new mysqli($host,$user,$pass,$db);
+$DB = [
+    'host' => 'localhost',
+    'user' => 'root',
+    'pass' => '',
+    'name' => 'airlines'
+];
 
-$quizzes = [];
-$dbError = null;
-$totalStudents = 0;
-$totalCreated = 0;
-$teacherStudents = 0;
-$quizStats = [];
-
-// ... rest of your existing code remains unchanged ...
-
-if ($conn->connect_error) {
-    $dbError = $conn->connect_error;
+$conn = new mysqli($DB['host'], $DB['user'], $DB['pass'], $DB['name']);
+if ($conn->connect_errno) {
+    $dbError = 'DB connection error: ' . $conn->connect_error;
+    $quizzes = []; $quizStats = []; $totalStudents = $totalCreated = $teacherStudents = 0;
 } else {
-    // Detect admin signed in (your app used 'admin' as teacher role)
-    $isAdminSignedIn = !empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'admin';
-    if ($isAdminSignedIn) {
-        $myAcc = $_SESSION['acc_id'];
+    $dbError = '';
+    $quizzes = [];
+    $quizStats = [];
+    $totalStudents = $totalCreated = $teacherStudents = 0;
 
-        // detect creator column in quizzes table
+    // Helpers
+    $detect_columns = function(string $table) use ($conn) : array {
         $cols = [];
-        $cRes = $conn->query("SHOW COLUMNS FROM `quizzes`");
-        if ($cRes) {
-            while ($c = $cRes->fetch_assoc()) $cols[] = $c['Field'];
-            $cRes->free();
+        $res = @$conn->query("SHOW COLUMNS FROM `{$conn->real_escape_string($table)}`");
+        if ($res) {
+            while ($r = $res->fetch_assoc()) $cols[] = $r['Field'];
+            $res->free();
         }
-        $candidates = ['created_by','creator','author','acc_id','account_id','admin_id','created_by_id','owner_id','user_id'];
-        $creator = null;
-        foreach ($candidates as $cand) if (in_array($cand, $cols, true)) { $creator = $cand; break; }
-        if (!$creator) {
-            foreach ($cols as $col) {
-                if (preg_match('/\b(created|creator|author|owner|admin|user|acc)\b/i',$col)) { $creator = $col; break; }
+        return $cols;
+    };
+    $safe_backtick = function(string $col) {
+        return "`" . str_replace("`", "``", $col) . "`";
+    };
+
+    $isAdminSignedIn = !empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['acc_role'] === 'admin';
+    $myAcc = (string)($_SESSION['acc_id'] ?? '');
+
+    // Load basic lists & counts used in all cases
+    $r = $conn->query("SELECT id, title, COALESCE(quiz_code,'') AS quiz_code, '' AS deadline FROM quizzes ORDER BY id DESC");
+    if ($r) { while ($row = $r->fetch_assoc()) $quizzes[] = $row; $r->free(); }
+    $r = $conn->query("SELECT COUNT(*) AS c FROM students");
+    if ($r) { $totalStudents = (int)$r->fetch_assoc()['c']; $r->free(); }
+    $r = $conn->query("SELECT COUNT(*) AS c FROM quizzes");
+    if ($r) { $totalCreated = (int)$r->fetch_assoc()['c']; $r->free(); }
+
+    // If admin, attempt to filter quizzes to ones they created + build stats
+    if ($isAdminSignedIn) {
+        // Detect creator column in quizzes
+        $quizCols = $detect_columns('quizzes');
+        $creatorCandidates = ['created_by','creator','author','acc_id','account_id','admin_id','created_by_id','owner_id','user_id'];
+        $creatorCol = null;
+        foreach ($creatorCandidates as $c) if (in_array($c, $quizCols, true)) { $creatorCol = $c; break; }
+        if (!$creatorCol) {
+            foreach ($quizCols as $col) {
+                if (preg_match('/\b(created|creator|author|owner|admin|user|acc)\b/i', $col)) { $creatorCol = $col; break; }
             }
         }
 
-        if ($creator) {
-            $creatorQuoted = "`".str_replace("`","``",$creator)."`";
-            $sql = "SELECT id,
-                        title,
-                        quiz_code AS code,
-                        '' AS deadline,
-                        0 AS num_questions
-                  FROM quizzes
-                  WHERE $creatorQuoted = ?
-                  ORDER BY id DESC";
-
-            $stmt = $conn->prepare($sql);
-            if ($stmt) {
+        if ($creatorCol) {
+            $creatorQuoted = $safe_backtick($creatorCol);
+            $sql = "SELECT id, title, COALESCE(quiz_code,'') AS quiz_code, '' AS deadline
+                    FROM quizzes WHERE {$creatorQuoted} = ? ORDER BY id DESC";
+            if ($stmt = $conn->prepare($sql)) {
                 $stmt->bind_param('s', $myAcc);
                 $stmt->execute();
                 $res = $stmt->get_result();
+                $quizzes = [];
                 while ($r = $res->fetch_assoc()) $quizzes[] = $r;
+                $res->free();
+                $stmt->close();
+            } else {
+                $dbError .= ($dbError ? ' ' : '') . 'Failed to prepare creator query; showing all quizzes.';
+            }
+
+            if ($stmt2 = $conn->prepare("SELECT COUNT(*) AS c FROM quizzes WHERE {$creatorQuoted} = ?")) {
+                $stmt2->bind_param('s', $myAcc);
+                $stmt2->execute();
+                $r2 = $stmt2->get_result();
+                if ($r2 && $row2 = $r2->fetch_assoc()) $totalCreated = (int)$row2['c'];
+                if ($r2) $r2->free();
+                $stmt2->close();
+            }
+        } else {
+            $dbError .= ($dbError ? ' ' : '') . 'Creator column not detected in quizzes table; showing all quizzes.';
+        }
+
+        // Detect students table columns for teacher-student mapping
+        $studentCols = $detect_columns('students');
+        $studentIdCol = null;
+        foreach (['student_id','acc_id','user_id','account_id','sid','id'] as $c) if (in_array($c,$studentCols,true)) { $studentIdCol = $c; break; }
+        $teacherIdCol = null;
+        foreach (['teacher_id','assigned_teacher','admin_id','owner_id'] as $c) if (in_array($c,$studentCols,true)) { $teacherIdCol = $c; break; }
+
+        if ($teacherIdCol && $studentIdCol) {
+            $q = "SELECT COUNT(*) AS c FROM students WHERE " . $safe_backtick($teacherIdCol) . " = ?";
+            if ($stmt = $conn->prepare($q)) {
+                $stmt->bind_param('s', $myAcc);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                if ($res && $row = $res->fetch_assoc()) $teacherStudents = (int)$row['c'];
                 if ($res) $res->free();
                 $stmt->close();
             } else {
-                $dbError = 'Failed to prepare creator-filter query; showing all quizzes.';
+                $esc = $conn->real_escape_string($myAcc);
+                $r = $conn->query("SELECT COUNT(*) AS c FROM students WHERE `{$teacherIdCol}` = '{$esc}'");
+                if ($r) { $teacherStudents = (int)$r->fetch_assoc()['c']; $r->free(); }
             }
-
-            // total students overall
-            $r = $conn->query("SELECT COUNT(*) AS c FROM students");
-            if ($r) { $row = $r->fetch_assoc(); $totalStudents = (int)$row['c']; $r->free(); }
-
-            // students assigned to this teacher (teacher_id is expected but we detect fallback)
-            // detect students table columns
-            $studentCols = [];
-            $sRes = $conn->query("SHOW COLUMNS FROM `students`");
-            if ($sRes) { while($sc=$sRes->fetch_assoc()) $studentCols[]=$sc['Field']; $sRes->free(); }
-            $studentIdCol = null;
-            $teacherIdCol = null;
-            // student id column in students: prefer 'student_id' else 'acc_id' else 'id' as fallback
-            foreach (['student_id','acc_id','user_id','account_id','sid','id'] as $cname) if (in_array($cname,$studentCols,true)) { $studentIdCol = $cname; break; }
-            // teacher column: prefer 'teacher_id' else 'assigned_teacher' else 'admin_id'
-            foreach (['teacher_id','assigned_teacher','admin_id','owner_id'] as $cname) if (in_array($cname,$studentCols,true)) { $teacherIdCol = $cname; break; }
-            if (!$teacherIdCol) $teacherIdCol = 'teacher_id'; // leave as expected; queries that use it will fail and we handle that later
-
-            // count teacher students
-            if ($teacherIdCol && $studentIdCol) {
-                $stmtTs = $conn->prepare("SELECT COUNT(*) AS c FROM students WHERE `{$teacherIdCol}` = ?");
-                if ($stmtTs) {
-                    $stmtTs->bind_param('s', $myAcc);
-                    $stmtTs->execute();
-                    $rts = $stmtTs->get_result();
-                    if ($rts && $rowts = $rts->fetch_assoc()) $teacherStudents = (int)$rowts['c'];
-                    if ($rts) $rts->free();
-                    $stmtTs->close();
-                } else {
-                    // fallback
-                    $esc = $conn->real_escape_string($myAcc);
-                    $r2 = $conn->query("SELECT COUNT(*) AS c FROM students WHERE `{$teacherIdCol}` = '{$esc}'");
-                    if ($r2) { $row2 = $r2->fetch_assoc(); $teacherStudents = (int)$row2['c']; $r2->free(); }
-                }
-            } else {
-                // couldn't detect student/teacher columns — leave teacherStudents = 0
-            }
-
-            // how many quizzes the admin created
-            $stmt2 = $conn->prepare("SELECT COUNT(*) AS c FROM quizzes WHERE $creatorQuoted = ?");
-            if ($stmt2) {
-                $stmt2->bind_param('s', $myAcc);
-                $stmt2->execute();
-                $res2 = $stmt2->get_result();
-                if ($res2 && $row2 = $res2->fetch_assoc()) $totalCreated = (int)$row2['c'];
-                if ($res2) $res2->free();
-                $stmt2->close();
-            }
-
-            //
-            // === Build per-quiz submission stats robustly ===
-            //
-            // Detect submitted_flights columns for quiz id and account/student id used in submissions.
-            $sfCols = [];
-            $sfRes = $conn->query("SHOW COLUMNS FROM `submitted_flights`");
-            if ($sfRes) { while($sc=$sfRes->fetch_assoc()) $sfCols[]=$sc['Field']; $sfRes->free(); }
-
-            // candidates for quiz id column
-            $quizCol = null;
-            foreach (['quiz_id','quizid','quiz','exam_id','test_id'] as $cname) if (in_array($cname,$sfCols,true)) { $quizCol = $cname; break; }
-            // candidates for acc/student column in submissions
-            $accCol = null;
-            foreach (['acc_id','student_id','user_id','account_id','submitted_by','submitted_acc'] as $cname) if (in_array($cname,$sfCols,true)) { $accCol = $cname; break; }
-
-            // If we didn't detect the student id column in submitted_flights, try to detect 'sid' or 'id'
-            if (!$accCol) {
-                foreach (['sid','id'] as $cname) if (in_array($cname,$sfCols,true)) { $accCol = $cname; break; }
-            }
-
-            // If detection failed, fall back to older assumption and set error notice
-            if (!$quizCol || !$accCol || !$studentIdCol) {
-                // We will not abort; produce quizStats with fallback counts (all submissions per quiz), but flag dbError
-                $dbError = ($dbError ? $dbError . ' ' : '') . 'Could not auto-detect some columns in submitted_flights/students; per-quiz stats may be approximated.';
-            }
-
-            // For each quiz, count distinct submitters among this teacher's students
-            foreach ($quizzes as $q) {
-                $qid = (int)$q['id'];
-                $submitted = 0;
-
-                // prefer JOIN approach when all column names are detected
-                if ($quizCol && $accCol && $studentIdCol && $teacherIdCol) {
-                    // Build query with safe backticks
-                    $qq = "SELECT COUNT(DISTINCT sf.`" . str_replace("`","``",$accCol) . "`) AS c
-                           FROM `submitted_flights` sf
-                           JOIN `students` s ON sf.`" . str_replace("`","``",$accCol) . "` = s.`" . str_replace("`","``",$studentIdCol) . "`
-                           WHERE sf.`" . str_replace("`","``",$quizCol) . "` = ? AND s.`" . str_replace("`","``",$teacherIdCol) . "` = ?";
-
-                    $stmtS = $conn->prepare($qq);
-                    if ($stmtS) {
-                        $stmtS->bind_param("is", $qid, $myAcc);
-                        $stmtS->execute();
-                        $rS = $stmtS->get_result();
-                        $submitted = ($rS && $rowS = $rS->fetch_assoc()) ? (int)$rowS['c'] : 0;
-                        if ($rS) $rS->free();
-                        $stmtS->close();
-                    } else {
-                        // fallback to simpler query if prepare fails
-                        $escqid = $conn->real_escape_string($qid);
-                        $rsc = $conn->query("SELECT COUNT(DISTINCT `{$accCol}`) AS c FROM submitted_flights WHERE `{$quizCol}` = {$escqid}");
-                        $submitted = ($rsc && $rowc = $rsc->fetch_assoc()) ? (int)$rowc['c'] : 0;
-                        if ($rsc) $rsc->free();
-                    }
-                } else {
-                    // fallback: count distinct acc/users for the quiz across all submissions (not teacher-scoped)
-                    if ($quizCol) {
-                        $escqid = $conn->real_escape_string($qid);
-                        $rsc = $conn->query("SELECT COUNT(DISTINCT `" . ($accCol ?: 'acc_id') . "`) AS c FROM submitted_flights WHERE `" . ($quizCol ?: 'quiz_id') . "` = {$escqid}");
-                        $submitted = ($rsc && $rowc = $rsc->fetch_assoc()) ? (int)$rowc['c'] : 0;
-                        if ($rsc) $rsc->free();
-                    } else {
-                        // no detection at all — set submitted=0
-                        $submitted = 0;
-                    }
-                }
-
-                $notSubmitted = max(0, $teacherStudents - $submitted);
-                $quizStats[] = [
-                    'id' => $qid,
-                    'title' => $q['title'],
-                    'code' => $q['code'],
-                    'submitted' => $submitted,
-                    'not_submitted' => $notSubmitted
-                ];
-            }
-
-        } else {
-            $dbError = 'Creator column not detected in quizzes table; showing all quizzes.';
-            $r = $conn->query("SELECT id,
-                          title,
-                          quiz_code AS code,
-                          '' AS deadline,
-                          0 AS num_questions
-                   FROM quizzes
-                   ORDER BY id DESC");
-
-            if ($r) { while ($row = $r->fetch_assoc()) $quizzes[] = $row; $r->free(); }
-            $r = $conn->query("SELECT COUNT(*) AS c FROM students"); if ($r){ $row = $r->fetch_assoc(); $totalStudents = (int)$row['c']; $r->free(); }
-            $r = $conn->query("SELECT COUNT(*) AS c FROM quizzes"); if ($r){ $row = $r->fetch_assoc(); $totalCreated = (int)$row['c']; $r->free(); }
-            // no per-quiz stats when detection fails
         }
 
-    } else {
-        // not signed-in admin: show all quizzes (read-only view)
-        $r = $conn->query("SELECT id,
-                          title,
-                          quiz_code AS code,
-                          '' AS deadline,
-                          0 AS num_questions
-                   FROM quizzes
-                   ORDER BY id DESC");
+        // Build per-quiz submission stats using submitted_flights if available
+        $sfCols = $detect_columns('submitted_flights');
+        $quizCol = null;
+        foreach (['quiz_id','quizid','quiz','exam_id','test_id'] as $c) if (in_array($c,$sfCols,true)) { $quizCol = $c; break; }
+        $accCol = null;
+        foreach (['acc_id','student_id','user_id','account_id','submitted_by','submitted_acc'] as $c) if (in_array($c,$sfCols,true)) { $accCol = $c; break; }
+        if (!$accCol) foreach (['sid','id'] as $c) if (in_array($c,$sfCols,true)) { $accCol = $c; break; }
 
-        if ($r) { while ($row = $r->fetch_assoc()) $quizzes[] = $row; $r->free(); }
-        $r = $conn->query("SELECT COUNT(*) AS c FROM students"); if ($r){ $row = $r->fetch_assoc(); $totalStudents = (int)$row['c']; $r->free(); }
-        $r = $conn->query("SELECT COUNT(*) AS c FROM quizzes"); if ($r){ $row = $r->fetch_assoc(); $totalCreated = (int)$row['c']; $r->free(); }
+        foreach ($quizzes as $q) {
+            $qid = (int)$q['id'];
+            $submitted = 0;
+
+            if ($quizCol && $accCol && $studentIdCol && $teacherIdCol) {
+                $qq = "SELECT COUNT(DISTINCT sf." . $safe_backtick($accCol) . ") AS c
+                       FROM submitted_flights AS sf
+                       JOIN students AS s ON sf." . $safe_backtick($accCol) . " = s." . $safe_backtick($studentIdCol) . "
+                       WHERE sf." . $safe_backtick($quizCol) . " = ? AND s." . $safe_backtick($teacherIdCol) . " = ?";
+                if ($stmtS = $conn->prepare($qq)) {
+                    $stmtS->bind_param('is', $qid, $myAcc);
+                    $stmtS->execute();
+                    $rS = $stmtS->get_result();
+                    if ($rS && $rowS = $rS->fetch_assoc()) $submitted = (int)$rowS['c'];
+                    if ($rS) $rS->free();
+                    $stmtS->close();
+                } else {
+                    $escqid = $conn->real_escape_string($qid);
+                    $rsc = $conn->query("SELECT COUNT(DISTINCT `" . $conn->real_escape_string($accCol ?: 'acc_id') . "`) AS c FROM submitted_flights WHERE `" . $conn->real_escape_string($quizCol ?: 'quiz_id') . "` = {$escqid}");
+                    if ($rsc) { $submitted = (int)$rsc->fetch_assoc()['c']; $rsc->free(); }
+                }
+            } else if ($quizCol && $accCol) {
+                $escqid = $conn->real_escape_string($qid);
+                $rsc = $conn->query("SELECT COUNT(DISTINCT `" . $conn->real_escape_string($accCol) . "`) AS c FROM submitted_flights WHERE `" . $conn->real_escape_string($quizCol) . "` = {$escqid}");
+                if ($rsc) { $submitted = (int)$rsc->fetch_assoc()['c']; $rsc->free(); }
+            }
+
+            $notSubmitted = max(0, $teacherStudents - $submitted);
+            $quizStats[] = [
+                'id' => $qid,
+                'title' => $q['title'],
+                'code' => $q['quiz_code'] ?? '',
+                'submitted' => $submitted,
+                'not_submitted' => $notSubmitted
+            ];
+        }
     }
 }
-?>
 
+// ------------------ helper functions ------------------
+$detect_columns = function(string $table) use (&$conn) : array {
+    $cols = [];
+    if (!$conn) return $cols;
+    $res = @ $conn->query("SHOW COLUMNS FROM `" . $conn->real_escape_string($table) . "`");
+    if ($res) {
+        while ($r = $res->fetch_assoc()) $cols[] = $r['Field'];
+        $res->free();
+    }
+    return $cols;
+};
+
+$normalize_avatar_value = function(string $val) {
+    $val = trim($val);
+    if ($val === '') return '';
+    if (preg_match('#^https?://#i', $val)) return $val;
+    if (strpos($val, '/') !== false) return ltrim($val, '/');
+    return 'uploads/avatars/' . ltrim($val, '/');
+};
+
+$resolve_avatar_url = function(?string $rawAvatar) {
+    $default = 'assets/avatar.png';
+    if (empty($rawAvatar)) return $default;
+    if (preg_match('#^https?://#i', $rawAvatar)) return $rawAvatar;
+    $candidate = __DIR__ . '/' . ltrim($rawAvatar, '/');
+    if (file_exists($candidate)) return $rawAvatar . '?v=' . filemtime($candidate);
+    return $default;
+};
+
+// ------------------ Ensure session has account fields (avatar/name/email/role) ------------------
+if (!empty($_SESSION['acc_id']) && (empty($_SESSION['acc_avatar']) || (!preg_match('#^https?://#i', $_SESSION['acc_avatar']) && !file_exists(__DIR__ . '/' . ltrim($_SESSION['acc_avatar'], '/'))))) {
+    $accId = (string) $_SESSION['acc_id'];
+    $accName = (string) ($_SESSION['acc_name'] ?? '');
+
+    if ($conn) {
+        // candidate tables to check (order matters: adjust if your actual table is known)
+        $candidateTables = ['users','accounts','admins','admin_users','teachers','staff'];
+
+        foreach ($candidateTables as $tbl) {
+            // does table exist?
+            $ok = @ $conn->query("SHOW TABLES LIKE '" . $conn->real_escape_string($tbl) . "'");
+            if (!$ok || $ok->num_rows === 0) { if ($ok) $ok->free(); continue; }
+            if ($ok) $ok->free();
+
+            $cols = $detect_columns($tbl);
+            if (empty($cols)) continue;
+
+            // possible id columns and avatar-like columns
+            $idCandidates = array_filter(['id','acc_id','user_id','admin_id','username'], fn($c) => in_array($c, $cols, true));
+            $avatarCandidates = array_filter(['avatar','photo','image','profile_pic','picture','avatar_path'], fn($c) => in_array($c, $cols, true));
+            $nameCandidates = array_filter(['name','display_name','username'], fn($c) => in_array($c, $cols, true));
+
+            // build SELECT list (include avatar + name/email/role when available)
+            $selectCols = [];
+            if (!empty($avatarCandidates)) $selectCols[] = "`" . array_values($avatarCandidates)[0] . "` AS avatar_col";
+            foreach (['name','display_name','username','email','role'] as $c) {
+                if (in_array($c, $cols, true)) $selectCols[] = "`$c`";
+            }
+            if (empty($selectCols)) $selectCols[] = '*';
+
+            // Try to find a matching row by id-like columns first
+            $found = false;
+            foreach ($idCandidates as $idCol) {
+                $sql = "SELECT " . implode(', ', $selectCols) . " FROM `".$conn->real_escape_string($tbl)."` WHERE `".$conn->real_escape_string($idCol)."` = ? LIMIT 1";
+                if ($stmt = $conn->prepare($sql)) {
+                    $stmt->bind_param('s', $accId);
+                    $stmt->execute();
+                    $res = $stmt->get_result();
+                    if ($res && $row = $res->fetch_assoc()) {
+                        // populate session fields
+                        if (isset($row['avatar_col']) && $row['avatar_col'] !== null && $row['avatar_col'] !== '') {
+                            $_SESSION['acc_avatar'] = $normalize_avatar_value($row['avatar_col']);
+                        }
+                        if (isset($row['name']) && $row['name'] !== '') $_SESSION['acc_name'] = $row['name'];
+                        if (isset($row['display_name']) && $row['display_name'] !== '') $_SESSION['acc_name'] = $row['display_name'];
+                        if (isset($row['username']) && $row['username'] !== '') $_SESSION['acc_username'] = $row['username'];
+                        if (isset($row['email'])) $_SESSION['acc_email'] = $row['email'];
+                        if (isset($row['role'])) $_SESSION['acc_role'] = $row['role'];
+                        $found = true;
+                    }
+                    if ($res) $res->free();
+                    $stmt->close();
+                }
+                if ($found) break;
+            }
+
+            // If not found via id columns, try matching by accName (username/name)
+            if (!$found && !empty($accName) && !empty($nameCandidates)) {
+                foreach ($nameCandidates as $ncol) {
+                    $sql = "SELECT " . implode(', ', $selectCols) . " FROM `".$conn->real_escape_string($tbl)."` WHERE `".$conn->real_escape_string($ncol)."` = ? LIMIT 1";
+                    if ($stmt = $conn->prepare($sql)) {
+                        $stmt->bind_param('s', $accName);
+                        $stmt->execute();
+                        $res = $stmt->get_result();
+                        if ($res && $row = $res->fetch_assoc()) {
+                            if (isset($row['avatar_col']) && $row['avatar_col'] !== null && $row['avatar_col'] !== '') {
+                                $_SESSION['acc_avatar'] = $normalize_avatar_value($row['avatar_col']);
+                            }
+                            if (isset($row['name']) && $row['name'] !== '') $_SESSION['acc_name'] = $row['name'];
+                            if (isset($row['display_name']) && $row['display_name'] !== '') $_SESSION['acc_name'] = $row['display_name'];
+                            if (isset($row['username']) && $row['username'] !== '') $_SESSION['acc_username'] = $row['username'];
+                            if (isset($row['email'])) $_SESSION['acc_email'] = $row['email'];
+                            if (isset($row['role'])) $_SESSION['acc_role'] = $row['role'];
+                            $found = true;
+                        }
+                        if ($res) $res->free();
+                        $stmt->close();
+                    }
+                    if ($found) break;
+                }
+            }
+
+            if ($found) break; // stop searching tables after first match
+        } // foreach candidateTables
+    } // if $conn
+}
+
+
+$displayName  = $_SESSION['acc_name']  ?? ($_SESSION['acc_username'] ?? 'Admin');
+$displayId    = $_SESSION['acc_id']    ?? '';
+$displayRole  = $_SESSION['acc_role']  ?? '';
+$displayEmail = $_SESSION['acc_email'] ?? '';
+
+$rawAvatar = $_SESSION['acc_avatar'] ?? '';
+$avatarUrl = $resolve_avatar_url($rawAvatar);
+
+
+?>
 <!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Admin — Your Quizzes</title>
-
 <link rel="stylesheet" href="css/admin.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/glider-js@1/glider.min.css"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 <style>
-/* styles omitted for brevity — reuse your existing styles */
-.frame-card{border-radius:8px;padding:12px;margin-bottom:10px;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.04);display:flex;align-items:center;justify-content:space-between;transition: transform .18s ease}
-.frame-card:hover{transform:translateY(-4px)}
-.quiz-title{font-weight:700}
-.quiz-dead{color:#666;font-size:13px}
-.left-create{display:inline-block;padding:8px 12px;background:#0d6efd;color:#fff;border-radius:8px;text-decoration:none}
-.pie-canvas{width:100% !important;height:160px !important;max-width:260px;margin:0 auto;display:block}
+/* ===== GLOBAL DARK THEME ===== */
+body{
+  background:#050816;
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:#e6f1ff;
+}
+.page-wrap{
+  padding:24px 28px 40px;
+  max-width:1300px;
+  margin:0 auto;
+}
+
+/* small profile header bar */
+.profile-strip{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:18px;
+  padding:10px 14px;
+  border-radius:999px;
+  background:#0b1020;
+  box-shadow:0 10px 30px rgba(0,0,0,0.7);
+}
+.profile-strip-left{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.profile-strip-avatar{
+  width:40px;
+  height:40px;
+  border-radius:50%;
+  object-fit:cover;
+}
+.profile-strip-name{
+  font-weight:600;
+  font-size:14px;
+  color:#ffffff;
+}
+.profile-strip-meta{
+  font-size:11px;
+  color:#7c8fb6;
+}
+.profile-strip-meta span+span::before{
+  content:"•";
+  margin:0 4px;
+}
+.profile-strip-btn{
+  border:none;
+  border-radius:999px;
+  padding:8px 16px;
+  font-size:12px;
+  font-weight:600;
+  text-transform:uppercase;
+  background:linear-gradient(135deg,#1e88ff,#1565c0);
+  color:#fff;
+  cursor:pointer;
+  box-shadow:0 10px 28px rgba(30,136,255,0.7);
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+
+/* main layout */
+.admin-layout{
+  display:grid;
+  grid-template-columns:220px minmax(0,1.1fr) 360px;
+  gap:18px;
+  align-items:flex-start;
+}
+
+/* left column pills */
+.pill-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  margin-bottom:14px;
+  padding:12px 22px;
+  border-radius:999px;
+  background:linear-gradient(135deg,#1e88ff,#1565c0);
+  color:#fff;
+  font-weight:600;
+  text-decoration:none;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  font-size:13px;
+  box-shadow:0 12px 26px rgba(30,136,255,0.8);
+  transition:transform .14s ease, box-shadow .14s ease, background .14s ease;
+}
+.pill-btn:hover{
+  transform:translateY(-2px);
+  box-shadow:0 16px 32px rgba(30,136,255,0.9);
+}
+
+/* quiz list center */
+.quiz-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.frame-card{
+  border-radius:18px;
+  padding:16px 18px;
+  background:#0b1020;
+  box-shadow:0 18px 55px rgba(0,0,0,0.95);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  transition:transform .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.frame-card:hover{
+  transform:translateY(-3px);
+  background:#0f1528;
+  box-shadow:0 24px 70px rgba(0,0,0,1);
+}
+.quiz-main{
+  flex:1;
+  display:flex;
+  gap:14px;
+  align-items:center;
+}
+.quiz-title{
+  font-weight:700;
+  font-size:15px;
+  color:#ffffff;
+}
+.quiz-dead{
+  color:#7c8fb6;
+  font-size:12px;
+  margin-top:2px;
+}
+.quiz-code-chip{
+  width:52px;
+  height:52px;
+  border-radius:16px;
+  background:#111b3a;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  font-weight:800;
+  font-size:11px;
+  color:#4ba4ff;
+  text-align:center;
+  line-height:1.1;
+}
+.quiz-code-chip span.code-main{
+  font-size:14px;
+}
+
+.quiz-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-left:12px;
+}
+.open-btn{
+  font-size:12px;
+  font-weight:600;
+  padding:10px 18px;
+  border-radius:999px;
+  text-decoration:none;
+  background:linear-gradient(135deg,#1e88ff,#1565c0);
+  color:#fff;
+  box-shadow:0 10px 26px rgba(30,136,255,0.7);
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+.edit-circle{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  background:#111b3a;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#9bb6ff;
+  box-shadow:0 10px 26px rgba(0,0,0,0.8);
+}
+
+/* right column */
+.right-top-row{
+  display:flex;
+  justify-content:flex-end;
+  margin-bottom:12px;
+}
+.edit-students-btn{
+  text-decoration:none;
+  padding:10px 20px;
+  border-radius:999px;
+  text-transform:uppercase;
+  font-size:12px;
+  font-weight:600;
+  background:linear-gradient(135deg,#1e88ff,#1565c0);
+  color:#fff;
+  box-shadow:0 12px 28px rgba(30,136,255,0.8);
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+}
+.summary-card{
+  background:#0b1020;
+  border-radius:18px;
+  padding:14px 16px 18px;
+  box-shadow:0 16px 45px rgba(0,0,0,0.95);
+}
+.summary-card-header{
+  font-weight:700;
+  margin-bottom:8px;
+  color:#ffffff;
+}
+.summary-metrics{
+  display:flex;
+  gap:16px;
+  align-items:center;
+  margin-bottom:10px;
+}
+.summary-metrics small{
+  font-size:11px;
+  color:#7c8fb6;
+}
+.summary-metrics span.value{
+  font-size:18px;
+  font-weight:700;
+  color:#ffffff;
+}
+
+/* pie chart */
+.pie-canvas{
+  width:100% !important;
+  height:160px !important;
+  max-width:260px;
+  margin:0 auto;
+}
+.glider-contain{
+  position:relative;
+  margin-top:6px;
+}
+.glider-prev,.glider-next{
+  position:absolute;
+  top:45%;
+  transform:translateY(-50%);
+  border:none;
+  background:transparent;
+  font-size:18px;
+  cursor:pointer;
+  padding:0 6px;
+  color:#7c8fb6;
+}
+.glider-prev{left:-6px;}
+.glider-next{right:-6px;}
+#dots{text-align:center;margin-top:8px;}
+.empty-card-text{
+  font-size:14px;
+  color:#7c8fb6;
+}
+
+@media(max-width:1024px){
+  .admin-layout{grid-template-columns:1fr;}
+}
+
+/* ===== DARK PROFILE MODAL (with smooth transition) ===== */
+.profile-modal-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.65);
+  display:flex;                  /* always flex; visibility via opacity */
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .25s ease;
+}
+.profile-modal-overlay.is-open{
+  opacity:1;
+  pointer-events:auto;
+}
+.profile-modal{
+  width:100%;
+  max-width:760px;
+  background:linear-gradient(135deg,#050816,#07152a);
+  border-radius:18px;
+  padding:22px 24px 20px;
+  color:#e6f1ff;
+  box-shadow:0 22px 70px rgba(0,0,0,0.8);
+  position:relative;
+  transform:translateY(12px) scale(.97);
+  opacity:0;
+  transition:transform .25s ease, opacity .25s ease;
+}
+.profile-modal-overlay.is-open .profile-modal{
+  transform:translateY(0) scale(1);
+  opacity:1;
+}
+.profile-modal h2{
+  margin:0 0 4px;
+  font-size:22px;
+  font-weight:700;
+}
+.profile-modal-header-line{
+  height:3px;
+  width:100%;
+  margin:4px 0 18px;
+  background:#1e88ff;
+  border-radius:999px;
+}
+.profile-modal-grid{
+  display:grid;
+  grid-template-columns:160px 1fr;
+  gap:18px;
+}
+.profile-modal-avatar-wrap{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:10px;
+}
+.profile-modal-avatar{
+  width:96px;
+  height:96px;
+  border-radius:50%;
+  object-fit:cover;
+  border:3px solid #1e88ff;
+}
+.profile-modal-upload-btn{
+  border:none;
+  border-radius:999px;
+  padding:8px 18px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  background:#1e88ff;
+  color:#fff;
+  box-shadow:0 14px 30px rgba(30,136,255,0.5);
+}
+.profile-modal-fields label{
+  font-size:12px;
+  color:#8eb4ff;
+  margin-bottom:2px;
+  display:block;
+}
+.profile-modal-fields input[type="text"],
+.profile-modal-fields input[type="password"]{
+  width:100%;
+  border:none;
+  border-bottom:1px solid #273a5c;
+  background:transparent;
+  color:#e6f1ff;
+  padding:4px 2px 6px;
+  font-size:14px;
+  outline:none;
+}
+.profile-modal-fields input::placeholder{
+  color:#4b5f86;
+}
+.profile-modal-fields input:focus{
+  border-bottom-color:#1e88ff;
+}
+.profile-modal-row{
+  margin-bottom:14px;
+}
+.profile-modal-confirm{
+  margin-top:6px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+  color:#a6c2ff;
+  cursor:pointer;
+}
+.profile-modal-confirm input[type="checkbox"]{
+  accent-color:#1e88ff;
+  transform:scale(1.1);
+}
+.profile-modal-footer{
+  margin-top:16px;
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+}
+.profile-modal-close-btn{
+  border:none;
+  background:transparent;
+  color:#9eb4ff;
+  font-size:13px;
+  cursor:pointer;
+}
+.profile-modal-save-btn{
+  border:none;
+  border-radius:999px;
+  padding:10px 22px;
+  font-size:14px;
+  font-weight:600;
+  cursor:not-allowed;
+  background:#0b2a53;
+  color:#6f8bbf;
+  box-shadow:none;
+  transition:background .15s ease, box-shadow .15s ease, color .15s ease;
+}
+.profile-modal-save-enabled{
+  cursor:pointer !important;
+  background:#1e88ff !important;
+  color:#fff !important;
+  box-shadow:0 18px 40px rgba(30,136,255,0.6) !important;
+}
+.profile-modal-close-x{
+  position:absolute;
+  top:10px;
+  right:12px;
+  cursor:pointer;
+  font-size:18px;
+  color:#7f9bd0;
+}
+
+/* ===== QUIZ CARD COLOR FIX ===== */
+.frame-card{
+  background:#0b1020 !important;
+  color:#e6f1ff !important;
+  box-shadow:0 18px 55px rgba(0,0,0,0.9) !important;
+}
+
+.quiz-title{
+  color:#ffffff !important;
+}
+
+.quiz-dead{
+  color:#8fa8d7 !important;
+}
+
+.quiz-code-chip{
+  background:#101b3d !important;
+  color:#4ba4ff !important;
+}
+
+/* button matches UI */
+.open-btn{
+  background:linear-gradient(135deg,#1e88ff,#1565c0) !important;
+  box-shadow:0 12px 26px rgba(30,136,255,0.8) !important;
+}
+
+/* remove leftover edit circle if any cached */
+.edit-circle{
+  display:none !important;
+}
+/* remove teal active/focus highlight on glider arrows */
+.glider-prev:focus,
+.glider-prev:active,
+.glider-next:focus,
+.glider-next:active {
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  color: #7c8fb6; /* same as normal arrow color */
+}
+
 </style>
+
+
 </head>
 <body>
 <div class="page-wrap">
-  <div class="layout container" style="display:grid;grid-template-columns:200px 1fr 360px;gap:18px;align-items:start">
-    <div class="left-col">
-      <a class="left-create" href="quizmaker.php">CREATE QUIZ</a>
-      <a class="left-create" href="submissions.php">VIEW SUBMISSIONS</a>
+
+  <!-- PROFILE STRIP WITH EDIT BUTTON -->
+  <div class="profile-strip">
+    <div class="profile-strip-left">
+      <img src="<?php echo htmlspecialchars($avatarUrl); ?>" class="profile-strip-avatar" alt="Avatar">
+      <div>
+        <div class="profile-strip-name"><?php echo htmlspecialchars($displayName); ?></div>
+        <div class="profile-strip-meta">
+          <?php if ($displayEmail): ?><span><?php echo htmlspecialchars($displayEmail); ?></span><?php endif; ?>
+          <?php if ($displayId): ?><span><?php echo htmlspecialchars($displayId); ?></span><?php endif; ?>
+          <?php if ($displayRole): ?><span><?php echo htmlspecialchars(ucfirst($displayRole)); ?></span><?php endif; ?>
+        </div>
+      </div>
+    </div>
+    <button class="profile-strip-btn" id="openProfileModal">
+      <i class="material-icons" style="font-size:16px;">edit</i>
+      Edit Profile
+    </button>
   </div>
+
+  <div class="admin-layout">
+    <!-- LEFT COLUMN -->
+    <div class="left-col">
+      <a class="pill-btn" href="quizmaker.php">
+        <i class="material-icons" style="font-size:18px;">add_circle_outline</i>
+        CREATE QUIZ
+      </a>
+      <a class="pill-btn" href="submissions.php">
+        <i class="material-icons" style="font-size:18px;">assignment</i>
+        VIEW SUBMISSIONS
+      </a>
+    </div>
+
+    <!-- CENTER COLUMN -->
     <div>
-      <div class="quiz-list"><div id="quizzesContainer">
-        <?php if(!empty($dbError)): ?><div class="frame-card">Notice: <?php echo htmlspecialchars($dbError); ?></div><?php endif; ?>
-        <?php if(count($quizzes)===0): ?>
-          <?php if(!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['acc_role']==='admin'): ?>
-            <div class="frame-card">You haven't created any quizzes yet.</div>
-          <?php else: ?>
-            <div class="frame-card">No quizzes found. Click CREATE QUIZ to add one.</div>
-          <?php endif; ?>
+      <div class="quiz-list" id="quizzesContainer">
+        <?php if(!empty($dbError)): ?>
+          <div class="frame-card"><div class="empty-card-text">Notice: <?php echo htmlspecialchars($dbError); ?></div></div>
+        <?php endif; ?>
+
+        <?php if(empty($quizzes)): ?>
+          <div class="frame-card">
+            <div class="empty-card-text">
+              <?php echo $isAdminSignedIn ? 'You haven\'t created any quizzes yet.' : 'No quizzes found. Click CREATE QUIZ to add one.'; ?>
+            </div>
+          </div>
         <?php else: foreach($quizzes as $q): ?>
           <div class="frame-card" data-id="<?php echo (int)$q['id']; ?>">
-            <div style="flex:1;display:flex;gap:12px;align-items:center;">
-              <div style="width:48px;height:48px;border-radius:6px;background:#eef6ff;display:flex;align-items:center;justify-content:center;font-weight:800;color:#0b5ed7;"><?php echo htmlspecialchars($q['code']?:'Q'); ?></div>
-              <div style="flex:1">
+            <div class="quiz-main">
+              <div>
                 <div class="quiz-title"><?php echo htmlspecialchars($q['title']); ?></div>
-                <div class="quiz-dead">DEADLINE: <?php echo $q['deadline']?htmlspecialchars($q['deadline']):'—'; ?></div>
+                <div class="quiz-dead">
+                  DEADLINE: <?php echo $q['deadline'] ? htmlspecialchars($q['deadline']) : '—'; ?>
+                </div>
               </div>
             </div>
-            <div style="display:flex;gap:8px;align-items:center;margin-left:12px;">
-              <a class="open-btn" href="quiz_report.php?id=<?php echo (int)$q['id']; ?>">Open Report</a>
-              <a class="edit-circle" href="quizmaker.php?id=<?php echo (int)$q['id']; ?>" title="Edit"><i class="material-icons">edit</i></a>
+            <div class="quiz-actions">
+              <a class="open-btn" href="quiz_report.php?id=<?php echo (int)$q['id']; ?>">
+                <i class="material-icons" style="font-size:16px;">open_in_new</i>
+                Open
+              </a>
+              </a>
             </div>
           </div>
         <?php endforeach; endif; ?>
-      </div></div>
+      </div>
     </div>
 
+    <!-- RIGHT COLUMN -->
     <div>
-      <?php if(!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['acc_role']==='admin'): ?>
-        <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;background:#fff;padding:10px;border-radius:8px;">
-          <div style="display:flex;gap:10px;align-items:center;">
-            <div style="width:56px;height:56px;border-radius:8px;background:#0b5ed7;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;"><?php echo strtoupper(substr($_SESSION['acc_name'] ?? $_SESSION['acc_id'],0,2)); ?></div>
-            <div><div style="font-weight:700;"><?php echo htmlspecialchars($_SESSION['acc_name'] ?? $_SESSION['acc_id']); ?></div><div style="font-size:13px;color:#666;"><?php echo htmlspecialchars($_SESSION['acc_id']); ?> • <?php echo htmlspecialchars($_SESSION['acc_role']); ?></div></div>
+      <div class="right-top-row">
+        <a href="Students.php" class="edit-students-btn">
+          <i class="material-icons" style="font-size:18px;">group</i>
+          EDIT STUDENTS
+        </a>
+      </div>
+
+      <div class="summary-card">
+        <div class="summary-card-header">Summary</div>
+        <div class="summary-metrics">
+          <div>
+            <small>Total students</small>
+            <span class="value"><?php echo (int)$totalStudents; ?></span>
           </div>
-          <div><a href="Ad_out.php" style="text-decoration:none;padding:8px 10px;border-radius:6px;background:#f8f9fa;color:#333;border:1px solid #ddd;">Sign out</a></div>
-        </div>
-      <?php else: ?>
-        <div style="margin-bottom:12px;text-align:center;background:#fff;padding:12px;border-radius:8px;"><div style="font-weight:700;color:#333;">Not signed in</div><div style="font-size:13px;color:#666;">Please log in to see admin actions.</div></div>
-      <?php endif; ?>
-
-      <div style="display:flex;justify-content:flex-end;margin-bottom:18px;"><a href="Students.php" class="edit-students-btn">EDIT STUDENTS</a></div>
-
-      <div style="background:#fff;padding:12px;border-radius:8px;margin-bottom:12px;">
-        <div style="font-weight:700;margin-bottom:8px;">Summary</div>
-        <div style="display:flex;gap:12px;align-items:center;">
-          <div><div style="font-size:12px;color:#666;">Total students</div><div style="font-weight:700;font-size:18px;"><?php echo (int)$totalStudents; ?></div></div>
-          <div><div style="font-size:12px;color:#666;">Quizzes you created</div><div style="font-weight:700;font-size:18px;"><?php echo (int)$totalCreated; ?></div></div>
-          <div><div style="font-size:12px;color:#666;">Your assigned students</div><div style="font-weight:700;font-size:18px;"><?php echo (int)$teacherStudents; ?></div></div>
+          <div>
+            <small>Quizzes you created</small>
+            <span class="value"><?php echo (int)$totalCreated; ?></span>
+          </div>
+          <div>
+            <small>Your assigned students</small>
+            <span class="value"><?php echo (int)$teacherStudents; ?></span>
+          </div>
         </div>
 
-        <!-- QUIZ PIE CAROUSEL -->
         <div class="glider-contain">
           <div class="glider" id="quizPieCarousel">
             <?php if (empty($quizStats)): ?>
-              <div class="slide"><div style="padding:14px;text-align:center;color:#666">No per-quiz stats available.</div></div>
+              <div class="slide">
+                <div style="padding:14px;text-align:center;color:#666">
+                  No per-quiz stats available yet.
+                </div>
+              </div>
             <?php else: foreach ($quizStats as $qs): ?>
               <div class="slide" style="padding:10px;text-align:center;">
                 <h6 style="margin:6px 0 8px;"><?php echo htmlspecialchars($qs['title']); ?></h6>
                 <canvas id="pie_<?php echo $qs['id']; ?>" class="pie-canvas"></canvas>
-                <div style="font-size:12px; margin-top:8px; color:#444;">
+                <div style="font-size:12px; margin-top:8px; color:#e6f1ff;">
                   Submitted: <b><?php echo $qs['submitted']; ?></b> &nbsp;|&nbsp;
                   Not Submitted: <b><?php echo $qs['not_submitted']; ?></b>
                 </div>
@@ -352,14 +896,123 @@ if ($conn->connect_error) {
   </div>
 </div>
 
+<!-- ===== PROFILE MODAL ===== -->
+<div class="profile-modal-overlay" id="profileModalOverlay">
+  <div class="profile-modal">
+    <div class="profile-modal-close-x" id="profileModalCloseX">&times;</div>
+    <h2>Edit Your Profile</h2>
+    <div class="profile-modal-header-line"></div>
+
+    <form id="profileForm" action="update_profile.php" method="post" enctype="multipart/form-data">
+      <div class="profile-modal-grid">
+        <div class="profile-modal-avatar-wrap">
+          <img src="<?php echo htmlspecialchars($avatarUrl); ?>" alt="Avatar" class="profile-modal-avatar" id="profileModalAvatar">
+          <label class="profile-modal-upload-btn">
+            Upload
+            <input type="file" name="avatar" id="avatarFile" accept="image/*" style="display:none;">
+          </label>
+        </div>
+
+        <div class="profile-modal-fields">
+          <div class="profile-modal-row">
+            <label for="displayName">Display Name</label>
+            <input type="text" id="displayName" name="display_name" class="browser-default"
+                   value="<?php echo htmlspecialchars($displayName); ?>">
+          </div>
+          <div class="profile-modal-row">
+            <label for="currentPwd">Current Password (required to change)</label>
+            <input type="password" id="currentPwd" name="current_password" class="browser-default">
+          </div>
+          <div class="profile-modal-row">
+            <label for="newPwd">New Password</label>
+            <input type="password" id="newPwd" name="new_password" class="browser-default">
+          </div>
+          <div class="profile-modal-row">
+            <label for="confirmPwd">Retype New Password</label>
+            <input type="password" id="confirmPwd" name="confirm_password" class="browser-default">
+          </div>
+
+          <label class="profile-modal-confirm">
+            <input type="checkbox" id="confirmSave">
+            <span>I confirm I want to save these changes</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="profile-modal-footer">
+        <button type="button" class="profile-modal-close-btn" id="profileModalCloseBtn">Cancel</button>
+        <button type="submit" class="profile-modal-save-btn" id="profileModalSaveBtn" disabled>Save Profile</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/glider-js@1/glider.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-
 <script>
 (function(){
-  const BLUE = '#1976d2';
-  const GREY = '#9e9e9e';
+  const BLUE  = '#4ba4ff';
+  const WHITE = '#ffffff';
 
+  // ----- PROFILE MODAL -----
+  const openBtn     = document.getElementById('openProfileModal');
+  const overlay     = document.getElementById('profileModalOverlay');
+  const closeBtn    = document.getElementById('profileModalCloseBtn');
+  const closeX      = document.getElementById('profileModalCloseX');
+  const confirmCb   = document.getElementById('confirmSave');
+  const saveBtn     = document.getElementById('profileModalSaveBtn');
+  const avatarInput = document.getElementById('avatarFile');
+  const avatarImg   = document.getElementById('profileModalAvatar');
+
+  function updateSaveState(on){
+    if (!saveBtn) return;
+    saveBtn.disabled = !on;
+    if (on) saveBtn.classList.add('profile-modal-save-enabled');
+    else    saveBtn.classList.remove('profile-modal-save-enabled');
+  }
+
+  function openModal(){
+    if (!overlay) return;
+    overlay.classList.add('is-open');
+  }
+  function closeModal(){
+    if (!overlay) return;
+    overlay.classList.remove('is-open');
+    if (confirmCb){
+      confirmCb.checked = false;
+      updateSaveState(false);
+    }
+  }
+
+  if(openBtn)  openBtn.addEventListener('click', openModal);
+  if(closeBtn) closeBtn.addEventListener('click', closeModal);
+  if(closeX)   closeX.addEventListener('click', closeModal);
+  if(overlay){
+    overlay.addEventListener('click', function(e){
+      if(e.target === overlay) closeModal();
+    });
+  }
+
+  if(confirmCb){
+    confirmCb.addEventListener('change', function(){
+      updateSaveState(this.checked);
+    });
+  }
+
+  // preview avatar
+  if(avatarInput && avatarImg){
+    avatarInput.addEventListener('change', function(){
+      const file = this.files && this.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e){
+        avatarImg.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ----- GLIDER -----
   const gliderEl = document.querySelector('#quizPieCarousel');
   var gliderInstance = null;
   if (gliderEl) {
@@ -379,48 +1032,73 @@ if ($conn->connect_error) {
     startAutoplay();
   }
 
+  // ----- PIE CHARTS (blue + white) -----
   <?php foreach ($quizStats as $qs): ?>
-    (function(){
-      const submitted = <?php echo (int)$qs['submitted']; ?>;
-      const notSubmitted = <?php echo (int)$qs['not_submitted']; ?>;
-      const ctx = document.getElementById('pie_<?php echo $qs['id']; ?>');
-      if (!ctx) return;
-      const total = submitted + notSubmitted;
-      new Chart(ctx.getContext('2d'), {
-        type: 'pie',
-        data: {
-          labels: ['Submitted','Not Submitted'],
-          datasets: [{ data: [submitted, notSubmitted], backgroundColor: [BLUE, GREY], hoverOffset: 8 }]
+  (function(){
+    const submitted    = <?php echo (int)$qs['submitted']; ?>;
+    const notSubmitted = <?php echo (int)$qs['not_submitted']; ?>;
+    const canvas       = document.getElementById('pie_<?php echo $qs['id']; ?>');
+    if (!canvas) return;
+    const total = submitted + notSubmitted;
+
+    const ctx = canvas.getContext('2d');
+    new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels: ['Submitted','Not Submitted'],
+        datasets: [{
+          data: [submitted, notSubmitted],
+          backgroundColor: [BLUE, WHITE],
+          borderColor: '#050816',
+          borderWidth: 2,
+          hoverOffset: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: {
+          animateRotate:true,
+          animateScale:true,
+          duration:800,
+          easing:'easeOutQuart'
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: { animateRotate:true, animateScale:true, duration:800, easing:'easeOutQuart' },
-          plugins: {
-            legend: { display: true, position: 'bottom' },
-            tooltip: {
-              enabled: true,
-              callbacks: {
-                label: function(context) {
-                  const label = context.label || '';
-                  const value = context.parsed || 0;
-                  const percent = total > 0 ? ((value/total)*100).toFixed(1) : '0.0';
-                  return label + ': ' + value + ' (' + percent + '%)';
-                }
+        plugins: {
+          legend: {
+            display: true,
+            position: 'bottom',
+            labels: {
+              color: '#e6f1ff',
+              font: { size: 11 }
+            }
+          },
+          tooltip: {
+            enabled: true,
+            bodyColor:'#050816',
+            backgroundColor:'#e6f1ff',
+            titleColor:'#050816',
+            callbacks: {
+              label: function(context) {
+                const label   = context.label || '';
+                const value   = context.parsed || 0;
+                const percent = total > 0 ? ((value/total)*100).toFixed(1) : '0.0';
+                return label + ': ' + value + ' (' + percent + '%)';
               }
             }
           }
         }
-      });
-    })();
+      }
+    });
+  })();
   <?php endforeach; ?>
 
+  // clickable quiz card (except action area)
   document.querySelectorAll('#quizzesContainer .frame-card').forEach(card=>{
     const id = card.dataset.id;
     if(id){
       card.style.cursor='pointer';
       card.addEventListener('click',(e)=>{
-        if(e.target.closest('.edit-circle')||e.target.closest('a')) return;
+        if(e.target.closest('.quiz-actions')) return;
         window.location.href='quiz_report.php?id='+id;
       });
     }
@@ -429,6 +1107,5 @@ if ($conn->connect_error) {
 })();
 </script>
 
-<?php include('templates/footer.php'); ?>
 </body>
 </html>
