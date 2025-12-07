@@ -437,7 +437,17 @@ a.btn-ghost:hover i.material-icons {
   color: #fff !important;
 }
 
-
+/* Force avatars to be perfect circles */
+.avatar-large,
+.avatar-preview {
+  border-radius: 50% !important;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+.avatar-preview-wrap {
+  border-radius: 50%;
+  overflow: hidden;
+}
 </style>
 
 <script>
@@ -466,8 +476,7 @@ document.addEventListener('DOMContentLoaded', function () {
     fileLabel.addEventListener('keydown', function(e){
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); avatarInput.click(); }
     });
-    // clicking the label should open file picker
-    fileLabel.addEventListener('click', function(e){ if (avatarInput) avatarInput.click(); });
+
   }
 
   const resetBtn = document.getElementById('formResetBtn');
