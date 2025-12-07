@@ -44,7 +44,7 @@ if (!empty($_SESSION['acc_id']) && !empty($_SESSION['acc_role']) && $_SESSION['a
   /* Carousel Section */
   .hero-carousel {
     position: relative;
-    background: url('assets/island.jpg') center/cover fixed no-repeat;
+    /* background: url('assets/island.jpg') center/cover fixed no-repeat; */
     padding: 80px 0;
   }
   .hero-carousel .overlay-bg {

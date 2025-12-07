@@ -1,9 +1,36 @@
 <?php
 // admin.php
 
-include('templates/header.php');
+// Start session first
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
+// include header (you may want header shown even for not-signed-in users)
+include('templates/header.php');
+
+// Quick login check: prevent quizzes / DB from loading if user not signed in
+$isLoggedIn = !empty($_SESSION['acc_id']);
+if (!$isLoggedIn) {
+    // If you prefer to redirect, uncomment the header() redirect block below.
+    // But note: because we've already included header.php (which often outputs HTML),
+    // a redirect may fail if headers were already sent. The echo fallback is robust.
+
+    // if (!headers_sent()) {
+    //     header('Location: login.php');
+    //     exit;
+    // }
+
+    // Show a user-friendly notice and stop further processing so quizzes won't load
+    echo '<div class="page-wrap" style="padding:28px;max-width:900px;margin:40px auto;">';
+    echo '<div style="background:#fff;padding:20px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.04);text-align:center;">';
+    echo '<h2 style="margin:0 0 8px;font-size:20px;">You are not signed in</h2>';
+    echo '<p style="color:#666;margin:0 0 16px;">Please log in to access quizzes and admin features.</p>';
+    echo '</div></div>';
+
+    include('templates/footer.php');
+    exit;
+}
+
+// Logged in — continue normally
 $host='localhost'; $user='root'; $pass=''; $db='airlines';
 $conn = new mysqli($host,$user,$pass,$db);
 
@@ -13,6 +40,8 @@ $totalStudents = 0;
 $totalCreated = 0;
 $teacherStudents = 0;
 $quizStats = [];
+
+// ... rest of your existing code remains unchanged ...
 
 if ($conn->connect_error) {
     $dbError = $conn->connect_error;
@@ -218,6 +247,7 @@ if ($conn->connect_error) {
     }
 }
 ?>
+
 <!doctype html>
 <html>
 <head>
