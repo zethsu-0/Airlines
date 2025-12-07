@@ -92,6 +92,92 @@ if (isset($_GET['id']) && $_GET['id'] !== '') {
     $editPublicId = preg_replace('/[^a-zA-Z0-9]/', '', $_GET['id']);
 }
 
+// ----------- SECTIONS FOR DROPDOWN (prefer sections assigned to the logged-in teacher) -----------
+$sectionOptionsHtml = '<option value="" disabled selected>Select section</option>';
+$sectionsList = [];
+
+$conn = $conn ?? null; // keep existing $conn usage from your file
+if (!isset($conn) || $conn === null) {
+    $conn = new mysqli($host, $user, $pass, $db);
+}
+
+$adminIdRaw = isset($_SESSION['acc_id']) ? (string) $_SESSION['acc_id'] : '';
+$adminIdEsc  = $conn->real_escape_string($adminIdRaw);
+
+// helper to check column existence
+function columnExists($conn, $table, $col) {
+    $t = $conn->real_escape_string($table);
+    $c = $conn->real_escape_string($col);
+    $r = $conn->query("SHOW COLUMNS FROM `{$t}` LIKE '{$c}'");
+    return ($r && $r->num_rows > 0);
+}
+
+if (!$conn->connect_error) {
+
+    // 1) Try: sections where students.teacher_id matches logged-in admin
+    if (columnExists($conn, 'students', 'section') && columnExists($conn, 'students', 'teacher_id') && $adminIdRaw !== '') {
+        // use prepared statement: check exact match OR comma-separated list (FIND_IN_SET)
+        $sql = "SELECT DISTINCT `section` AS sec
+                FROM `students`
+                WHERE `section` IS NOT NULL AND `section` <> ''
+                  AND ( `teacher_id` = ? OR FIND_IN_SET(?, `teacher_id`) )
+                ORDER BY sec ASC";
+        if ($stmt = $conn->prepare($sql)) {
+            // bind twice for the two placeholders
+            $stmt->bind_param('ss', $adminIdRaw, $adminIdRaw);
+            if ($stmt->execute()) {
+                $res = $stmt->get_result();
+                while ($r = $res->fetch_assoc()) {
+                    $name = trim($r['sec']);
+                    if ($name === '') continue;
+                    if (in_array($name, $sectionsList)) continue;
+                    $sectionsList[] = $name;
+                    $sectionOptionsHtml .= '<option value="' . htmlspecialchars($name) . '">' . htmlspecialchars($name) . '</option>';
+                }
+                $res->free();
+            }
+            $stmt->close();
+        }
+    }
+
+    // 2) If nothing found for teacher_id, try canonical sections table if present
+    if (empty($sectionsList) && columnExists($conn, 'sections', 'name')) {
+        $q = "SELECT `name` FROM `sections` ORDER BY `name` ASC";
+        if ($res = $conn->query($q)) {
+            while ($r = $res->fetch_assoc()) {
+                $name = trim($r['name']);
+                if ($name === '') continue;
+                if (in_array($name, $sectionsList)) continue;
+                $sectionsList[] = $name;
+                $sectionOptionsHtml .= '<option value="' . htmlspecialchars($name) . '">' . htmlspecialchars($name) . '</option>';
+            }
+            $res->free();
+        }
+    }
+
+    // 3) Final fallback: distinct `from` in quizzes (existing behavior)
+    if (empty($sectionsList)) {
+        $q2 = "SELECT DISTINCT `from` AS sec FROM quizzes WHERE `from` IS NOT NULL AND `from` <> '' ORDER BY sec ASC";
+        if ($res2 = $conn->query($q2)) {
+            while ($r2 = $res2->fetch_assoc()) {
+                $name = trim($r2['sec']);
+                if ($name === '') continue;
+                if (in_array($name, $sectionsList)) continue;
+                $sectionsList[] = $name;
+                $sectionOptionsHtml .= '<option value="' . htmlspecialchars($name) . '">' . htmlspecialchars($name) . '</option>';
+            }
+            $res2->free();
+        }
+    }
+
+} else {
+    // DB down fallback defaults
+    $sectionOptionsHtml .= '<option value="Section A">Section A</option>';
+    $sectionOptionsHtml .= '<option value="PHY101">PHY101</option>';
+}
+
+// $sectionOptionsHtml now contains the <option> list you can echo in the select
+
 
 ?>
 <!doctype html>
@@ -294,6 +380,9 @@ if (isset($_GET['id']) && $_GET['id'] !== '') {
       border-bottom: 2px solid #e53935 !important;
       box-shadow: 0 1px 0 0 #e53935 !important;
     }
+
+
+    
   </style>
 </head>
 <body>
@@ -375,11 +464,14 @@ if (isset($_GET['id']) && $_GET['id'] !== '') {
               <span class="helper-text">e.g. Midterm Exam — Physics</span>
             </div>
 
-            <div class="input-field">
-              <input id="sectionField" type="text"  autocomplete="off">
-              <label for="sectionField">Section / Course</label>
-              <span class="helper-text">e.g. PHY101 or Section A</span>
-            </div>
+<div class="input-field">
+  <select id="sectionField">
+    <?php echo $sectionOptionsHtml; ?>
+  </select>
+  <label for="sectionField">Section / Course</label>
+  <span class="helper-text">Select a course or section — e.g. PHY101 or Section A</span>
+</div>
+
           </div>
                 <!-- QUESTION DIRECTION: IATA <-> AIRPORT -->
           <div style="margin-bottom:8px">
@@ -2185,15 +2277,16 @@ async function saveQuiz(redirect=false){
     quiz_id:   isEditing ? editPublicId : null,
     action:    isEditing ? 'edit'    : 'create',
     mode:      isEditing ? 'edit'    : 'create',
-    input_type: inputType,          // ✅ sent to PHP
+    input_type: inputType,
 
     title:         title,
     items:         items,
-    from:          fromSection,
+    section:        fromSection,   // <-- send 'section' (canonical)
     num_questions: 0,
     code: isEditing && window.currentQuizCode ? window.currentQuizCode : genRef(),
     questions: []
   };
+
 
   M.toast({html: isEditing ? 'Updating quiz...' : 'Saving quiz...'});
   console.log('Saving payload:', payload);
@@ -2560,7 +2653,8 @@ document.addEventListener('DOMContentLoaded', function(){
       const sectionEl = document.getElementById('sectionField');
 
       if (titleEl)  titleEl.value  = q.title || '';
-      if (sectionEl) sectionEl.value = q.from || '';
+      if (sectionEl) sectionEl.value = q.section || q.from || '';
+
 
       // update floating labels
       M.updateTextFields();
