@@ -207,61 +207,159 @@ if ($conn->connect_error) {
 $conn->set_charset('utf8mb4');
 
 // ---------------------------------------------
-// Build main query
+// Build main query (robust student section lookup + strict section-only filtering)
 // ---------------------------------------------
 $quizzes = [];
+$student_section = null;
 
 if ($currentAccId !== null && $currentAccId !== '') {
-
-    $sql = "
-      SELECT
-        q.id AS quiz_id,
-        q.public_id,
-        q.title,
-        q.quiz_code AS code,
-        '' AS deadline,
-        COALESCE(q.duration, 0) AS duration,
-
-        COUNT(sf.id) AS submission_count,
-        MIN(sf.submitted_at) AS submitted_at,
-
-        COUNT(DISTINCT qi.id) AS num_items
-      FROM quizzes q
-      LEFT JOIN quiz_items qi 
-        ON qi.quiz_id = q.id
-      LEFT JOIN submitted_flights sf
-        ON sf.quiz_id = q.id
-      AND sf.acc_id = ?
-      GROUP BY q.id
-      ORDER BY q.created_at DESC
-    ";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
-    }
-    $stmt->bind_param('s', $currentAccId);
-    $stmt->execute();
-    $res = $stmt->get_result();
-    while ($row = $res->fetch_assoc()) {
-        $quizzes[] = $row;
-    }
-    $stmt->close();
-
-    $dbg = $conn->prepare("SELECT DISTINCT quiz_id FROM submitted_flights WHERE acc_id = ?");
-    if ($dbg) {
-        $dbg->bind_param('s', $currentAccId);
-        $dbg->execute();
-        $dbgRes = $dbg->get_result();
-        $ids = [];
-        while ($r = $dbgRes->fetch_assoc()) {
-            $ids[] = $r['quiz_id'];
+    // --- (1) Discover students table columns and try to locate the student's section ---
+    $colsRes = $conn->query("SHOW COLUMNS FROM students");
+    $studentsCols = [];
+    if ($colsRes) {
+        while ($c = $colsRes->fetch_assoc()) {
+            $studentsCols[] = $c['Field'];
         }
-        $dbg->close();
-        echo "<!-- DEBUG quiz_ids in submitted_flights for acc_id '{$currentAccId}': " . htmlspecialchars(implode(',', $ids)) . " -->\n";
+        $colsRes->free();
+    }
+
+    // Candidate id columns we might match against session id
+    $idCandidates = ['acc_id','student_id','id','user_id','account_id'];
+    $foundIdCols = array_values(array_intersect($idCandidates, $studentsCols));
+
+    if (!empty($foundIdCols)) {
+        // Build prepared statement like: WHERE (col1 = ? OR col2 = ?) LIMIT 1
+        $whereParts = [];
+        foreach ($foundIdCols as $col) $whereParts[] = "{$col} = ?";
+        $whereSql = '(' . implode(' OR ', $whereParts) . ') LIMIT 1';
+
+        $secSql = "SELECT section FROM students WHERE $whereSql";
+        $secStmt = $conn->prepare($secSql);
+        if ($secStmt) {
+            $types = str_repeat('s', count($foundIdCols));
+            $params = array_fill(0, count($foundIdCols), $currentAccId);
+            $bindNames = array_merge([$types], $params);
+            $tmp = [];
+            foreach ($bindNames as $k => $v) $tmp[$k] = &$bindNames[$k];
+            call_user_func_array([$secStmt, 'bind_param'], $tmp);
+            $secStmt->execute();
+            $secRes = $secStmt->get_result();
+            if ($r = $secRes->fetch_assoc()) {
+                $student_section = isset($r['section']) ? trim((string)$r['section']) : null;
+            }
+            $secStmt->close();
+        } else {
+            error_log("Failed to prepare students section lookup: " . $conn->error);
+            echo "<!-- DEBUG: failed to prepare students section lookup: " . htmlspecialchars($conn->error) . " -->\n";
+        }
+    } else {
+        // fallback: try matching by name-like column if we have acc_name in session
+        $nameCandidates = ['name','fullname','student_name','acc_name','full_name'];
+        $foundNameCols = array_values(array_intersect($nameCandidates, $studentsCols));
+        if (!empty($foundNameCols) && !empty($_SESSION['acc_name'])) {
+            $nameCol = $foundNameCols[0];
+            $secStmt = $conn->prepare("SELECT section FROM students WHERE {$nameCol} = ? LIMIT 1");
+            if ($secStmt) {
+                $secStmt->bind_param('s', $_SESSION['acc_name']);
+                $secStmt->execute();
+                $secRes = $secStmt->get_result();
+                if ($r = $secRes->fetch_assoc()) {
+                    $student_section = isset($r['section']) ? trim((string)$r['section']) : null;
+                }
+                $secStmt->close();
+            }
+        } else {
+            echo "<!-- DEBUG: students table columns: " . htmlspecialchars(json_encode($studentsCols)) . " -->\n";
+        }
+    }
+
+    // --- (2) Collect distinct quiz.section values for debugging so you can inspect data format ---
+    $sectionsForDebug = [];
+    $secQ = $conn->query("SELECT DISTINCT TRIM(section) AS sec FROM quizzes");
+    if ($secQ) {
+        while ($s = $secQ->fetch_assoc()) {
+            $sectionsForDebug[] = $s['sec'];
+        }
+        $secQ->free();
+    }
+
+    echo "<!-- DEBUG currentAccId=" . htmlspecialchars($currentAccId) . " student_section=" . htmlspecialchars((string)$student_section) . " quiz_sections=" . htmlspecialchars(json_encode($sectionsForDebug)) . " -->\n";
+
+    // --- (3) Strict: only quizzes explicitly assigned to the student's section (no global quizzes) ---
+    if (!empty($student_section)) {
+        // Normalize student section values we will pass to SQL:
+        $lowerSection = mb_strtolower(trim($student_section), 'UTF-8'); // used for case-insensitive equality
+        // normalized for FIND_IN_SET: remove spaces and convert semicolons to commas
+        $forFindInSet = str_replace(' ', '', str_replace(';', ',', trim($student_section)));
+
+        $sql = "
+          SELECT
+            q.id AS quiz_id,
+            q.public_id,
+            q.title,
+            q.quiz_code AS code,
+            '' AS deadline,
+            COALESCE(q.duration, 0) AS duration,
+
+            COUNT(sf.id) AS submission_count,
+            MIN(sf.submitted_at) AS submitted_at,
+
+            COUNT(DISTINCT qi.id) AS num_items,
+            q.section AS raw_section
+          FROM quizzes q
+          LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
+          LEFT JOIN submitted_flights sf ON sf.quiz_id = q.id AND sf.acc_id = ?
+          WHERE (
+            LOWER(TRIM(q.section)) = ?
+            OR FIND_IN_SET(?, REPLACE(REPLACE(q.section, ' ', ''), ';', ','))
+          )
+          GROUP BY q.id
+          ORDER BY q.created_at DESC
+        ";
+
+        $stmt = $conn->prepare($sql);
+        if (!$stmt) {
+            die('<div style="padding:20px; color:darkred">Query prepare failed: ' . htmlspecialchars($conn->error) . '</div>');
+        }
+
+        // Bind parameters: acc_id (for left-joined submitted_flights), lowerSection (equality), forFindInSet (FIND_IN_SET)
+        $stmt->bind_param('sss', $currentAccId, $lowerSection, $forFindInSet);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $quizzes = []; // reset to only strictly-matching quizzes
+        while ($row = $res->fetch_assoc()) {
+            $row['raw_section'] = isset($row['raw_section']) ? trim($row['raw_section']) : '';
+            $quizzes[] = $row;
+        }
+        $stmt->close();
+
+        // Debug matched quizzes
+        $dbgList = [];
+        foreach ($quizzes as $qq) {
+            $dbgList[] = ['id' => $qq['quiz_id'], 'title' => $qq['title'], 'section' => $qq['raw_section']];
+        }
+        echo "<!-- DEBUG strict_matched_quizzes=" . htmlspecialchars(json_encode($dbgList)) . " -->\n";
+
+        // Also keep existing submitted_flights debug (unchanged)
+        $dbg = $conn->prepare("SELECT DISTINCT quiz_id FROM submitted_flights WHERE acc_id = ?");
+        if ($dbg) {
+            $dbg->bind_param('s', $currentAccId);
+            $dbg->execute();
+            $dbgRes = $dbg->get_result();
+            $ids = [];
+            while ($r = $dbgRes->fetch_assoc()) $ids[] = $r['quiz_id'];
+            $dbg->close();
+            echo "<!-- DEBUG submitted_quiz_ids_for_acc_id=" . htmlspecialchars($currentAccId) . ": " . htmlspecialchars(implode(',', $ids)) . " -->\n";
+        }
+
+    } else {
+        // Student section not found — return no quizzes (strict behavior)
+        $quizzes = [];
+        echo "<!-- DEBUG: No student_section found for acc_id=" . htmlspecialchars($currentAccId) . " — returning NO quizzes (strict mode) -->\n";
     }
 
 } else {
+    // Not logged in: original behavior (show all quizzes)
     $sql = "
       SELECT
         q.id AS quiz_id,
@@ -272,21 +370,25 @@ if ($currentAccId !== null && $currentAccId !== '') {
         COALESCE(q.duration, 0) AS duration,
         0 AS submission_count,
         NULL AS submitted_at,
-        COUNT(DISTINCT qi.id) AS num_items
+        COUNT(DISTINCT qi.id) AS num_items,
+        q.section AS raw_section
       FROM quizzes q
       LEFT JOIN quiz_items qi ON qi.quiz_id = q.id
       GROUP BY q.id
       ORDER BY q.created_at DESC
     ";
     $res = $conn->query($sql);
-    if (!$res) {
-        die('<div style="padding:20px; color:darkred">Query failed: ' . htmlspecialchars($conn->error) . '</div>');
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $row['raw_section'] = isset($row['raw_section']) ? trim($row['raw_section']) : '';
+            $quizzes[] = $row;
+        }
+        $res->free();
     }
-    while ($row = $res->fetch_assoc()) {
-        $quizzes[] = $row;
-    }
-    $res->free();
 }
+
+
+
 
 // ---------------------------------------------
 // Load submitted_flights per quiz for this student
