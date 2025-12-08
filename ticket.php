@@ -404,9 +404,9 @@ if (count($allSegments) > 0) {
         $dst = $seg['destination'] ?: '---';
         $date = trim($seg['date'] ?? '');
         if ($date !== '') {
-            $segmentStrings[] = "segment {$i} from {$org} to {$dst} on {$date}";
+            $segmentStrings[] = "Flight {$i} from {$org} to {$dst} on {$date}";
         } else {
-            $segmentStrings[] = "segment {$i} from {$org} to {$dst}";
+            $segmentStrings[] = "Flight {$i} from {$org} to {$dst}";
         }
         $i++;
     }
@@ -434,8 +434,7 @@ if ($inputType === 'airport-code') {
 $descriptionText =
     "You are assisting {$passengerPhrase} on {$flightTypePhrase}. " .
     "The itinerary consists of {$routePhrase}. " .
-    "{$classSentence} " .
-    $instructionSentence;
+    "{$classSentence} ";
 
 // firstDeadline & expected_answer
 $firstDeadline = '';
@@ -687,89 +686,90 @@ $flight = [
       <div class="card center">
         <h4>PROMPT</h4>
         <?php if ($descObj): ?>
-  <?php
-    $pax = $descObj['passengers'] ?? ['adults' => 0, 'children' => 0, 'infants' => 0];
-    $totalPax = ($pax['adults'] ?? 0) + ($pax['children'] ?? 0) + ($pax['infants'] ?? 0);
-  ?>
+          <?php
+            $pax = $descObj['passengers'] ?? ['adults' => 0, 'children' => 0, 'infants' => 0];
+            $totalPax = ($pax['adults'] ?? 0) + ($pax['children'] ?? 0) + ($pax['infants'] ?? 0);
+          ?>
 
-  <div class="prompt-layout">
-    <!-- Narrative description -->
-    <div class="prompt-description-text">
-      <?php echo nl2br(htmlspecialchars($descObj['description'])); ?>
-    </div>
+            <div class="prompt-layout ">
+              <!-- Narrative description -->
+              <div class="prompt-description-text">
+                <?php echo nl2br(htmlspecialchars($descObj['description'])); ?>
+              </div>
 
-    <!-- Chips: flight type, passengers, class of service, deadline -->
-    <div class="prompt-meta-row">
-      <span class="prompt-chip">
-        <span class="prompt-chip-label">Flight type</span>
-        <span class="prompt-chip-value">
-          <?php echo htmlspecialchars($descObj['flight_type'] ?? ''); ?>
-        </span>
-      </span>
+              <!-- Chips: flight type, passengers, class of service, deadline -->
+              <div class="container center" style="padding: 0;">
+                <div class="prompt-meta-row center">
+                  <span class="prompt-chip">
+                    <span class="prompt-chip-label">Flight type</span>
+                    <span class="prompt-chip-value">
+                      <?php echo htmlspecialchars($descObj['flight_type'] ?? ''); ?>
+                    </span>
+                  </span>
 
-      <span class="prompt-chip">
-        <span class="prompt-chip-label">Passengers</span>
-        <span class="prompt-chip-value">
-          <?php echo (int)$totalPax; ?> pax
-          (<?php echo (int)$pax['adults']; ?>A,
-           <?php echo (int)$pax['children']; ?>C,
-           <?php echo (int)$pax['infants']; ?>I)
-        </span>
-      </span>
+                  <span class="prompt-chip">
+                    <span class="prompt-chip-label">Passengers</span>
+                    <span class="prompt-chip-value">
+                      <?php echo (int)$totalPax; ?> pax
+                      (<?php echo (int)$pax['adults']; ?>A,
+                      <?php echo (int)$pax['children']; ?>C,
+                      <?php echo (int)$pax['infants']; ?>I)
+                    </span>
+                  </span>
 
-      <span class="prompt-chip">
-        <span class="prompt-chip-label">Class</span>
-        <span class="prompt-chip-value">
-          <?php echo htmlspecialchars($descObj['class_of_service'] ?? ''); ?>
-        </span>
-      </span>
+                  <span class="prompt-chip">
+                    <span class="prompt-chip-label">Class</span>
+                    <span class="prompt-chip-value">
+                      <?php echo htmlspecialchars($descObj['class_of_service'] ?? ''); ?>
+                    </span>
+                  </span>
 
-      <span class="prompt-chip">
-        <span class="prompt-chip-label">Items</span>
-        <span class="prompt-chip-value">
-          <?php echo (int)($descObj['itemsCount'] ?? 0); ?>
-        </span>
-      </span>
+                  <!-- <span class="prompt-chip">
+                    <span class="prompt-chip-label">Items</span>
+                    <span class="prompt-chip-value">
+                      <?php echo (int)($descObj['itemsCount'] ?? 0); ?>
+                    </span>
+                  </span> -->
 
-      <?php if (!empty($descObj['firstDeadline'])): ?>
-        <span class="prompt-chip">
-          <span class="prompt-chip-label">First deadline</span>
-          <span class="prompt-chip-value">
-            <?php echo htmlspecialchars($descObj['firstDeadline']); ?>
-          </span>
-        </span>
-      <?php endif; ?>
-    </div>
-
-    <!-- Segments + instruction -->
-    <div class="prompt-sections">
-      <?php if (!empty($descObj['segments']) && is_array($descObj['segments'])): ?>
-        <div>
-          <div class="prompt-section-title">Trip segments</div>
-          <ul class="prompt-segment-list">
-            <?php foreach ($descObj['segments'] as $idx => $seg): ?>
-              <?php
-                $org  = strtoupper(trim($seg['origin'] ?? '---'));
-                $dst  = strtoupper(trim($seg['destination'] ?? '---'));
-                $date = trim($seg['date'] ?? '');
-              ?>
-              <li class="prompt-segment-item">
-                <div class="prompt-segment-bullet"></div>
-                <div class="prompt-segment-body">
-                  <div class="prompt-segment-route">
-                    Segment <?php echo $idx + 1; ?>: <?php echo $org; ?> → <?php echo $dst; ?>
-                  </div>
-                  <?php if ($date !== ''): ?>
-                    <div class="prompt-segment-date">
-                      Date: <?php echo htmlspecialchars($date); ?>
-                    </div>
-                  <?php endif; ?>
+                  <!-- <?php if (!empty($descObj['firstDeadline'])): ?>
+                    <span class="prompt-chip">
+                      <span class="prompt-chip-label">First deadline</span>
+                      <span class="prompt-chip-value">
+                        <?php echo htmlspecialchars($descObj['firstDeadline']); ?>
+                      </span>
+                    </span>
+                  <?php endif; ?> -->
                 </div>
-              </li>
-            <?php endforeach; ?>
-          </ul>
-        </div>
-      <?php endif; ?>
+              </div>
+              <!-- Segments + instruction -->
+              <div class="prompt-sections">
+                <?php if (!empty($descObj['segments']) && is_array($descObj['segments'])): ?>
+                  <div>
+                    <div class="prompt-section-title">Flights</div>
+                    <ul class="prompt-segment-list">
+                      <?php foreach ($descObj['segments'] as $idx => $seg): ?>
+                        <?php
+                          $org  = strtoupper(trim($seg['origin'] ?? '---'));
+                          $dst  = strtoupper(trim($seg['destination'] ?? '---'));
+                          $date = trim($seg['date'] ?? '');
+                        ?>
+                        <li class="prompt-segment-item">
+                          <div class="prompt-segment-bullet"></div>
+                          <div class="prompt-segment-body">
+                            <div class="prompt-segment-route">
+                              Flight <?php echo $idx + 1; ?>: <?php echo $org; ?> → <?php echo $dst; ?>
+                            </div>
+                            <?php if ($date !== ''): ?>
+                              <div class="prompt-segment-date">
+                                Date: <?php echo htmlspecialchars($date); ?>
+                              </div>
+                            <?php endif; ?>
+                          </div>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
+                <?php endif; ?>
 
               <div>
                 <div class="prompt-section-title">What you need to do</div>
@@ -858,7 +858,7 @@ $flight = [
           <!-- MULTI-CITY: dynamic legs editor (hidden by default) -->
           <div id="multiLegsWrap" style="display:none; width:100%; margin-top:10px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <div style="font-weight:700">Multi-city legs</div>
+              <div style="font-weight:700">Multi-city Flight</div>
               <div>
                 <button type="button" id="addLegBtn" class="btn btn-small">ADD FLIGHT</button>
               </div>
@@ -866,10 +866,6 @@ $flight = [
 
             <div id="legsList">
               <!-- JS will create .leg-row entries here -->
-            </div>
-
-            <div style="margin-top:10px; color:#666; font-size:0.95em;">
-              Add multiple legs. Each leg has a visible label (IATA or airport name depending on quiz) and a hidden IATA value saved with the booking.
             </div>
           </div>
         </div>
@@ -988,8 +984,10 @@ $flight = [
           First: rows 1–6 (1–2–1), Business: 7–20 (1–2–1), Premium: 25–27 (2–4–2), Economy: 30–40 (3–4–3)
         </p>
 
-        <div id="cabinContainer"></div>
-        <div id="seatMap" class="seat-map" aria-label="Seat map" role="application"></div>
+        <div class="seat-map-wrapper">
+          <div id="cabinContainer"></div>
+          <div id="seatMap" class="seat-map" aria-label="Seat map" role="application"></div>
+        </div>
 
         <div class="legend">
           <span><span class="box selected"></span> Selected</span>
@@ -1281,15 +1279,15 @@ $flight = [
     wrap.innerHTML = `
       <div style="flex:1;">
         <div class="input-field">
-          <input type="text" class="leg-origin-display" id="leg_origin_display_${idx}_${legIndex}" placeholder="Origin (IATA or name)">
-          <label for="leg_origin_display_${idx}_${legIndex}">Leg origin</label>
+          <input type="text" class="leg-origin-display" id="leg_origin_display_${idx}_${legIndex}">
+          <label for="leg_origin_display_${idx}_${legIndex}">Origin</label>
           <input type="hidden" class="leg-origin-iata" id="leg_origin_iata_${idx}_${legIndex}" name="leg_origin_iata[]">
         </div>
       </div>
       <div style="flex:1;">
         <div class="input-field">
-          <input type="text" class="leg-destination-display" id="leg_dest_display_${idx}_${legIndex}" placeholder="Destination (IATA or name)">
-          <label for="leg_dest_display_${idx}_${legIndex}">Leg destination</label>
+          <input type="text" class="leg-destination-display" id="leg_dest_display_${idx}_${legIndex}" >
+          <label for="leg_dest_display_${idx}_${legIndex}">Destination</label>
           <input type="hidden" class="leg-destination-iata" id="leg_dest_iata_${idx}_${legIndex}" name="leg_destination_iata[]">
         </div>
       </div>
@@ -2039,6 +2037,48 @@ $flight = [
 
 
     });
+
+document.addEventListener('DOMContentLoaded', function () {
+  const promptWrapper = document.querySelector('.prompt-card');
+  if (!promptWrapper) return;
+
+  let stickPoint = 0;
+  let spacer = null;
+
+  function recalc() {
+    const rectTop = promptWrapper.getBoundingClientRect().top + window.scrollY;
+    const height = promptWrapper.offsetHeight || 0;
+
+    // stick when the MIDDLE of the prompt reaches the top of the screen
+    stickPoint = rectTop + height / 2;
+
+    if (!spacer) {
+      spacer = document.createElement('div');
+      promptWrapper.parentNode.insertBefore(spacer, promptWrapper);
+    }
+    spacer.style.height = height + 'px';
+    spacer.style.display = promptWrapper.classList.contains('is-stuck') ? 'block' : 'none';
+  }
+
+  recalc();
+  window.addEventListener('resize', recalc);
+
+  function onScroll() {
+    if (window.scrollY > stickPoint) {
+      if (!promptWrapper.classList.contains('is-stuck')) {
+        promptWrapper.classList.add('is-stuck');
+        if (spacer) spacer.style.display = 'block';
+      }
+    } else {
+      if (promptWrapper.classList.contains('is-stuck')) {
+        promptWrapper.classList.remove('is-stuck');
+        if (spacer) spacer.style.display = 'none';
+      }
+    }
+  }
+
+  window.addEventListener('scroll', onScroll);
+});
 </script>
 
 
@@ -2090,19 +2130,48 @@ body {
 }
 
 /* ============= PROMPT CARD (TOP) ============= */
-
+/* ===== PROMPT CARD BASE (normal, inside layout) ===== */
 .prompt-card {
-  max-width: 900px;
+  max-width: 100% ;
   margin: 10px auto 24px;
+  transition: all 0.25s ease;
 }
 
+/* the card itself (keep your existing styling if you already have) */
+.prompt-card .card {
+  transition: all 0.25s ease;
+}
+
+/* ===== WHEN STUCK (full-width fixed header) ===== */
+.prompt-card.is-stuck {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  margin: 0;
+  z-index: 1000;
+}
+
+/* make inner card fill the width when stuck */
+.prompt-card.is-stuck .card {
+  max-width: 100%;
+  border-radius: 0 0 18px 18px;
+  margin: 0;
+}
+.prompt-card.is-stuck .prompt-description-text, .prompt-card.is-stuck .prompt-instruction, .prompt-card.is-stuck .prompt-section-title,.prompt-card.is-stuck h4{
+  display: none;
+  margin: 0 !important;
+}
+.prompt-card.is-stuck.container{
+  padding-top: 0 !important;
+}
 .prompt-card .card {
   /* background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%); */
   background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
   border-radius: 18px;
   border: 1px solid rgba(250, 204, 21, 0.25);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
-  padding: 18px 20px 18px;
+  padding: 10px 20px 10px ;
   text-align: left;
   position: relative;
 }
@@ -2142,6 +2211,7 @@ body {
   margin-top: 10px;
   margin-bottom: 6px;
   font-size: 0.78rem;
+  justify-content: center;
 }
 
 .prompt-chip {
@@ -2256,7 +2326,9 @@ body {
   color: #facc15 !important;
   font-size: 0.9rem;
 }
-
+.is-stuck .prompt-segment-list{
+  display: flex;
+}
 /* ============= FLIGHT FORM CARD (ROUTE SELECTOR) ============= */
 
 .bg-container {
@@ -2325,20 +2397,168 @@ body {
   color: #facc15;
 }
 
-/* Multi-city header */
+/* ================== MULTI-CITY PANEL ================== */
 #multiLegsWrap {
-  border-radius: 14px;
-  border: 1px dashed rgba(148, 163, 184, 0.7);
-  padding: 10px 12px;
-  background: rgba(15, 23, 42, 0.8);
+  position: relative;
+  overflow: hidden;
 }
 
+/* subtle top glow line */
+#multiLegsWrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* header row: title + ADD FLIGHT button */
 #multiLegsWrap > div:first-child {
-  font-size: 0.85rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px !important;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fefce8;
+}
+
+#multiLegsWrap > div:first-child > div:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* little pill in front of "Multi-city legs" */
+#multiLegsWrap > div:first-child > div:first-child::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #facc15;
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.7);
+}
+
+/* ADD FLIGHT button inside panel */
+#multiLegsWrap #addLegBtn.btn {
+  border-radius: 999px;
+  background: #facc15;
+  color: #111827;
+  font-weight: 600;
+  font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  padding: 0 14px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.7);
+}
+
+#multiLegsWrap #addLegBtn.btn:hover {
+  background: #fde047;
+  transform: translateY(-1px);
+}
+
+/* ========== LEG ROWS ========== */
+#multiLegsWrap .leg-row {
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  margin-bottom: 8px !important;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  position: relative;
+}
+
+/* thin accent line on the left of each row */
+#multiLegsWrap .leg-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, #facc15, transparent);
+}
+
+/* inputs inside leg rows */
+#multiLegsWrap .leg-row .input-field label {
+  color: #cbd5f5 !important;
+}
+
+#multiLegsWrap .leg-row .input-field input {
   color: #e5e7eb;
 }
+
+#multiLegsWrap .leg-row .input-field input::placeholder {
+  color: #6b7280;
+}
+
+/* remove-leg button */
+#multiLegsWrap .leg-row .remove-leg {
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.7);
+  color: #fecaca;
+  min-width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: rgba(24, 24, 27, 0.9);
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+#multiLegsWrap .leg-row .remove-leg:hover {
+  background: #ef4444;
+  color: #111827;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.7);
+  transform: translateY(-1px);
+}
+
+/* helper text under the legs */
+#multiLegsWrap > div:last-child {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: #e5e7eb;
+  opacity: 0.9;
+}
+
+/* ===== RESPONSIVE ADJUST FOR LEG ROWS (keep what you had, but refine) ===== */
+@media (max-width: 992px) {
+  #multiLegsWrap .leg-row {
+    flex-wrap: wrap;
+  }
+
+  #multiLegsWrap .leg-row > div[style*="flex:1"],
+  #multiLegsWrap .leg-row > div[style*="width:180px"],
+  #multiLegsWrap .leg-row > div[style*="width:36px"] {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+
+  #multiLegsWrap .leg-row > div[style*="width:36px"] {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .is-stuck .prompt-segment-list{
+  display: block;
+}
+}
+
+@media (max-width: 600px) {
+  #multiLegsWrap {
+    padding: 10px 10px 8px;
+  }
+
+  #multiLegsWrap .leg-row {
+    padding: 8px;
+  }
+  
+}
+
 
 /* ============= PASSENGER TICKET CARDS ============= */
 
@@ -2758,6 +2978,133 @@ input.select-dropdown {
     position: static;
     display: inline-block;
     margin-bottom: 4px;
+  }
+}
+/* ================== LAYOUT GRID FOR PROMPT ================== */
+@media (max-width: 992px) {
+  .prompt-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-card .card {
+    padding: 12px 14px 10px;
+  }
+
+  .prompt-segment-list {
+    max-height: 220px;
+  }
+}
+
+/* ================== GENERIC CONTAINER WIDTHS ================== */
+/* .container {
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+} */
+[type="radio"]:checked+span:after, [type="radio"].with-gap:checked+span:after{
+  background-color: transparent !important;
+  border: none !important;
+}
+/* ================== MAKE FORMS STACK BETTER ================== */
+@media (max-width: 992px) {
+  .bg-container .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .bg-container .row > [class*="col"] {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  /* Multi-city legs: stack fields instead of one long row */
+  .leg-row {
+    flex-wrap: wrap;
+  }
+
+  .leg-row > div[style*="flex:1"],
+  .leg-row > div[style*="width:180px"],
+  .leg-row > div[style*="width:36px"] {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+
+  .leg-row > div[style*="width:36px"] {
+    text-align: right;
+  }
+}
+
+/* ================== SEAT MAP: SCROLLABLE ON MOBILE ================== */
+.seat-map-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.seat-map {
+  min-width: 560px; /* keeps columns readable but allows horizontal scroll */
+}
+
+/* slightly smaller seats on tablets too */
+@media (max-width: 992px) {
+  .seat {
+    width: 38px;
+    height: 38px;
+  }
+
+  .row-label {
+    width: 38px;
+    min-width: 38px;
+  }
+  .prompt-segment-list {
+        max-height: 128px;
+    }
+}
+
+/* keep your 600px overrides, but add a bit more for really small screens */
+@media (max-width: 600px) {
+  .ticket-card {
+    padding: 14px 12px 12px;
+  }
+
+  .ticket-card .row .col.s6 {
+    width: 100%;
+  }
+
+  .pwd-group {
+    gap: 6px;
+  }
+
+  .seat-map {
+    min-width: 520px;
+  }
+}
+
+
+/* ================== TICKET + ACTIONS ON SMALL DEVICES ================== */
+@media (max-width: 768px) {
+  #ticketContainer {
+    padding: 0 8px;
+  }
+
+  .ticket-card .row .col.s6,
+  .ticket-card .row .col.s2 {
+    width: 100%;
+  }
+
+  .add-btn {
+    margin-top: 16px;
+  }
+
+  .form-actions {
+    margin-top: 20px;
+    padding: 0 8px;
+    justify-content: center;
+  }
+
+  .form-actions .btn {
+    width: 100%;
   }
 }
 </style>

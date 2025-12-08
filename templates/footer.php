@@ -38,7 +38,6 @@
     background: linear-gradient(90deg, #0d47a1, #1565c0);
     color: #e3f2fd;
     padding-top: 35px;
-    margin-top: 40px;
     box-shadow: 0 -3px 8px rgba(0,0,0,0.2);
 }
 
