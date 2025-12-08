@@ -262,7 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         header('Location: super_admin.php'); exit;
     }
 
-    // ---------- ADD INSTRUCTOR ----------
+        // ---------- ADD INSTRUCTOR ----------
     if (!empty($_POST['action']) && $_POST['action'] === 'add_instructor') {
         $acc_id = trim($_POST['acc_id'] ?? '');
         $name = trim($_POST['acc_name'] ?? '');
@@ -275,37 +275,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['super_admin_errors'] = $errors;
             header('Location: super_admin.php'); exit;
         }
-        // ensure unique in accounts table
-        if ($acc_db_ok) {
-            $q = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+
+        // ensure unique acc_id in admins table (we're storing instructors in admins table)
+        $q = $acc_conn->prepare("SELECT id FROM admins WHERE acc_id = ? LIMIT 1");
+        if ($q) {
             $q->bind_param('s', $acc_id);
             $q->execute();
             $q->store_result();
             if ($q->num_rows > 0) {
                 $q->close();
-                $_SESSION['super_admin_errors'] = ['Account ID already exists in accounts.'];
+                $_SESSION['super_admin_errors'] = ['Account ID already exists in admins.'];
                 header('Location: super_admin.php'); exit;
             }
             $q->close();
+        } else {
+            $_SESSION['super_admin_errors'] = ['Accounts DB unavailable - cannot validate instructor id uniqueness.'];
+            header('Location: super_admin.php'); exit;
         }
 
         // handle avatar upload - if invalid -> abort
         $avatar = handle_avatar_upload('instructor_avatar', null);
         if ($avatar === false) { header('Location: super_admin.php'); exit; }
 
-        $hash = password_hash($password, PASSWORD_DEFAULT);
-        if ($acc_db_ok) {
-            // ===== NOTE: removed created_at from accounts INSERT =====
-            $ins = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, 'admin')");
-            $ins->bind_param('sss', $acc_id, $name, $hash);
-            $okAcc = $ins->execute();
-            $ins->close();
-            if (!$okAcc) {
-                $_SESSION['super_admin_errors'] = ['Failed to create account: ' . $acc_conn->error];
-                header('Location: super_admin.php'); exit;
+        // Prepare password hash
+        $pw_hash = password_hash($password, PASSWORD_DEFAULT);
+
+        // detect if admins has password_hash column
+        $admins_has_password_hash = false;
+        $colRes = $acc_conn->query("SHOW COLUMNS FROM `admins` LIKE 'password_hash'");
+        if ($colRes && $colRes->num_rows > 0) $admins_has_password_hash = true;
+        if ($colRes) $colRes->free();
+
+        // Insert into admins; include password_hash if column exists
+        if ($admins_has_password_hash) {
+            if ($admins_has_avatar) {
+                $link = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role, avatar, password_hash) VALUES (?, ?, 'admin', ?, ?)");
+                $link->bind_param('ssss', $acc_id, $name, $avatar, $pw_hash);
+            } else {
+                $link = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role, password_hash) VALUES (?, ?, 'admin', ?)");
+                $link->bind_param('sss', $acc_id, $name, $pw_hash);
             }
-        }
-        if ($acc_db_ok) {
+        } else {
+            // admins has no password_hash column - insert without password
             if ($admins_has_avatar) {
                 $link = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role, avatar) VALUES (?, ?, 'admin', ?)");
                 $link->bind_param('sss', $acc_id, $name, $avatar);
@@ -313,14 +324,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $link = $acc_conn->prepare("INSERT INTO admins (acc_id, name, role) VALUES (?, ?, 'admin')");
                 $link->bind_param('ss', $acc_id, $name);
             }
-            if (!$link->execute()) {
-                if ($acc_db_ok) $acc_conn->query("DELETE FROM accounts WHERE acc_id = '" . $acc_conn->real_escape_string($acc_id) . "'");
-                $_SESSION['super_admin_errors'] = ['Failed to insert admins row: ' . $acc_conn->error];
-                $link->close();
-                header('Location: super_admin.php'); exit;
-            }
-            $link->close();
         }
+
+        if (!$link || !$link->execute()) {
+            $err = $acc_conn->error ?: 'Failed to insert admins row.';
+            if ($link) $link->close();
+            $_SESSION['super_admin_errors'] = ['Failed to insert admins row: ' . $err];
+            header('Location: super_admin.php'); exit;
+        }
+        $link->close();
+
+        // Show one-time password only if we actually saved it in admins.password_hash
+        if ($admins_has_password_hash) {
+            $_SESSION['account_info'] = ['acc_id' => $acc_id, 'password' => $password];
+        }
+
         $_SESSION['super_admin_success'] = 'Instructor added.';
         header('Location: super_admin.php'); exit;
     }
@@ -328,10 +346,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ---------- EDIT INSTRUCTOR ----------
     if (!empty($_POST['action']) && $_POST['action'] === 'edit_instructor') {
         $admin_id = intval($_POST['admin_id'] ?? 0);
-        $acc_name = trim($_POST['acc_name'] ?? ''); // displayed acc_name in accounts table
+        $acc_name = trim($_POST['acc_name'] ?? ''); // displayed acc_name in accounts table (if used)
         $display_name = trim($_POST['display_name'] ?? ''); // visible instructor name
         $new_acc_id = trim($_POST['edit_acc_id'] ?? '');
-        $new_password = $_POST['edit_password'] ?? '';
+        // read the new password field that your form uses
+        $new_password = $_POST['edit_new_password'] ?? '';
 
         if ($admin_id <= 0 || $acc_name === '' || $display_name === '' || $new_acc_id === '') {
             $_SESSION['super_admin_errors'] = ['Invalid instructor fields.'];
@@ -346,15 +365,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$s->fetch()) { $s->close(); $_SESSION['super_admin_errors'] = ['Instructor not found.']; header('Location: super_admin.php'); exit; }
         $s->close();
 
-        // if acc_id changed, ensure uniqueness in accounts table
+        // if acc_id changed, ensure uniqueness in admins table
         if ($acc_db_ok && $new_acc_id !== $acc_id_row) {
-            $chk = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+            $chk = $acc_conn->prepare("SELECT acc_id FROM admins WHERE acc_id = ? LIMIT 1");
             $chk->bind_param('s', $new_acc_id);
             $chk->execute();
             $chk->store_result();
             if ($chk->num_rows > 0) {
                 $chk->close();
-                $_SESSION['super_admin_errors'] = ['Account ID already exists in accounts.'];
+                $_SESSION['super_admin_errors'] = ['Account ID already exists in admins.'];
                 header('Location: super_admin.php'); exit;
             }
             $chk->close();
@@ -365,13 +384,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($new_avatar === false) { header('Location: super_admin.php'); exit; }
 
         // Update admins table (name, avatar, acc_id if admins has acc_id column)
-        // Check if admins has 'acc_id' column
         $has_accid_col = false;
-        if ($acc_db_ok) {
-            $colq = $acc_conn->query("SHOW COLUMNS FROM `admins` LIKE 'acc_id'");
-            if ($colq && $colq->num_rows > 0) $has_accid_col = true;
-            if ($colq) $colq->free();
-        }
+        $colq = $acc_conn->query("SHOW COLUMNS FROM `admins` LIKE 'acc_id'");
+        if ($colq && $colq->num_rows > 0) $has_accid_col = true;
+        if ($colq) $colq->free();
+
         if ($has_accid_col) {
             $u = $acc_conn->prepare("UPDATE admins SET name = ?, avatar = ?, acc_id = ? WHERE id = ?");
             $u->bind_param('sssi', $display_name, $new_avatar, $new_acc_id, $admin_id);
@@ -386,45 +403,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $u->close();
 
-        // Update accounts table: possibly change acc_id, acc_name, password
-        if ($acc_db_ok) {
-            // get existing password hash if no new password provided
-            if ($new_password !== '') {
-                $new_hash = password_hash($new_password, PASSWORD_DEFAULT);
-            } else {
-                $gethash = $acc_conn->prepare("SELECT password FROM accounts WHERE acc_id = ? LIMIT 1");
-                $gethash->bind_param('s', $acc_id_row);
-                $gethash->execute(); $gethash->bind_result($existing_hash); $gethash->fetch(); $gethash->close();
-                $new_hash = $existing_hash ?? password_hash(bin2hex(random_bytes(4)), PASSWORD_DEFAULT);
-            }
+                // ---------- HANDLE INSTRUCTOR PASSWORD CHANGE ----------
+        // detect password_hash column
+// ---------- HANDLE INSTRUCTOR PASSWORD CHANGE ----------
+// detect password_hash column (already done earlier, but keep safe)
+$admins_has_password_hash = false;
+$colRes = $acc_conn->query("SHOW COLUMNS FROM `admins` LIKE 'password_hash'");
+if ($colRes && $colRes->num_rows > 0) $admins_has_password_hash = true;
+if ($colRes) $colRes->free();
 
-            // if acc_id changed, update acc_id as well; then propagate to students.teacher_id
-            if ($new_acc_id !== $acc_id_row) {
-                $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ?, password = ? WHERE acc_id = ?");
-                $accUpd->bind_param('ssss', $new_acc_id, $acc_name, $new_hash, $acc_id_row);
-            } else {
-                $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_name = ?, password = ? WHERE acc_id = ?");
-                $accUpd->bind_param('sss', $acc_name, $new_hash, $acc_id_row);
-            }
-            $accOk = $accUpd->execute();
-            $accUpd->close();
-            if (!$accOk) {
-                $_SESSION['super_admin_errors'] = ['Failed to update accounts DB: ' . $acc_conn->error];
+if ($new_password !== '') {
+    // NOTE: removed requirement for current super-admin password.
+    // Directly update the instructor password where appropriate.
+
+    $new_hash = password_hash($new_password, PASSWORD_DEFAULT);
+
+    // 1) update admins.password_hash (if exists)
+    if ($admins_has_password_hash) {
+        $pup = $acc_conn->prepare("UPDATE admins SET password_hash = ? WHERE id = ?");
+        if (!$pup) {
+            $_SESSION['super_admin_errors'] = ['Failed to prepare admins password update: ' . $acc_conn->error];
+            header('Location: super_admin.php'); exit;
+        }
+        $pup->bind_param('si', $new_hash, $admin_id);
+        if (!$pup->execute()) {
+            $pup->close();
+            $_SESSION['super_admin_errors'] = ['Failed to update instructor password in admins table: ' . $acc_conn->error];
+            header('Location: super_admin.php'); exit;
+        }
+        $pup->close();
+    }
+
+    // 2) update accounts.password for the instructor's acc_id (if accounts row exists)
+    if ($acc_db_ok) {
+        // check existence
+        $accChk = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+        if ($accChk) {
+            $accChk->bind_param('s', $acc_id_row);
+            $accChk->execute();
+            $accChk->store_result();
+            $existsInAccounts = $accChk->num_rows > 0;
+            $accChk->close();
+        } else {
+            $existsInAccounts = false;
+        }
+
+        if ($existsInAccounts) {
+            $accUpd = $acc_conn->prepare("UPDATE accounts SET password = ? WHERE acc_id = ?");
+            if (!$accUpd) {
+                $_SESSION['super_admin_errors'] = ['Failed to prepare accounts password update: ' . $acc_conn->error];
                 header('Location: super_admin.php'); exit;
             }
+            $accUpd->bind_param('ss', $new_hash, $acc_id_row);
+            if (!$accUpd->execute()) {
+                $accUpd->close();
+                $_SESSION['super_admin_errors'] = ['Failed to update instructor password in accounts table: ' . $acc_conn->error];
+                header('Location: super_admin.php'); exit;
+            }
+            $accUpd->close();
+        } else {
+            // Optional: create accounts row automatically (commented out)
+            // $ins = $acc_conn->prepare("INSERT INTO accounts (acc_id, acc_name, password, acc_role) VALUES (?, ?, ?, 'admin')");
+            // $ins->bind_param('sss', $acc_id_row, $display_name, $new_hash); $ins->execute(); $ins->close();
+        }
+    }
 
-            // Update students.teacher_id to new acc_id if changed
-            if ($new_acc_id !== $acc_id_row) {
-                $u2 = $conn->prepare("UPDATE students SET teacher_id = ? WHERE teacher_id = ?");
-                $u2->bind_param('ss', $new_acc_id, $acc_id_row);
-                $u2->execute();
-                $u2->close();
+    // show the new password once (super-admin only) — useful for copy/paste to user
+    $_SESSION['account_info'] = ['acc_id' => ($new_acc_id ?: $acc_id_row), 'password' => $new_password];
+}
+
+
+
+        // If acc_id changed, propagate to students.teacher_id
+        if ($new_acc_id !== $acc_id_row) {
+            $u2 = $conn->prepare("UPDATE students SET teacher_id = ? WHERE teacher_id = ?");
+            $u2->bind_param('ss', $new_acc_id, $acc_id_row);
+            $u2->execute();
+            $u2->close();
+        }
+
+        // update accounts.acc_name for compatibility if an accounts row exists
+        if ($acc_db_ok) {
+            $accCheck = $acc_conn->prepare("SELECT acc_id FROM accounts WHERE acc_id = ? LIMIT 1");
+            $accCheck->bind_param('s', $acc_id_row);
+            $accCheck->execute();
+            $accCheck->store_result();
+            $existsInAccounts = $accCheck->num_rows > 0;
+            $accCheck->close();
+
+            if ($existsInAccounts) {
+                if ($new_acc_id !== $acc_id_row) {
+                    $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_id = ?, acc_name = ? WHERE acc_id = ?");
+                    $accUpd->bind_param('sss', $new_acc_id, $acc_name, $acc_id_row);
+                } else {
+                    $accUpd = $acc_conn->prepare("UPDATE accounts SET acc_name = ? WHERE acc_id = ?");
+                    $accUpd->bind_param('ss', $acc_name, $acc_id_row);
+                }
+                $accUpd->execute();
+                $accUpd->close();
             }
         }
 
         $_SESSION['super_admin_success'] = 'Instructor updated.';
         header('Location: super_admin.php'); exit;
     }
+
+
 
     // ---------- DELETE INSTRUCTOR ----------
     if (!empty($_POST['action']) && $_POST['action'] === 'delete_instructor') {
@@ -1662,18 +1746,18 @@ select.browser-default::-ms-expand {
             <label class="active" for="super_name">Display Name</label>
           </div>
 <!-- inside #modalEditSuper form (replace existing password input) -->
-<div class="input-field">
-  <input id="super_current_password" name="super_current_password" type="password" autocomplete="current-password">
-  <label for="super_current_password">Current Password (required to change)</label>
-</div>
-<div class="input-field">
-  <input id="super_new_password" name="super_new_password" type="password" autocomplete="new-password">
+<!-- <div class="input-field"> -->
+  <!-- name changed to super_password so PHP picks it up as before -->
+<!--   <input id="super_new_password" name="super_password" type="password" autocomplete="new-password">
   <label for="super_new_password">New Password</label>
 </div>
-<div class="input-field">
-  <input id="super_new_password_confirm" name="super_new_password_confirm" type="password" autocomplete="new-password">
-  <label for="super_new_password_confirm">Retype New Password</label>
+<div class="input-field"> -->
+  <!-- confirm name consistent with server-side naming convention -->
+  <!-- <input id="super_new_password_confirm" name="super_password_confirm" type="password" autocomplete="new-password"> -->
+<!--   <label for="super_new_password_confirm">Retype New Password</label>
 </div>
+ -->
+
 
 <!-- add confirmation checkbox (required before save) -->
 <div style="margin-top:12px;" class="confirm-row">
@@ -1682,7 +1766,7 @@ select.browser-default::-ms-expand {
 
 <!-- Save button: disabled by default -->
 <div class="right-align">
-  <button class="btn-air" type="submit" id="saveSuperBtn" disabled>Save Profile</button>
+  <button class="btn-air" type="submit" id="saveSuperBtn">Save Profile</button>
 </div>
 
         </div>
@@ -1762,25 +1846,21 @@ select.browser-default::-ms-expand {
             <label class="active" for="edit_display_name">Instructor Name</label>
           </div>
 <!-- inside #modalEditInstructor form (replace edit_password input) -->
-<div class="input-field">
-  <input id="edit_auth_current_password" name="edit_auth_current_password" type="password" autocomplete="current-password">
-  <label for="edit_auth_current_password">Your current password (required to change instructor password)</label>
-</div>
-<div class="input-field">
+<!-- <div class="input-field">
   <input id="edit_new_password" name="edit_new_password" type="password" autocomplete="new-password">
   <label for="edit_new_password">New Password for instructor</label>
 </div>
 <div class="input-field">
   <input id="edit_new_password_confirm" name="edit_new_password_confirm" type="password" autocomplete="new-password">
   <label for="edit_new_password_confirm">Retype New Password</label>
-</div>
+</div> -->
 
 <!-- confirmation checkbox (required before save) -->
 <div style="margin-top:12px;" class="confirm-row">
   <label><input type="checkbox" id="editInstructorConfirmCheckbox"><span> I confirm I want to save these changes</span></label>
 </div>
 
-<div class="right-align"><button class="btn-air" type="submit" id="saveInstructorBtn" disabled>Save</button></div>
+<div class="right-align"><button class="btn-air" type="submit" id="saveInstructorBtn">Save</button></div>
 
         </div>
       </div>
@@ -1808,7 +1888,7 @@ select.browser-default::-ms-expand {
       <input type="hidden" name="admin_id" id="del_instructor_admin_id" value="">
       <div class="right-align" style="margin-top:12px;">
         <button type="button" class="btn blue modal-close" id="cancelDelInstructor">Cancel</button>
-        <button type="submit" class="btn-danger" id="confirmDelInstructorBtn" disabled>Delete Instructor</button>
+        <button type="submit" class="btn-danger" id="confirmDelInstructorBtn">Delete Instructor</button>
       </div>
     </form>
   </div>
@@ -1972,7 +2052,7 @@ select.browser-default::-ms-expand {
         </div>
       </div>
 
-      <div class="right-align" style="margin-top:12px;"><button class="btn-air" type="submit" id="saveEditBtn" disabled>Save changes</button></div>
+      <div class="right-align" style="margin-top:12px;"><button class="btn-air" type="submit" id="saveEditBtn">Save changes</button></div>
     </form>
   </div>
 </div>
@@ -2018,8 +2098,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // Small function to add ripple to elements
   function addRipple(el){
     if(!el) return;
+    if (el._rippleAttached) return;
+    el._rippleAttached = true;
     el.classList.add('ripple');
     el.addEventListener('click', function(e){
+      if (el.disabled) return;
       var rect = el.getBoundingClientRect();
       var circle = document.createElement('span');
       circle.className = 'ripple-effect';
@@ -2031,40 +2114,6 @@ document.addEventListener('DOMContentLoaded', function() {
       setTimeout(function(){ try{ el.removeChild(circle); }catch(e){} }, 650);
     }, false);
   }
-
-    /* --- UNIVERSAL: Show Save button only when confirm checkbox is ticked --- */
-(function(){
-
-  const rule = [
-    // Super admin profile
-    { checkbox: "#editSuperConfirmCheckbox", button: "#saveSuperBtn" },
-
-    // Instructor edit
-    { checkbox: "#editInstructorConfirmCheckbox", button: "#saveInstructorBtn" },
-
-    // Student edit
-    { checkbox: "#editConfirmCheckbox", button: "#saveEditBtn" }
-  ];
-
-  rule.forEach(item => {
-    const chk = document.querySelector(item.checkbox);
-    const btn = document.querySelector(item.button);
-
-    if (!chk || !btn) return;
-
-    // Hide button initially
-    btn.style.display = "none";
-
-    chk.addEventListener("change", function() {
-      btn.style.display = this.checked ? "inline-block" : "none";
-    });
-
-    // Ensure correct initial state
-    btn.style.display = chk.checked ? "inline-block" : "none";
-  });
-
-})();
-
 
   // Attach ripple to relevant buttons for nicer UI
   Array.from(document.querySelectorAll('.btn-air, .btn-danger, .btn-flat')).forEach(function(b){
@@ -2157,7 +2206,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (submitBtn) submitBtn.disabled = false;
       }
       if (!f) return;
-      if (!f.type.startsWith('image/')) { this.value=''; if (note){note.style.display='block'; note.textContent='Not an image';} return; }
+      if (!f.type.startsWith('image/')) { this.value=''; if (note){note.style.display = 'block'; note.textContent='Not an image';} return; }
       var r = new FileReader();
       r.onload = function(e){
         if (preview) preview.src = e.target.result;
@@ -2266,7 +2315,6 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   // ---------- Two-layer instructor delete flow (modal + final confirm) ----------
-  // Replace window.confirmDeleteInstructor with modal flow
   window.confirmDeleteInstructor = function(admin_id, name) {
     try {
       var modalEl = document.getElementById('modalDeleteInstructor');
@@ -2277,7 +2325,6 @@ document.addEventListener('DOMContentLoaded', function() {
       var submitBtn = document.getElementById('confirmDelInstructorBtn');
 
       if (!modalEl || !nameEl || !check || !input || !adminHidden || !submitBtn) {
-        // fallback to single confirm if modal not present
         if (confirm('Delete instructor \"' + name + '\"? This will unassign their students.')) {
           var f = document.createElement('form'); f.method='post'; f.style.display='none';
           var a = document.createElement('input'); a.name='action'; a.value='delete_instructor'; f.appendChild(a);
@@ -2287,14 +2334,12 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
       }
 
-      // populate
       nameEl.textContent = name || '(unknown)';
       adminHidden.value = admin_id;
       check.checked = false;
       input.value = '';
       submitBtn.disabled = true;
 
-      // validation: checkbox + exact name typed (case-sensitive)
       function updateDeleteButton(){
         var ok = false;
         try {
@@ -2305,92 +2350,114 @@ document.addEventListener('DOMContentLoaded', function() {
       check.onchange = updateDeleteButton;
       input.oninput = updateDeleteButton;
 
-      // wire submit button to do final confirmation before POST
       submitBtn.onclick = function(ev){
         ev.preventDefault();
-        // final confirm dialog (second layer)
         var finalMsg = 'Are you absolutely sure you want to delete instructor \"' + (name || '') + '\"? This action will unassign their students and cannot be undone.';
         if (!confirm(finalMsg)) return;
-        // build and submit form (POST)
         var form = document.createElement('form'); form.method = 'post'; form.style.display = 'none';
         var a = document.createElement('input'); a.type = 'hidden'; a.name = 'action'; a.value = 'delete_instructor'; form.appendChild(a);
         var i = document.createElement('input'); i.type = 'hidden'; i.name = 'admin_id'; i.value = adminHidden.value; form.appendChild(i);
         document.body.appendChild(form); form.submit();
       };
 
-      // show modal
       try { M.Modal.getInstance(modalEl).open(); } catch(e) { modalEl.style.display='block'; }
       setTimeout(function(){ if (input) input.focus(); }, 220);
     } catch (err) { console.error(err); }
   };
 
-  // --- Super Admin password + confirm checkbox validation ---
-  (function(){
-    var chk = document.getElementById('editSuperConfirmCheckbox');
-    var saveBtn = document.getElementById('saveSuperBtn');
-    var newPw = document.getElementById('super_new_password');
-    var confirmPw = document.getElementById('super_new_password_confirm');
-    var curPw = document.getElementById('super_current_password');
+  // =========================
+  // Robust save-button validator (single unified logic)
+  // =========================
+ // =========================
+// Show/hide Save buttons based on confirmation checkbox
+// (Hides the Save button unless the checkbox is ticked)
+// =========================
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function hide(btn){ if(!btn) return; btn.style.display = 'none'; btn.setAttribute('aria-hidden','true'); }
+  function show(btn){ if(!btn) return; btn.style.display = ''; btn.removeAttribute('aria-hidden'); }
 
-    // fallback to existing id names if different - keep older IDs for compatibility
-    if (!newPw) newPw = document.getElementById('super_password');
-    if (!confirmPw) confirmPw = document.getElementById('super_password_confirm');
+  // Map checkboxes -> buttons
+  var mapping = [
+    { checkboxId: 'editSuperConfirmCheckbox', saveBtnId: 'saveSuperBtn', modalId: 'modalEditSuper' },
+    { checkboxId: 'editInstructorConfirmCheckbox', saveBtnId: 'saveInstructorBtn', modalId: 'modalEditInstructor' },
+    { checkboxId: 'editConfirmCheckbox', saveBtnId: 'saveEditBtn', modalId: 'editStudentModal' },
+    { checkboxId: 'deleteConfirmCheckbox', saveBtnId: 'confirmDeleteBtn', modalId: 'deleteConfirmModal' }, // delete flow too
+    { checkboxId: 'delInstructorCheck', saveBtnId: 'confirmDelInstructorBtn', modalId: 'modalDeleteInstructor' } // instructor delete modal
+  ];
 
-    function validateSuperForm(){
-      // if new password fields used -> ensure they match and length >=8 and curPw present
-      if (newPw && newPw.value.trim() !== '') {
-        if (!curPw || curPw.value.trim() === '') return false;
-        if (!confirmPw || newPw.value !== confirmPw.value) return false;
-        if (newPw.value.length < 8) return false;
+  // initialize: hide all mapped save buttons and attach checkbox listeners
+  mapping.forEach(function(map){
+    var chk = el(map.checkboxId);
+    var btn = el(map.saveBtnId);
+
+    // default hide
+    hide(btn);
+
+    if (!chk) {
+      // If checkbox not found for this mapping, still warn once
+      setTimeout(function(){ if (!el(map.checkboxId) && !el(map.saveBtnId)) return; if (!el(map.checkboxId)) console.warn(map.checkboxId + ' not found'); }, 120);
+      return;
+    }
+
+    // When checkbox changes, toggle visibility
+    chk.addEventListener('change', function(){
+      if (this.checked) show(btn); else hide(btn);
+    });
+
+    // Also ensure button visibility resets when modal opens (if modal exists)
+    if (map.modalId) {
+      var modal = el(map.modalId);
+      if (modal) {
+        // when modal opens we hide the button (guard against leftover state)
+        modal.addEventListener('transitionend', function(){ setTimeout(function(){ if (el(map.checkboxId) && !el(map.checkboxId).checked) hide(el(map.saveBtnId)); }, 40); });
+        // also when modal is opened via Materialize we want immediate hide
+        // (some code already resets checkboxes when populating modals; this ensures hidden visual)
+        modal.addEventListener('DOMContentLoaded', function(){ if (el(map.checkboxId) && !el(map.checkboxId).checked) hide(el(map.saveBtnId)); });
       }
-      // checkbox must be checked
-      if (chk && !chk.checked) return false;
-      return true;
     }
+  });
 
-    if (chk && saveBtn) {
-      chk.addEventListener('change', function(){ saveBtn.disabled = !validateSuperForm(); });
-      if (newPw) newPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
-      if (confirmPw) confirmPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
-      if (curPw) curPw.addEventListener('input', function(){ saveBtn.disabled = !validateSuperForm(); });
-      // initialize state
-      saveBtn.disabled = !validateSuperForm();
-    }
-  })();
+  // Additional safety: when we programmatically reset a checkbox elsewhere, ensure the button hides too.
+  // Patch commonly-used modal open helpers that exist in this file:
+  var origOpenEditInstructorModal = window.openEditInstructorModal;
+  window.openEditInstructorModal = function(admin_id, acct_name, acc_id){
+    try {
+      if (el('editInstructorConfirmCheckbox')) el('editInstructorConfirmCheckbox').checked = false;
+      if (el('saveInstructorBtn')) hide(el('saveInstructorBtn'));
+    } catch(e){}
+    if (typeof origOpenEditInstructorModal === 'function') origOpenEditInstructorModal.apply(this, arguments);
+  };
 
-  // --- Instructor edit password + confirm checkbox validation ---
-  (function(){
-    var chk = document.getElementById('editInstructorConfirmCheckbox');
-    var saveBtn = document.getElementById('saveInstructorBtn') || document.querySelector('#formEditInstructor button[type=submit]');
-    var newPw = document.getElementById('edit_new_password');
-    var confirmPw = document.getElementById('edit_new_password_confirm');
-    var authPw = document.getElementById('edit_auth_current_password');
+  var origOpenEditModalBtnHandlers = Array.from(document.querySelectorAll('.edit-btn'));
+  // edit-btns already call openEditModal — hide save there as well when clicking the row edit buttons
+  Array.from(document.querySelectorAll('.edit-btn')).forEach(function(b){
+    b.addEventListener('click', function(){ if (el('editConfirmCheckbox')) el('editConfirmCheckbox').checked = false; if (el('saveEditBtn')) hide(el('saveEditBtn')); }, true);
+  });
 
-    // fallback to older IDs if missing
-    if (!newPw) newPw = document.getElementById('edit_password');
-    if (!confirmPw) confirmPw = document.getElementById('edit_password_confirm');
+  // ensure delete modal hides its confirm button unless checkbox ticked (extra guard)
+  if (el('deleteConfirmCheckbox') && el('confirmDeleteBtn')) {
+    el('deleteConfirmCheckbox').checked = false;
+    hide(el('confirmDeleteBtn'));
+  }
+  if (el('delInstructorCheck') && el('confirmDelInstructorBtn')) {
+    el('delInstructorCheck').checked = false;
+    hide(el('confirmDelInstructorBtn'));
+  }
 
-    function validateInstructorForm(){
-      if (newPw && newPw.value.trim() !== '') {
-        if (!authPw || authPw.value.trim() === '') return false;
-        if (!confirmPw || newPw.value !== confirmPw.value) return false;
-        if (newPw.value.length < 8) return false;
-      }
-      if (chk && !chk.checked) return false;
-      return true;
-    }
+  // Quick console hints
+  setTimeout(function(){
+    mapping.forEach(function(map){
+      if (!el(map.saveBtnId)) console.warn('save button not found: ' + map.saveBtnId);
+      if (!el(map.checkboxId)) console.warn('checkbox not found: ' + map.checkboxId);
+    });
+  }, 200);
+})();
 
-    if (chk && saveBtn) {
-      chk.addEventListener('change', function(){ saveBtn.disabled = !validateInstructorForm(); });
-      if (newPw) newPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
-      if (confirmPw) confirmPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
-      if (authPw) authPw.addEventListener('input', function(){ saveBtn.disabled = !validateInstructorForm(); });
-      // initialize state
-      saveBtn.disabled = !validateInstructorForm();
-    }
-  })();
 
-  // delete selected students flow (unchanged, kept for compatibility)
+
+
+  // delete selected students flow (unchanged)
   var delBtn = document.getElementById('deleteSelectedBtn');
   if (delBtn) delBtn.addEventListener('click', function(e){
     e.preventDefault();
@@ -2421,15 +2488,11 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(function(){ try{ document.getElementById('deleteConfirmCheckbox').focus(); }catch(e){} }, 220);
   });
 
-  // delete confirm checkbox
+  // delete confirm checkbox listener
   var delChk = document.getElementById('deleteConfirmCheckbox');
   if (delChk) delChk.addEventListener('change', function(){ var btn = document.getElementById('confirmDeleteBtn'); if (btn) btn.disabled = !this.checked; });
   var delForm = document.getElementById('deleteConfirmForm');
   if (delForm) delForm.addEventListener('submit', function(e){ if (!document.getElementById('deleteConfirmCheckbox').checked) { e.preventDefault(); try{ M.toast({html:'Please confirm before deleting.'}); }catch(e){} return; } });
-
-  // edit student confirm enabling
-  var editConfirm = document.getElementById('editConfirmCheckbox');
-  if (editConfirm) editConfirm.addEventListener('change', function(){ var sb=document.getElementById('saveEditBtn'); if (sb) sb.disabled = !this.checked; });
 
   // reset password toggle + action
   var enableResetCheckbox = document.getElementById('enableResetCheckbox');
@@ -2459,7 +2522,6 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       var existing = document.getElementById('editStudentPhoto');
       if (existing) {
-        // already inline in visible button area; nothing to replace
         existing.addEventListener('change', function(){
           var f = this.files && this.files[0];
           if (!f) return;
@@ -2474,8 +2536,10 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (err) { console.warn('clearAndAttachEditFileInput error', err); }
   };
 
-});
+}); // DOMContentLoaded
 </script>
+
+
 
 </body>
 </html>
