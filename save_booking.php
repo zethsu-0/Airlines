@@ -157,6 +157,38 @@ $seats_number = $_POST['seat_number'] ?? [];
 $passengerCount = is_array($names) ? count($names) : 0;
 
 /* -------------------------
+   Disability / assistance (per passenger)
+   From ticket.php:
+   - checkbox: name="pwd[0]", "pwd[1]"...
+   - select  : name="impairment[0]", "impairment[1]"...
+--------------------------*/
+$pwd_flags   = $_POST['pwd'] ?? [];          // only contains checked boxes, keyed by passenger index
+$impairments = $_POST['impairment'] ?? [];   // dropdown values from your 5 options
+
+$assistances = [];
+for ($i = 0; $i < $passengerCount; $i++) {
+    // checkbox is present in $_POST['pwd'] only if checked
+    $hasPwd = array_key_exists($i, $pwd_flags);
+    $atype  = isset($impairments[$i]) ? trim($impairments[$i]) : '';
+
+    if ($hasPwd && $atype !== '') {
+        // passenger number is 1-based like on the prompt
+        $assistances[] = [
+            'passenger' => $i + 1,
+            'type'      => $atype, // e.g. "Wheelchair Assistance"
+        ];
+    }
+}
+
+// JSON to store in submitted_flights.assistance_json (if column exists)
+$assistance_json_to_store = null;
+if (!empty($assistances)) {
+    $tmp = json_encode($assistances, JSON_UNESCAPED_UNICODE);
+    if ($tmp !== false) {
+        $assistance_json_to_store = $tmp;
+    }
+}
+/* -------------------------
    Basic validation
 --------------------------*/
 $errors = [];
@@ -327,6 +359,11 @@ if ($resPub && $resPub->num_rows > 0) {
     $submitted_has_public = true;
 }
 
+$submitted_has_assistance = false;
+$resAssist = $mysqli->query("SHOW COLUMNS FROM `submitted_flights` LIKE 'assistance_json'");
+if ($resAssist && $resAssist->num_rows > 0) {
+    $submitted_has_assistance = true;
+}
 /* -------------------------
    Insert (transaction)
 --------------------------*/
@@ -335,149 +372,104 @@ $mysqli->begin_transaction();
 try {
     $final_public_id = null;
 
-    // Build SQL depending on columns present
-    if ($useLegsColumn && $submitted_has_public) {
-        $sql = "INSERT INTO submitted_flights
-            (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, flight_number, seat_number, travel_class, legs_json, public_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    } elseif ($useLegsColumn && !$submitted_has_public) {
-        $sql = "INSERT INTO submitted_flights
-            (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, flight_number, seat_number, travel_class, legs_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    } elseif (!$useLegsColumn && $submitted_has_public) {
-        $sql = "INSERT INTO submitted_flights
-            (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, flight_number, seat_number, travel_class, public_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    } else {
-        $sql = "INSERT INTO submitted_flights
-            (quiz_id, acc_id, adults, children, infants, flight_type,
-             origin, destination, departure, return_date, flight_number, seat_number, travel_class)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    // Base columns that always exist
+    $columns = [
+        'quiz_id',
+        'acc_id',
+        'adults',
+        'children',
+        'infants',
+        'flight_type',
+        'origin',
+        'destination',
+        'departure',
+        'return_date',
+        'flight_number',
+        'seat_number',
+        'travel_class'
+    ];
+
+    // Optional JSON columns
+    if ($useLegsColumn) {
+        $columns[] = 'legs_json';
+    }
+    if ($submitted_has_assistance) {
+        $columns[] = 'assistance_json';
+    }
+    if ($submitted_has_public) {
+        $columns[] = 'public_id';
     }
 
-    // If public_id will be inserted, we must handle rare collisions by retrying
+    // Build SQL dynamically
+    $placeholders = implode(', ', array_fill(0, count($columns), '?'));
+    $sql = "INSERT INTO submitted_flights (" . implode(', ', $columns) . ")
+            VALUES ($placeholders)";
+
+    // Retry loop for rare public_id collision
     $maxPublicRetries = 6;
     $attempt = 0;
     $inserted = false;
     $lastError = '';
 
+    // Prepare legs_json once
+    $legs_json_to_store = null;
+    if ($useLegsColumn && $hasLegs && is_array($booking_legs)) {
+        $json = json_encode($booking_legs, JSON_UNESCAPED_UNICODE);
+        $legs_json_to_store = ($json === false) ? null : $json;
+    }
+
     while (!$inserted) {
-        // Prepare statement
         $stmt = $mysqli->prepare($sql);
         if (!$stmt) {
             throw new Exception("Prepare failed: " . $mysqli->error . " SQL: " . $sql);
         }
 
-        // Prepare legs_json if needed
-        $legs_json_to_store = null;
-        if ($useLegsColumn && $hasLegs) {
-            $json = json_encode($booking_legs, JSON_UNESCAPED_UNICODE);
-            $legs_json_to_store = ($json === false) ? null : $json;
-        }
+        // Build bind values in the same order as $columns
+        $bindVars = [
+            $quiz_id,
+            $acc_id,
+            $adults,
+            $children,
+            $infants,
+            $flight_type,
+            $origin,
+            $destination,
+            $departure,
+            $return_date,
+            $flight_number,
+            $seat_number,
+            $travel_class
+        ];
 
+        if ($useLegsColumn) {
+            $bindVars[] = $legs_json_to_store;
+        }
+        if ($submitted_has_assistance) {
+            $bindVars[] = $assistance_json_to_store;
+        }
         if ($submitted_has_public) {
-            // generate public id (only for inserts that include public_id)
+            // generate new public id each attempt to avoid collisions
             $final_public_id = generate_public_id(11);
+            $bindVars[] = $final_public_id;
         }
 
-        // Bind parameters according to selected SQL
-        if ($useLegsColumn && $submitted_has_public) {
-            // 14 params: i, s, i, i, i, s, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 10); // added 1 more 's' for flight_number
-            $bindVars = [
-                $quiz_id,
-                $acc_id,
-                $adults,
-                $children,
-                $infants,
-                $flight_type,
-                $origin,
-                $destination,
-                $departure,
-                $return_date,
-                $flight_number,       // <-- added
-                $seat_number,
-                $travel_class,
-                $legs_json_to_store,
-                $final_public_id
-            ];
-        } elseif ($useLegsColumn && !$submitted_has_public) {
-            // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 9); // added 1 more 's' for flight_number
-            $bindVars = [
-                $quiz_id,
-                $acc_id,
-                $adults,
-                $children,
-                $infants,
-                $flight_type,
-                $origin,
-                $destination,
-                $departure,
-                $return_date,
-                $flight_number,       // <-- added
-                $seat_number,
-                $travel_class,
-                $legs_json_to_store
-            ];
-        } elseif (!$useLegsColumn && $submitted_has_public) {
-            // 13 params: i, s, i, i, i, s, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 9); // added 1 more 's' for flight_number
-            $bindVars = [
-                $quiz_id,
-                $acc_id,
-                $adults,
-                $children,
-                $infants,
-                $flight_type,
-                $origin,
-                $destination,
-                $departure,
-                $return_date,
-                $flight_number,       // <-- added
-                $seat_number,
-                $travel_class,
-                $final_public_id
-            ];
-        } else {
-            // 12 params: i, s, i, i, i, s, s, s, s, s, s, s
-            $types = "isiii" . str_repeat('s', 8); // added 1 more 's' for flight_number
-            $bindVars = [
-                $quiz_id,
-                $acc_id,
-                $adults,
-                $children,
-                $infants,
-                $flight_type,
-                $origin,
-                $destination,
-                $departure,
-                $return_date,
-                $flight_number,       // <-- added
-                $seat_number,
-                $travel_class
-            ];
+        // Build types string automatically: ints => 'i', everything else => 's'
+        $types = '';
+        foreach ($bindVars as $v) {
+            $types .= is_int($v) ? 'i' : 's';
         }
 
-        // Use argument unpacking to bind dynamically
-        // mysqli_stmt::bind_param requires variables passed by reference,
-        // so build an array of references:
+        // Bind by reference for call_user_func_array
         $refs = [];
         foreach ($bindVars as $k => $v) {
             $refs[$k] = &$bindVars[$k];
         }
-
-        // Prepend types as first arg
         array_unshift($refs, $types);
 
         if (!call_user_func_array([$stmt, 'bind_param'], $refs)) {
             throw new Exception("Bind failed: " . $stmt->error);
         }
 
-        // Execute
         if ($stmt->execute()) {
             $inserted = true;
             $inserted_id = $stmt->insert_id;
@@ -489,13 +481,12 @@ try {
         $errno = $mysqli->errno;
         $stmt->close();
 
-        // If collision on public_id (duplicate key 1062), retry
+        // Handle potential duplicate public_id
         if ($submitted_has_public && $errno === 1062 && $attempt < $maxPublicRetries) {
             $attempt++;
-            continue; // regenerate public_id and try again
+            continue;
         }
 
-        // otherwise fail
         throw new Exception("Execute failed: " . $lastError);
     }
 

@@ -191,199 +191,410 @@ if (!$conn->connect_error) {
   <!-- Material icons -->
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
-    :root{ --primary-blue:#0d6efd; --accent-blue:#0b5ed7; --soft-blue:#e9f2ff; }
-    body{background:linear-gradient(180deg, #f7fbff 0%, #eef6ff 100%); font-family: Roboto, Arial, sans-serif}
-    .page-wrap{max-width:1100px; margin:28px auto;}
-    .card.booking{border-radius:14px; box-shadow:0 8px 28px rgba(13,78,191,0.08)}
-    .header-hero{background:linear-gradient(90deg,var(--primary-blue),var(--accent-blue)); color:white; padding:18px; border-radius:10px}
-    .brand-title{font-weight:700; letter-spacing:0.4px}
-    .two-col{display:grid; grid-template-columns: 1fr 420px; gap:16px}
-    .flight-row{display:flex; gap:12px; align-items:center}
-    .flight-field{flex:1}
-    .iatasmall{display:inline-block; font-weight:700; font-size:14px; padding:6px 8px; border-radius:6px; background:rgba(255,255,255,0.12)}
-    .boarding-pass{background:linear-gradient(180deg,#ffffff,#f3f7ff); border:1px solid rgba(13,78,191,0.06); padding:14px; border-radius:10px}
-    .bp-row{display:flex; justify-content:space-between; align-items:center}
-    .bp-airport{font-weight:800; font-size:22px}
-    .bp-meta{color:#5f6f94; font-weight:600}
-    .btn-primary{background:var(--primary-blue); color:white}
-    .small-note{color:#456; font-size:13px}
-    @media(max-width:960px){ .two-col{grid-template-columns:1fr} .flight-row{flex-direction:column} }
-    .muted { color:#6b7280; font-size:13px; }
-    .section-title { font-weight:700; margin-bottom:10px; }
-    .card-section { padding:16px; margin-bottom:12px; background:#fff; border-radius:10px; }
-    .item-row{border:1px solid rgba(0,0,0,0.06); padding:10px; border-radius:8px; margin-bottom:8px; background:#fbfdff}
-    .item-actions{display:flex; gap:6px; align-items:center}
+  :root{
+    --primary-blue:#0b1b2f;      /* deep blackish blue */
+    --accent-blue:#14284a;       /* slightly lighter navy */
+    --soft-blue:#020617;         /* page background */
+  }
 
-    .iata-autocomplete {
-      position: relative;
-    }
-    .iata-suggestions {
-      position: absolute;
-      z-index: 9999;
-      left: 0;
-      right: 0;
-      max-height: 220px;
-      overflow: auto;
-      border: 1px solid rgba(0,0,0,0.08);
-      background: #fff;
-      border-radius: 6px;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-      margin-top: 6px;
-    }
-    .iata-suggestion {
-      padding: 8px 10px;
-      cursor: pointer;
-      font-weight:600;
-    }
-    .iata-suggestion small { display:block; font-weight:400; color:#666; }
-    .iata-suggestion:hover { background:#f1f5ff; }
+  body{
+    background: radial-gradient(circle at top, #020617 0%, #020617 40%, #020617 100%);
+    font-family: Roboto, Arial, sans-serif;
+    color:#e5e7eb;
+  }
 
-    /* ===== SEAT PICKER STYLES ===== */
-    .seat-map {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 16px;
-      max-width: 960px;
-      margin: 0 auto;
-    }
+  .page-wrap{
+    max-width:1100px;
+    margin:28px auto;
+  }
 
-    .seat-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      justify-content: center;
-    }
+  .card.booking{
+    border-radius:14px;
+    box-shadow:0 10px 32px rgba(15,23,42,0.9);
+    background:#020617;
+    border:1px solid rgba(148,163,184,0.25);
+  }
 
-    .row-label {
-      width: 44px;
-      min-width: 44px;
-      text-align: center;
-      font-weight: 600;
-      color: #444;
-    }
+  .card-section{
+    padding:16px;
+    margin-bottom:12px;
+    background:#020617;
+    border-radius:10px;
+    border:1px solid rgba(148,163,184,0.25);
+  }
 
-    .seat {
-      width: 44px;
-      height: 44px;
-      border-radius: 8px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      user-select: none;
-      border: 1px solid rgba(0,0,0,0.12);
-      transition: transform .08s ease, box-shadow .12s ease;
-      background: #fff;
-      font-weight: 600;
-    }
-    .seat:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 6px 14px rgba(0,0,0,0.08);
-    }
+  .header-hero{
+    background:linear-gradient(120deg,var(--primary-blue),var(--accent-blue));
+    color:white;
+    padding:18px;
+    border-radius:10px;
+    box-shadow:0 12px 32px rgba(15,23,42,0.85);
+  }
 
-    .seat.selected {
-      color: white;
-      border-color: rgba(0,0,0,0.15);
-    }
+  .brand-title{
+    font-weight:700;
+    letter-spacing:0.4px
+  }
 
-    .seat.disabled {
-      background: #efefef;
-      color: #9e9e9e;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
+  .two-col{
+    display:grid;
+    grid-template-columns: 1fr 420px;
+    gap:16px
+  }
 
-    .aisle {
-      width: 28px;
-      min-width: 28px;
-    }
+  .flight-row{
+    display:flex;
+    gap:12px;
+    align-items:center
+  }
 
-    .legend {
-      display:flex;
-      gap:12px;
-      align-items:center;
-      margin: 8px 16px 18px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-    .legend .box {
-      width:18px;height:18px;border-radius:4px;border:1px solid rgba(0,0,0,0.12);
-      display:inline-block;vertical-align:middle;margin-right:6px;
-    }
-    .legend .box.selected { background:#26a69a; border:none; }
-    .legend .box.disabled { background:#efefef; color:#9e9e9e; border:none; }
+  .flight-field{
+    flex:1
+  }
 
-    .selection-summary {
-      margin-top: 12px;
-      max-width: 960px;
-      margin-left: auto;
-      margin-right: auto;
-      padding: 0 16px 16px;
+  .iatasmall{
+    display:inline-block;
+    font-weight:700;
+    font-size:14px;
+    padding:6px 8px;
+    border-radius:6px;
+    background:rgba(15,23,42,0.95);
+    color:#e5e7eb;
+  }
+
+  .boarding-pass{
+    background:linear-gradient(160deg,#020617,#020617 55%,#020617 100%);
+    border:1px solid rgba(148,163,184,0.35);
+    padding:14px;
+    border-radius:10px;
+    box-shadow:0 10px 28px rgba(15,23,42,0.9);
+  }
+
+  .bp-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center
+  }
+
+  .bp-airport{
+    font-weight:800;
+    font-size:22px;
+    color:#f9fafb;
+  }
+
+  .bp-meta{
+    color:#9ca3af;
+    font-weight:600
+  }
+
+  .btn-primary{
+    background:var(--primary-blue) !important;
+    color:white !important;
+  }
+  .btn-primary:hover{
+    background:#111827 !important;
+  }
+
+  .btn-flat{
+    color:#e5e7eb !important;
+  }
+
+  .small-note{
+    color:#9ca3af;
+    font-size:13px
+  }
+
+  @media(max-width:960px){
+    .two-col{grid-template-columns:1fr}
+    .flight-row{flex-direction:column}
+  }
+
+  .muted{
+    color:#9ca3af;
+    font-size:13px;
+  }
+
+  .section-title{
+    font-weight:700;
+    margin-bottom:10px;
+    color:#e5e7eb;
+  }
+
+  .item-row{
+    border:1px solid rgba(148,163,184,0.35);
+    padding:10px;
+    border-radius:8px;
+    margin-bottom:8px;
+    background:#020617;
+  }
+
+  .item-actions{
+    display:flex;
+    gap:6px;
+    align-items:center
+  }
+
+  /* ===== AUTOCOMPLETE ===== */
+  .iata-autocomplete{
+    position:relative;
+  }
+  .iata-suggestions{
+    position:absolute;
+    z-index:9999;
+    left:0;
+    right:0;
+    max-height:220px;
+    overflow:auto;
+    border:1px solid rgba(148,163,184,0.5);
+    background:#020617;
+    border-radius:6px;
+    box-shadow:0 12px 28px rgba(15,23,42,0.9);
+    margin-top:6px;
+  }
+  .iata-suggestion{
+    padding:8px 10px;
+    cursor:pointer;
+    font-weight:600;
+    color:#e5e7eb;
+  }
+  .iata-suggestion small{
+    display:block;
+    font-weight:400;
+    color:#9ca3af;
+  }
+  .iata-suggestion:hover{
+    background:#111827;
+  }
+
+  /* ===== SEAT PICKER STYLES (blackish blue theme) ===== */
+  .seat-map{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    padding:16px;
+    max-width:960px;
+    margin:0 auto;
+    background:#020617;
+    border-radius:14px;
+    border:1px solid rgba(148,163,184,0.4);
+  }
+
+  .seat-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    justify-content:center;
+  }
+
+  .row-label{
+    width:44px;
+    min-width:44px;
+    text-align:center;
+    font-weight:600;
+    color:#9ca3af;
+  }
+
+  .seat{
+    width:44px;
+    height:44px;
+    border-radius:8px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    user-select:none;
+    border:1px solid rgba(148,163,184,0.7);
+    transition:transform .08s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease;
+    background:#020617;
+    font-weight:600;
+    color:#e5e7eb;
+  }
+  .seat:hover{
+    transform:translateY(-3px);
+    box-shadow:0 8px 18px rgba(15,23,42,0.9);
+  }
+
+  .seat.selected{
+    border-color:#e5e7eb;
+    color:#f9fafb;
+  }
+
+  .seat.disabled{
+    background:#111827;
+    color:#6b7280;
+    cursor:not-allowed;
+    transform:none;
+    box-shadow:none;
+    border-color:#374151;
+  }
+
+  .aisle{
+    width:28px;
+    min-width:28px;
+  }
+
+  .legend{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    margin:8px 16px 18px;
+    flex-wrap:wrap;
+    justify-content:center;
+    color:#e5e7eb;
+  }
+  .legend .box{
+    width:18px;
+    height:18px;
+    border-radius:4px;
+    border:1px solid rgba(148,163,184,0.7);
+    display:inline-block;
+    vertical-align:middle;
+    margin-right:6px;
+    background:#020617;
+  }
+  .legend .box.selected{
+    background:var(--primary-blue);
+    border-color:#e5e7eb;
+  }
+  .legend .box.disabled{
+    background:#111827;
+    border:none;
+  }
+
+  .selection-summary{
+    margin-top:12px;
+    max-width:960px;
+    margin-left:auto;
+    margin-right:auto;
+    padding:0 16px 16px;
+    color:#e5e7eb;
+  }
+
+  .cabin-header{
+    margin-top:10px;
+    margin-bottom:4px;
+    text-align:left;
+    max-width:960px;
+    margin-left:auto;
+    margin-right:auto;
+    padding:0 18px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .cabin-header h6{
+    margin:0;
+    font-weight:600;
+  }
+  .cabin-header .line{
+    flex:1;
+    height:1px;
+    background:rgba(148,163,184,0.5);
+  }
+
+  /* Cabin base colors – dark with colored border */
+  .seat.first{
+    background:#020617;
+    border-color:#1d4ed8;
+  }
+  .seat.business{
+    background:#020617;
+    border-color:#0ea5e9;
+  }
+  .seat.premium{
+    background:#020617;
+    border-color:#6366f1;
+  }
+  .seat.economy{
+    background:#020617;
+    border-color:#22c55e;
+  }
+
+  /* Selected seats per cabin – solid color */
+  .seat.first.selected{
+    background:#1d4ed8;
+  }
+  .seat.business.selected{
+    background:#0ea5e9;
+  }
+  .seat.premium.selected{
+    background:#6366f1;
+  }
+  .seat.economy.selected{
+    background:#22c55e;
+  }
+
+  .cabin-header.first h6{
+    color:#1d4ed8;
+  }
+  .cabin-header.business h6{
+    color:#0ea5e9;
+  }
+  .cabin-header.premium h6{
+    color:#6366f1;
+  }
+  .cabin-header.economy h6{
+    color:#22c55e;
+  }
+
+  @media(max-width:680px){
+    .seat{
+      width:36px;
+      height:36px;
+      border-radius:6px;
     }
-
-    .cabin-header {
-      margin-top: 10px;
-      margin-bottom: 4px;
-      text-align: left;
-      max-width: 960px;
-      margin-left: auto;
-      margin-right: auto;
-      padding: 0 18px;
-      display:flex;
-      align-items:center;
-      gap:8px;
+    .row-label{
+      width:36px;
+      min-width:36px;
+      font-size:0.9rem;
     }
-    .cabin-header h6 {
-      margin: 0;
-      font-weight: 600;
-    }
-    .cabin-header .line {
-      flex:1;
-      height: 1px;
-      background: rgba(0,0,0,0.12);
-    }
+  }
 
-    /* Cabin colors */
-    .seat.first    { background-color: #e3f2fd; }  /* light blue */
-    .seat.business { background-color: #fff3e0; }  /* light orange */
-    .seat.premium  { background-color: #ede7f6; }  /* light purple */
-    .seat.economy  { background-color: #e8f5e9; }  /* light green */
+  .modal.modal-fixed-footer{
+    max-height:90%;
+    background:#020617;
+  }
+  .modal .modal-content{
+    background:#020617;
+  }
+  .modal .modal-footer{
+    background:#020617;
+    border-top:1px solid rgba(148,163,184,0.4);
+  }
 
-    .seat.first.selected    { background-color: #1e88e5; }
-    .seat.business.selected { background-color: #fb8c00; }
-    .seat.premium.selected  { background-color: #7e57c2; }
-    .seat.economy.selected  { background-color: #43a047; }
-
-    .cabin-header.first h6    { color: #1e88e5; }
-    .cabin-header.business h6 { color: #fb8c00; }
-    .cabin-header.premium h6  { color: #7e57c2; }
-    .cabin-header.economy h6  { color: #43a047; }
-
-    @media(max-width:680px){
-      .seat { width:36px; height:36px; border-radius:6px; }
-      .row-label { width:36px; min-width:36px; font-size:0.9rem; }
-    }
-
-    .modal.modal-fixed-footer {
-      max-height: 90%;
-    }
-
-    /* seat picker button on seat field */
-    .seat-picker-btn {
-      position:absolute;
-      right:0;
-      top:32px;
-    }
-    .input-error {
-      border-bottom: 2px solid #e53935 !important;
-      box-shadow: 0 1px 0 0 #e53935 !important;
-    }
-
-
-    
-  </style>
+  /* seat picker input error */
+  .seat-picker-btn{
+    position:absolute;
+    right:0;
+    top:32px;
+  }
+  .input-error{
+    border-bottom:2px solid #ef4444 !important;
+    box-shadow:0 1px 0 0 #ef4444 !important;
+  }
+  .assist-section{
+  color:  white !important;
+  border:1px solid rgba(148,163,184,0.35);
+  border-radius:8px;
+  padding:10px;
+}
+.assist-row{
+  display:flex;
+  gap:8px;
+  align-items:flex-end;
+  margin-bottom:6px;
+}
+.assist-row .input-field{
+  margin:0;
+}
+.card-section{
+  color: white !important;
+  background-color: transparent !important;
+}
+.card-section .input-field input{
+  color: white !important; 
+  }
+</style>
 </head>
 <body>
 <div class="page-wrap">
@@ -489,9 +700,9 @@ if (!$conn->connect_error) {
           <div class="card-section">
             <div style="display:flex; justify-content:space-between; align-items:center">
               <div class="section-title">Quiz Details (Flight-style items)</div>
-              <div>
+              <!-- <div>
                 <a id="addItemBtn" class="btn btn-primary">Add Item</a>
-              </div>
+              </div> -->
             </div>
 
             <div id="itemsContainer">
@@ -998,7 +1209,7 @@ function createItemBlock(prefill = null){
         <div class="input-field"><input type="number" min="0" value="0" class="childCountInner" data-idx="${idx}" /><label>Children</label></div>
         <div class="input-field"><input type="number" min="0" value="0" class="infantCountInner" data-idx="${idx}" /><label>Infants</label></div>
       </div>
-
+      
       <div style="margin-bottom:8px">
         <label style="display:block; margin-bottom:6px">Flight type</label>
         <label style="margin-right:8px;"><input name="flightTypeInner${idx}" type="radio" value="ONE-WAY" checked /><span>One-way</span></label>
@@ -1085,6 +1296,22 @@ function createItemBlock(prefill = null){
         <label>Class</label>
       </div>
     </div>
+      <!-- Passenger Assistance Section -->
+    <div class="assist-section" style="margin-top:10px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <div style="font-weight:700;">Passenger Assistance (optional)</div>
+          <a class="btn-flat add-assist-row" title="Add assistance">
+            <i class="material-icons">add_circle</i> Add assistance
+          </a>
+        </div>
+
+        <div class="assist-rows"></div>
+
+        <span class="muted">
+          Example: Passenger 2 – Wheelchair Assistance; Passenger 4 – Vision/Hearing Impairment.
+        </span>
+      </div>
+    </div>
   `;
 
   // remove handler
@@ -1111,57 +1338,181 @@ function createItemBlock(prefill = null){
 
   // ----------------- SEAT PICKER HOOKUP -----------------
   const seatInput = wrapper.querySelector('.seatNumbersInner');
-  if (seatInput) {
-    function openSeatPickerForThisItem() {
-      seatPickerTargetInput = seatInput;
+    if (seatInput) {
+      function openSeatPickerForThisItem() {
+        seatPickerTargetInput = seatInput;
 
-      const travelSelect = wrapper.querySelector('.travelClassInner');
-      const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
+        const travelSelect = wrapper.querySelector('.travelClassInner');
+        const travelClass = (travelSelect && travelSelect.value) ? travelSelect.value : 'economy';
 
-      activeCabinKeyForSelection = travelClass;
-      applyCabinFilter(travelClass);
+        activeCabinKeyForSelection = travelClass;
+        applyCabinFilter(travelClass);
 
-      const adultsEl   = wrapper.querySelector('.adultCountInner');
-      const childrenEl = wrapper.querySelector('.childCountInner');
-      const infantsEl  = wrapper.querySelector('.infantCountInner');
+        const adultsEl   = wrapper.querySelector('.adultCountInner');
+        const childrenEl = wrapper.querySelector('.childCountInner');
+        const infantsEl  = wrapper.querySelector('.infantCountInner');
 
-      const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
-      const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
-      const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
+        const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
+        const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
+        const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
 
-      let totalPeople = adults + children;
-      if (totalPeople <= 0) totalPeople = 1;
-      maxSeatsForCurrentItem = totalPeople;
+        let totalPeople = adults + children;
+        if (totalPeople <= 0) totalPeople = 1;
+        maxSeatsForCurrentItem = totalPeople;
 
-      clearSeatSelections();
+        clearSeatSelections();
 
-      const existing = (seatInput.value || '').split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
-      if (existing.length) {
-        const allSeats = document.querySelectorAll('.seat');
-        allSeats.forEach(seatEl => {
-          const id = seatEl.getAttribute('data-seat');
-          const seatCabinKey = seatEl.getAttribute('data-cabin-key');
-          if (existing.includes(id) && seatCabinKey === activeCabinKeyForSelection) {
-            toggleSeatSelection(seatEl, true);
-          }
-        });
-        updateSeatSummary();
+        const existing = (seatInput.value || '').split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+        if (existing.length) {
+          const allSeats = document.querySelectorAll('.seat');
+          allSeats.forEach(seatEl => {
+            const id = seatEl.getAttribute('data-seat');
+            const seatCabinKey = seatEl.getAttribute('data-cabin-key');
+            if (existing.includes(id) && seatCabinKey === activeCabinKeyForSelection) {
+              toggleSeatSelection(seatEl, true);
+            }
+          });
+          updateSeatSummary();
+        }
+
+        if (seatPickerModalInstance) {
+          seatPickerModalInstance.open();
+        } else if (typeof M !== 'undefined' && M.Modal) {
+          const modalElem = document.getElementById('seatPickerModal');
+          const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem, { dismissible: false });
+          seatPickerModalInstance = instance;
+          seatPickerModalInstance.open();
+        }
       }
 
-      if (seatPickerModalInstance) {
-        seatPickerModalInstance.open();
-      } else if (typeof M !== 'undefined' && M.Modal) {
-        const modalElem = document.getElementById('seatPickerModal');
-        const instance = M.Modal.getInstance(modalElem) || M.Modal.init(modalElem, { dismissible: false });
-        seatPickerModalInstance = instance;
-        seatPickerModalInstance.open();
+      seatInput.addEventListener('click', openSeatPickerForThisItem);
+      seatInput.addEventListener('focus', openSeatPickerForThisItem);
+  }
+  // when travel class changes, reset seat numbers for this item
+  const travelSelect = wrapper.querySelector('.travelClassInner');
+    if (travelSelect && seatInput) {
+      travelSelect.addEventListener('change', () => {
+        // clear the seat text field
+        seatInput.value = '';
+
+        // also clear selected seats in the global seat picker (safety)
+        if (typeof clearSeatSelections === 'function') {
+          clearSeatSelections();
+        }
+
+        if (typeof M !== 'undefined' && M.updateTextFields) {
+          M.updateTextFields();
+        }
+      });
+    }
+
+  // ----------------- PASSENGER ASSISTANCE (PER ITEM) -----------------
+  const assistContainer = wrapper.querySelector('.assist-rows');
+  const addAssistBtn = wrapper.querySelector('.add-assist-row');
+
+  // keeps assist passenger numbers within total passenger count
+  function updateAssistPassengerMax() {
+    const adultsEl   = wrapper.querySelector('.adultCountInner');
+    const childrenEl = wrapper.querySelector('.childCountInner');
+    const infantsEl  = wrapper.querySelector('.infantCountInner');
+
+    const adults   = adultsEl   ? parseInt(adultsEl.value   || '0', 10) || 0 : 0;
+    const children = childrenEl ? parseInt(childrenEl.value || '0', 10) || 0 : 0;
+    const infants  = infantsEl  ? parseInt(infantsEl.value  || '0', 10) || 0 : 0;
+
+    let totalPassengers = adults + children + infants;
+    if (totalPassengers <= 0) totalPassengers = 1; // at least 1
+
+    wrapper.querySelectorAll('.assistPassenger').forEach(inp => {
+      inp.min = 1;
+      inp.max = totalPassengers;
+      const val = parseInt(inp.value || '0', 10);
+      if (val > totalPassengers) {
+        inp.value = totalPassengers;
+      }
+      if (val < 1 && inp.value !== '') {
+        inp.value = 1;
+      }
+    });
+  }
+  function addAssistRow(prefillAssist) {
+    if (!assistContainer) return;
+
+    const row = document.createElement('div');
+    row.className = 'assist-row';
+    row.innerHTML = `
+      <div class="input-field" style="flex:0 0 120px;">
+        <input type="number" class="assistPassenger" min="1" />
+        <label>Passenger #</label>
+      </div>
+      <div class="input-field" style="flex:1;">
+        <select class="assistType">
+          <option value="" disabled selected>Select assistance type</option>
+          <option value="WHEELCHAIR">Wheelchair Assistance</option>
+          <option value="VISION_HEARING">Vision/Hearing Impairment</option>
+          <option value="MOBILITY">Reduced Mobility</option>
+          <option value="MEDICAL">Medical Assistance</option>
+          <option value="OTHER">Other / Special Handling</option>
+        </select>
+        <label>Assistance type</label>
+      </div>
+      <a class="btn-flat remove-assist-row" title="Remove">
+        <i class="material-icons">remove_circle</i>
+      </a>
+    `;
+
+    assistContainer.appendChild(row);
+
+    const pEl = row.querySelector('.assistPassenger');
+    const tEl = row.querySelector('.assistType');
+
+    // ---------- PREFILL FIRST (when editing) ----------
+    if (prefillAssist) {
+      if (pEl && typeof prefillAssist.passenger !== 'undefined') {
+        pEl.value = prefillAssist.passenger;
+      }
+      if (tEl && prefillAssist.type) {
+        tEl.value = prefillAssist.type;  // just set value, init will pick it up
       }
     }
 
-    seatInput.addEventListener('click', openSeatPickerForThisItem);
-    seatInput.addEventListener('focus', openSeatPickerForThisItem);
+    // ---------- INIT MATERIALIZE SELECT ONCE ----------
+    try {
+      if (typeof M !== 'undefined' && M.FormSelect && tEl) {
+        M.FormSelect.init(tEl);
+      }
+      if (typeof M !== 'undefined' && M.updateTextFields) {
+        M.updateTextFields();
+      }
+    } catch (e) {
+      console.warn('Assist row select init error:', e);
+    }
+
+    // ---------- LIMIT PASSENGER # TO TOTAL PASSENGERS ----------
+    updateAssistPassengerMax(); // sync min/max after adding row
+
+    if (pEl) {
+      pEl.addEventListener('input', updateAssistPassengerMax);
+      pEl.addEventListener('change', updateAssistPassengerMax);
+    }
+
+    // ---------- REMOVE HANDLER ----------
+    const rem = row.querySelector('.remove-assist-row');
+    if (rem) {
+      rem.addEventListener('click', (e) => {
+        e.preventDefault();
+        row.remove();
+        updateAssistPassengerMax();
+      });
+    }
   }
 
+  if (addAssistBtn) {
+    addAssistBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      addAssistRow();
+    });
+  }
   // ----------------- PREFILL (EDIT MODE) -----------------
   if(prefill && prefill.booking){
     const b = prefill.booking;
@@ -1224,6 +1575,11 @@ function createItemBlock(prefill = null){
       if(r.value.toUpperCase() === ft) r.checked = true;
     });
 
+        // Prefill passenger assistance
+    if (Array.isArray(b.assistance) && b.assistance.length) {
+      b.assistance.forEach(a => addAssistRow(a));
+    }
+
   }
     if (prefill) {
       wrapper._loadedFromEdit = true;
@@ -1237,8 +1593,18 @@ function createItemBlock(prefill = null){
   wrapper.querySelectorAll('input.iata-autocomplete, input.legOrigin, input.legDestination, input.originAirportInner, input.destinationAirportInner').forEach(inp => {
     if (inp) attachAutocompleteTo(inp);
   });
+    // whenever passenger counts change, keep assist max in sync
+  ['.adultCountInner', '.childCountInner', '.infantCountInner'].forEach(sel => {
+    const el = wrapper.querySelector(sel);
+    if (el) {
+      el.addEventListener('input', updateAssistPassengerMax);
+      el.addEventListener('change', updateAssistPassengerMax);
+    }
+  });
 
-  return wrapper;
+  // initial sync
+  updateAssistPassengerMax();
+  return wrapper; 
 }
 
 
@@ -2010,26 +2376,48 @@ function collectItems(){
     const travelClassEl = b.querySelector('.travelClassInner');
     const flightTypeInput = b.querySelector(`input[name="flightTypeInner${idx}"]:checked`);
 
-    const adults = adultsEl ? parseInt(adultsEl.value || 0, 10) : 0;
+    const adults   = adultsEl   ? parseInt(adultsEl.value   || 0, 10) : 0;
     const children = childrenEl ? parseInt(childrenEl.value || 0, 10) : 0;
-    const infants = infantsEl ? parseInt(infantsEl.value || 0, 10) : 0;
+    const infants  = infantsEl  ? parseInt(infantsEl.value  || 0, 10) : 0;
+    const totalPassengers = adults + children + infants;   // ✅ define here
+
     const flightNumber = flightNumEl ? (flightNumEl.value || '') : '';
     const seats = seatsEl ? (seatsEl.value || '') : '';
     const travelClass = travelClassEl ? (travelClassEl.value || '') : '';
     const ftVal = flightTypeInput ? (flightTypeInput.value || 'ONE-WAY') : 'ONE-WAY';
     const flightType = (ftVal || 'ONE-WAY').toUpperCase();
 
+    // Passenger assistance per item (enforce max <= totalPassengers)
+    const assistance = [];
+    const assistRows = b.querySelectorAll('.assist-row');
+    assistRows.forEach((row) => {
+      const pEl = row.querySelector('.assistPassenger');
+      const tEl = row.querySelector('.assistType');
+      const passengerNum = pEl ? parseInt(pEl.value || 0, 10) : 0;
+      const typeVal = tEl ? (tEl.value || '') : '';
+
+      if (
+        passengerNum > 0 &&
+        (totalPassengers <= 0 || passengerNum <= totalPassengers) &&
+        typeVal
+      ) {
+        assistance.push({
+          passenger: passengerNum,
+          type: typeVal
+        });
+      }
+    });
+
     // Normalize helper
     const ucNorm = (s) => (s || '').toString().trim().toUpperCase();
 
-    // If MULTI-CITY => collect all leg rows
     if (flightType === 'MULTI-CITY') {
       const legs = [];
       const legRows = b.querySelectorAll('.legs-list .leg-row');
       legRows.forEach((lr) => {
         const originEl = lr.querySelector('.legOrigin');
-        const destEl = lr.querySelector('.legDestination');
-        const dateEl = lr.querySelector('.legDate');
+        const destEl   = lr.querySelector('.legDestination');
+        const dateEl   = lr.querySelector('.legDate');
 
         const origin = originEl ? (originEl.value || '') : '';
         const destination = destEl ? (destEl.value || '') : '';
@@ -2058,27 +2446,31 @@ function collectItems(){
           flight_number: flightNumber,
           seats,
           travel_class: travelClass,
-          legs
+          legs,
+          assistance      // ✅ now included
         }
       });
 
     } else {
-      // ONE-WAY / ROUND-TRIP: read the single origin/destination + date(s)
+      // ONE-WAY / ROUND-TRIP
       const originEl = b.querySelector('.originAirportInner');
       const destEl   = b.querySelector('.destinationAirportInner');
       const depEl    = b.querySelector('.departureDateInner');
       const retEl    = b.querySelector('.returnDateInner');
 
       const originRaw = originEl ? (originEl.value || '') : '';
-      const destRaw = destEl ? (destEl.value || '') : '';
-      const departure = depEl ? (depEl.value || null) : null;
-      const ret = retEl ? (retEl.value || null) : null;
+      const destRaw   = destEl   ? (destEl.value   || '') : '';
+      const departure = depEl    ? (depEl.value    || null) : null;
+      const ret       = retEl    ? (retEl.value    || null) : null;
 
       const origin = ucNorm(originRaw);
       const destination = ucNorm(destRaw);
 
-      // create single-leg array so consumers can always look at booking.legs
-      const legs = [{ origin, destination, date: departure }];
+      const legs = [{
+        origin,
+        destination,
+        date: departure
+      }];
 
       items.push({
         iata: origin,
@@ -2093,15 +2485,14 @@ function collectItems(){
           flight_number: flightNumber,
           seats,
           travel_class: travelClass,
-          legs
+          legs,
+          assistance      // ✅ here too
         }
       });
     }
   });
 
-  // DEBUG helper: uncomment to inspect collected items in console
   console.log('collectItems ->', items);
-
   return items;
 }
 
@@ -2443,13 +2834,13 @@ document.addEventListener('DOMContentLoaded', function(){
   // Insert at least one item
   addItem();
 
-  const addBtn = document.getElementById('addItemBtn');
-  if(addBtn){
-    addBtn.addEventListener('click', function(e){
-      e.preventDefault();
-      addItem();
-    });
-  }
+  // const addBtn = document.getElementById('addItemBtn');
+  // if(addBtn){
+  //   addBtn.addEventListener('click', function(e){
+  //     e.preventDefault();
+  //     addItem();
+  //   });
+  // }
 
   const prevBtn = document.getElementById('previewBtn');
   if (prevBtn) {
@@ -2472,7 +2863,49 @@ document.addEventListener('DOMContentLoaded', function(){
       }
 
       const { description, itemsCount } = buildDescription();
+        // Build assistance summary from all items
+      let assistSummary = '';
+      try {
+        const assistPieces = [];
 
+        items.forEach((it) => {
+          const b = it.booking || {};
+          if (!Array.isArray(b.assistance)) return;
+
+          b.assistance.forEach((a) => {
+            if (!a || !a.passenger || !a.type) return;
+
+            let label = '';
+            switch (String(a.type).toUpperCase()) {
+              case 'WHEELCHAIR':
+                label = 'Wheelchair Assistance';
+                break;
+              case 'VISION_HEARING':
+                label = 'Vision/Hearing Impairment';
+                break;
+              case 'MOBILITY':
+                label = 'Reduced Mobility';
+                break;
+              case 'MEDICAL':
+                label = 'Medical Assistance';
+                break;
+              case 'OTHER':
+                label = 'Special Handling';
+                break;
+              default:
+                label = a.type;
+            }
+
+            assistPieces.push(`P${a.passenger}: ${label}`);
+          });
+        });
+
+        if (assistPieces.length) {
+          assistSummary = 'Special assistance – ' + assistPieces.join(' • ');
+        }
+      } catch (err) {
+        console.warn('Error building assistance summary:', err);
+      }
       // pick the first item for the big boarding pass
       const firstItem = items[0] || null;
       const b0 = firstItem && firstItem.booking ? firstItem.booking : {};
@@ -2568,9 +3001,17 @@ document.addEventListener('DOMContentLoaded', function(){
       document.getElementById('bpMeta').textContent =
         itemsCount + ' Items • ' + durationDisplay + ' min' + (metaClass ? ' • ' + metaClass : '');
 
-      const finalDesc = description || 'Book the indicated destinations.';
-      document.getElementById('bpDescription').textContent = finalDesc;
-      document.getElementById('bpDescriptionRight').textContent = finalDesc;
+      let finalDesc = description || 'Book the indicated destinations.';
+      if (assistSummary) {
+        // add assistance as a second sentence
+        finalDesc += ' ' + assistSummary;
+      }
+
+      const bpDescLeft  = document.getElementById('bpDescription');
+      const bpDescRight = document.getElementById('bpDescriptionRight');
+
+      if (bpDescLeft)  bpDescLeft.textContent  = finalDesc;
+      if (bpDescRight) bpDescRight.textContent = finalDesc;
 
       document.getElementById('boardingPass').style.display = 'block';
       document.getElementById('previewDescriptionWrap').style.display = 'block';

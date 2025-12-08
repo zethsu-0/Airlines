@@ -51,21 +51,44 @@ $numericId = ctype_digit($publicIdCandidate) ? (int)$publicIdCandidate : 0;
 
 try {
     // ------------------
+    // Detect if quizzes has 'section' column
+    // ------------------
+    $hasSectionCol = false;
+    $checkSection = $mysqli->query("SHOW COLUMNS FROM `quizzes` LIKE 'section'");
+    if ($checkSection && $checkSection->num_rows > 0) {
+        $hasSectionCol = true;
+    }
+    if ($checkSection) $checkSection->free();
+
+    // ------------------
     // Try 1: lookup by public_id
     // ------------------
     $quiz = null;
 
     if ($publicIdCandidate !== '') {
-        $stmt = $mysqli->prepare("
-            SELECT 
-                id,            -- internal numeric id
-                public_id,
-                title, `from`, `to`, quiz_code, duration, num_questions,
-                input_type, created_by, created_at
-            FROM quizzes
-            WHERE public_id = ?
-            LIMIT 1
-        ");
+        if ($hasSectionCol) {
+            $stmt = $mysqli->prepare("
+                SELECT 
+                    id,            -- internal numeric id
+                    public_id,
+                    title, section, `from`, `to`, quiz_code, duration, num_questions,
+                    input_type, created_by, created_at
+                FROM quizzes
+                WHERE public_id = ?
+                LIMIT 1
+            ");
+        } else {
+            $stmt = $mysqli->prepare("
+                SELECT 
+                    id,
+                    public_id,
+                    title, `from`, `to`, quiz_code, duration, num_questions,
+                    input_type, created_by, created_at
+                FROM quizzes
+                WHERE public_id = ?
+                LIMIT 1
+            ");
+        }
         if (!$stmt) throw new Exception('Prepare failed (public_id): ' . $mysqli->error);
         $stmt->bind_param('s', $publicIdCandidate);
         if (!$stmt->execute()) throw new Exception('Execute failed (public_id): ' . $stmt->error);
@@ -78,16 +101,29 @@ try {
     // Try 2: if not found by public_id and we have numeric, lookup by id
     // ------------------
     if (!$quiz && $numericId > 0) {
-        $stmt = $mysqli->prepare("
-            SELECT 
-                id,
-                public_id,
-                title, `from`, `to`, quiz_code, duration, num_questions,
-                input_type, created_by, created_at
-            FROM quizzes
-            WHERE id = ?
-            LIMIT 1
-        ");
+        if ($hasSectionCol) {
+            $stmt = $mysqli->prepare("
+                SELECT 
+                    id,
+                    public_id,
+                    title, section, `from`, `to`, quiz_code, duration, num_questions,
+                    input_type, created_by, created_at
+                FROM quizzes
+                WHERE id = ?
+                LIMIT 1
+            ");
+        } else {
+            $stmt = $mysqli->prepare("
+                SELECT 
+                    id,
+                    public_id,
+                    title, `from`, `to`, quiz_code, duration, num_questions,
+                    input_type, created_by, created_at
+                FROM quizzes
+                WHERE id = ?
+                LIMIT 1
+            ");
+        }
         if (!$stmt) throw new Exception('Prepare failed (id): ' . $mysqli->error);
         $stmt->bind_param('i', $numericId);
         if (!$stmt->execute()) throw new Exception('Execute failed (id): ' . $stmt->error);
@@ -106,37 +142,38 @@ try {
     $publicId = $quiz['public_id'] ?? null;   // may be null for old rows
 
     // ------------------
-    // Check if quiz_items.legs_json exists
+    // Check if quiz_items.legs_json and assistance_json exist
     // ------------------
     $hasLegsJson = false;
+    $hasAssistJson = false;
+
     $colCheck = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
     if ($colCheck && $colCheck->num_rows > 0) {
         $hasLegsJson = true;
     }
+    if ($colCheck) $colCheck->free();
 
-    if ($hasLegsJson) {
-        $sqlItems = "
-            SELECT id, quiz_id, item_index, origin_iata, destination_iata,
-                   adults, children, infants, flight_type,
-                   departure_date, return_date,
-                   flight_number, seats, travel_class,
-                   legs_json
-            FROM quiz_items
-            WHERE quiz_id = ?
-            ORDER BY item_index ASC
-        ";
-    } else {
-        $sqlItems = "
-            SELECT id, quiz_id, item_index, origin_iata, destination_iata,
-                   adults, children, infants, flight_type,
-                   departure_date, return_date,
-                   flight_number, seats, travel_class,
-                   NULL AS legs_json
-            FROM quiz_items
-            WHERE quiz_id = ?
-            ORDER BY item_index ASC
-        ";
+    $colCheckA = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'assistance_json'");
+    if ($colCheckA && $colCheckA->num_rows > 0) {
+        $hasAssistJson = true;
     }
+    if ($colCheckA) $colCheckA->free();
+
+    // build dynamic column expressions
+    $legsExpr    = $hasLegsJson   ? 'legs_json'           : 'NULL AS legs_json';
+    $assistExpr  = $hasAssistJson ? 'assistance_json'     : 'NULL AS assistance_json';
+
+    $sqlItems = "
+        SELECT id, quiz_id, item_index, origin_iata, destination_iata,
+               adults, children, infants, flight_type,
+               departure_date, return_date,
+               flight_number, seats, travel_class,
+               $legsExpr,
+               $assistExpr
+        FROM quiz_items
+        WHERE quiz_id = ?
+        ORDER BY item_index ASC
+    ";
 
     $stmt2 = $mysqli->prepare($sqlItems);
     if (!$stmt2) throw new Exception('Prepare items failed: ' . $mysqli->error);
@@ -166,7 +203,7 @@ try {
             ]
         ];
 
-        // legs_json decode
+        // -------- legs_json decode --------
         $legs_json_raw = $row['legs_json'] ?? null;
         $legs_parsed   = null;
 
@@ -193,10 +230,38 @@ try {
         }
 
         $item['booking']['legs'] = $legs_parsed;
+
+        // -------- assistance_json decode --------
+        $assist_parsed = [];
+        $assist_raw = $row['assistance_json'] ?? null;
+        if ($assist_raw !== null && $assist_raw !== '') {
+            $decodedA = json_decode($assist_raw, true);
+            if (is_array($decodedA)) {
+                foreach ($decodedA as $a) {
+                    if (!is_array($a)) continue;
+                    $pNum = isset($a['passenger']) ? (int)$a['passenger'] : 0;
+                    $tVal = isset($a['type']) ? strtoupper(trim($a['type'])) : '';
+                    if ($pNum > 0 && $tVal !== '') {
+                        $assist_parsed[] = [
+                            'passenger' => $pNum,
+                            'type'      => $tVal
+                        ];
+                    }
+                }
+            }
+        }
+        $item['booking']['assistance'] = $assist_parsed;
+
         $items[] = $item;
     }
 
     $stmt2->close();
+
+    // prefer 'section' if column exists, else legacy 'from'
+    $sectionVal = null;
+    if ($hasSectionCol && array_key_exists('section', $quiz)) {
+        $sectionVal = $quiz['section'];
+    }
 
     $quizPayload = [
         'success' => true,
@@ -204,7 +269,8 @@ try {
             'id'            => $quizId,
             'public_id'     => $publicId, // may be null for old ones
             'title'         => $quiz['title'],
-            'from'          => $quiz['from'],
+            'section'       => $sectionVal,
+            'from'          => $quiz['from'] ?? null,
             'to'            => $quiz['to'],
             'code'          => $quiz['quiz_code'],
             'duration'      => (int)$quiz['duration'],

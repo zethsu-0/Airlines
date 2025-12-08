@@ -200,39 +200,54 @@ try {
         $stmtInsert->close();
     }
 
-    // ------------------ ensure quiz_items can hold legs_json (optional)
-    $resCol = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
+    // ------------------ ensure quiz_items can hold legs_json and assistance_json (optional)
     $useLegsColumn = false;
+    $useAssistColumn = false;
+
+    $resCol = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
     if ($resCol) {
         $useLegsColumn = ($resCol->num_rows > 0);
         $resCol->free();
     }
-
     if (!$useLegsColumn) {
         // try to add it, non-fatal
         @$mysqli->query("ALTER TABLE quiz_items ADD COLUMN legs_json TEXT NULL");
-        // re-check
         $resCol2 = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
         if ($resCol2) { $useLegsColumn = ($resCol2->num_rows > 0); $resCol2->free(); }
     }
 
+    $resColA = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'assistance_json'");
+    if ($resColA) {
+        $useAssistColumn = ($resColA->num_rows > 0);
+        $resColA->free();
+    }
+    if (!$useAssistColumn) {
+        // try to add it, non-fatal
+        @$mysqli->query("ALTER TABLE quiz_items ADD COLUMN assistance_json TEXT NULL");
+        $resColA2 = $mysqli->query("SHOW COLUMNS FROM `quiz_items` LIKE 'assistance_json'");
+        if ($resColA2) { $useAssistColumn = ($resColA2->num_rows > 0); $resColA2->free(); }
+    }
+
     // ------------------ Insert items
     if (!empty($items)) {
+
+        // build dynamic insert with optional legs_json / assistance_json
+        $cols = "public_id, quiz_id, item_index, origin_iata, destination_iata,
+                 adults, children, infants, flight_type,
+                 departure_date, return_date,
+                 flight_number, seats, travel_class";
+        $placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?";
+
         if ($useLegsColumn) {
-            $insertSql = "INSERT INTO quiz_items
-                (public_id, quiz_id, item_index, origin_iata, destination_iata,
-                 adults, children, infants, flight_type,
-                 departure_date, return_date,
-                 flight_number, seats, travel_class, legs_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        } else {
-            $insertSql = "INSERT INTO quiz_items
-                (public_id, quiz_id, item_index, origin_iata, destination_iata,
-                 adults, children, infants, flight_type,
-                 departure_date, return_date,
-                 flight_number, seats, travel_class)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $cols .= ", legs_json";
+            $placeholders .= ", ?";
         }
+        if ($useAssistColumn) {
+            $cols .= ", assistance_json";
+            $placeholders .= ", ?";
+        }
+
+        $insertSql = "INSERT INTO quiz_items ($cols) VALUES ($placeholders)";
 
         $stmtItem = safe_prepare($mysqli, $insertSql, "insert quiz_items");
 
@@ -248,9 +263,9 @@ try {
             if (!empty($booking['legs']) && is_array($booking['legs'])) {
                 foreach ($booking['legs'] as $lg) {
                     $legs[] = [
-                        'origin' => isset($lg['origin']) ? strtoupper(trim($lg['origin'])) : '',
+                        'origin'      => isset($lg['origin']) ? strtoupper(trim($lg['origin'])) : '',
                         'destination' => isset($lg['destination']) ? strtoupper(trim($lg['destination'])) : '',
-                        'date' => $lg['date'] ?? null
+                        'date'        => $lg['date'] ?? null
                     ];
                 }
             } else {
@@ -278,41 +293,46 @@ try {
 
             $legs_json = $useLegsColumn ? json_encode($legs, JSON_UNESCAPED_UNICODE) : null;
 
+            // normalize assistance (per-passenger disabilities / special handling)
+            $assistArr = [];
+            if (!empty($booking['assistance']) && is_array($booking['assistance'])) {
+                foreach ($booking['assistance'] as $a) {
+                    if (!is_array($a)) continue;
+                    $pNum = isset($a['passenger']) ? (int)$a['passenger'] : 0;
+                    $tVal = isset($a['type']) ? strtoupper(trim($a['type'])) : '';
+                    if ($pNum > 0 && $tVal !== '') {
+                        $assistArr[] = [
+                            'passenger' => $pNum,
+                            'type'      => $tVal
+                        ];
+                    }
+                }
+            }
+            $assist_json = $useAssistColumn ? json_encode($assistArr, JSON_UNESCAPED_UNICODE) : null;
+
+            // build params array in the same order as $cols
+            $params = [
+                $item_public_id,
+                $quiz_id,
+                $idx,
+                $origin,
+                $dest,
+                $adults,
+                $children,
+                $infants,
+                $type,
+                (string)$depart,
+                (string)$return,
+                $flightNo,
+                $seatsVal,
+                $classVal
+            ];
+
             if ($useLegsColumn) {
-                $params = [
-                    $item_public_id,
-                    $quiz_id,
-                    $idx,
-                    $origin,
-                    $dest,
-                    $adults,
-                    $children,
-                    $infants,
-                    $type,
-                    (string)$depart,
-                    (string)$return,
-                    $flightNo,
-                    $seatsVal,
-                    $classVal,
-                    (string)($legs_json ?? '')
-                ];
-            } else {
-                $params = [
-                    $item_public_id,
-                    $quiz_id,
-                    $idx,
-                    $origin,
-                    $dest,
-                    $adults,
-                    $children,
-                    $infants,
-                    $type,
-                    (string)$depart,
-                    (string)$return,
-                    $flightNo,
-                    $seatsVal,
-                    $classVal
-                ];
+                $params[] = (string)($legs_json ?? '');
+            }
+            if ($useAssistColumn) {
+                $params[] = (string)($assist_json ?? '');
             }
 
             // bind by reference

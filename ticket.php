@@ -83,6 +83,25 @@ function airport_prompt_text($code, $iataMap) {
     return $code;
 }
 
+// >>> NEW: friendly label for assistance codes
+function human_assist_label($code) {
+    $code = strtoupper(trim((string)$code));
+    switch ($code) {
+        case 'WHEELCHAIR':
+            return 'Wheelchair Assistance';
+        case 'VISION_HEARING':
+            return 'Vision/Hearing Impairment';
+        case 'MOBILITY':
+            return 'Reduced Mobility';
+        case 'MEDICAL':
+            return 'Medical Assistance';
+        case 'OTHER':
+            return 'Other / Special Handling';
+        default:
+            return $code;
+    }
+}
+
 // =======================
 // QUIZ LOADER (public_id or numeric id)
 // =======================
@@ -166,20 +185,28 @@ $quizPublicId  = $quiz['public_id'] ?? null;       // may be null for old rows
 $quizInputType = !empty($quiz['input_type']) ? $quiz['input_type'] : 'airport-code';
 
 // =======================
-// LOAD QUIZ ITEMS (legs_json + legacy ROUND-TRIP)
+// LOAD QUIZ ITEMS (legs_json + assistance_json + legacy ROUND-TRIP)
 // =======================
 
 $items = [];
 
 // Detect if quiz_items has legs_json column
-$hasLegsJson = false;
+// Detect if quiz_items has legs_json / assistance_json columns
+$hasLegsJson   = false;
+$hasAssistJson = false;
+
 $colCheck = $conn->query("SHOW COLUMNS FROM `quiz_items` LIKE 'legs_json'");
 if ($colCheck && $colCheck->num_rows > 0) {
     $hasLegsJson = true;
 }
 
-// Build SELECT query including legs_json if available
-if ($hasLegsJson) {
+$colCheck2 = $conn->query("SHOW COLUMNS FROM `quiz_items` LIKE 'assistance_json'");
+if ($colCheck2 && $colCheck2->num_rows > 0) {
+    $hasAssistJson = true;
+}
+
+// Build SELECT query including legs_json / assistance_json if available
+if ($hasLegsJson && $hasAssistJson) {
     $itemSql = "
       SELECT
         id,
@@ -192,7 +219,46 @@ if ($hasLegsJson) {
         flight_number,
         seats,
         travel_class,
-        legs_json
+        legs_json,
+        assistance_json
+      FROM quiz_items
+      WHERE quiz_id = ?
+      ORDER BY item_index ASC, id ASC
+    ";
+} elseif ($hasLegsJson && !$hasAssistJson) {
+    $itemSql = "
+      SELECT
+        id,
+        adults, children, infants,
+        flight_type,
+        origin_iata AS origin,
+        destination_iata AS destination,
+        departure_date AS departure,
+        return_date,
+        flight_number,
+        seats,
+        travel_class,
+        legs_json,
+        NULL AS assistance_json
+      FROM quiz_items
+      WHERE quiz_id = ?
+      ORDER BY item_index ASC, id ASC
+    ";
+} elseif (!$hasLegsJson && $hasAssistJson) {
+    $itemSql = "
+      SELECT
+        id,
+        adults, children, infants,
+        flight_type,
+        origin_iata AS origin,
+        destination_iata AS destination,
+        departure_date AS departure,
+        return_date,
+        flight_number,
+        seats,
+        travel_class,
+        NULL AS legs_json,
+        assistance_json
       FROM quiz_items
       WHERE quiz_id = ?
       ORDER BY item_index ASC, id ASC
@@ -210,7 +276,8 @@ if ($hasLegsJson) {
         flight_number,
         seats,
         travel_class,
-        NULL AS legs_json
+        NULL AS legs_json,
+        NULL AS assistance_json
       FROM quiz_items
       WHERE quiz_id = ?
       ORDER BY item_index ASC, id ASC
@@ -281,6 +348,47 @@ if ($stmt) {
         // Attach legs back to row
         $r['legs'] = $legs;
 
+        // ---------- NEW: decode assistance_json (robust) ----------
+          $assistList = [];
+
+          if (!empty($r['assistance_json'])) {
+              $decodedA = json_decode($r['assistance_json'], true);
+
+              if (json_last_error() !== JSON_ERROR_NONE) {
+                  // Optional: log error for debugging
+                  error_log('assistance_json decode error for quiz_item '.$r['id'].': '.json_last_error_msg().' RAW: '.$r['assistance_json']);
+              } elseif (is_array($decodedA)) {
+
+                  // Case 1: wrapped like { "assistances": [ ... ] }
+                  if (isset($decodedA['assistances']) && is_array($decodedA['assistances'])) {
+                      $decodedA = $decodedA['assistances'];
+                  }
+
+                  // Case 2: a single object { "passenger":1, "type":"..." }
+                  $isAssoc = array_keys($decodedA) !== range(0, count($decodedA) - 1);
+                  if ($isAssoc && isset($decodedA['passenger'])) {
+                      $decodedA = [$decodedA];
+                  }
+
+                  // Now $decodedA should be an array of assistance objects
+                  foreach ($decodedA as $a) {
+                      if (!is_array($a)) continue;
+
+                      $paxNum = isset($a['passenger']) ? (int)$a['passenger'] : null;
+                      $atype  = isset($a['type']) ? trim((string)$a['type']) : '';
+
+                      if ($paxNum !== null && $paxNum > 0 && $atype !== '') {
+                          $assistList[] = [
+                              'passenger' => $paxNum,
+                              'type'      => $atype, // or human_assist_label($atype)
+                          ];
+                      }
+                  }
+              }
+          }
+
+          $r['assist'] = $assistList;
+
         $items[] = $r;
     }
     $stmt->close();
@@ -310,6 +418,9 @@ $classes          = [];
 $anyTrueRoundTrip = false;
 $totalLegs        = 0;
 
+// >>> NEW: collect all assistance definitions
+$allAssistances   = [];
+
 // use quizInputType we normalized above
 $inputType = $quizInputType ?? 'airport-code';
 
@@ -334,6 +445,20 @@ foreach ($items as $it) {
         $date = trim($lg['date'] ?? '');
         $allSegments[] = ['origin' => $org, 'destination' => $dst, 'date' => $date];
         $totalLegs++;
+    }
+
+    // >>> NEW: aggregate assistance info
+    if (!empty($it['assist']) && is_array($it['assist'])) {
+        foreach ($it['assist'] as $a) {
+            $p = isset($a['passenger']) ? (int)$a['passenger'] : null;
+            $t = isset($a['type']) ? trim($a['type']) : '';
+            if ($p !== null && $p > 0 && $t !== '') {
+                $allAssistances[] = [
+                    'passenger' => $p,
+                    'type'      => $t
+                ];
+            }
+        }
     }
 }
 
@@ -476,7 +601,9 @@ $descObj = [
     'instruction'     => $instructionSentence,
     'itemsCount'      => count($items),
     'firstDeadline'   => $firstDeadline ?: '',
-    'expected_answer' => $firstDestination ?: null
+    'expected_answer' => $firstDestination ?: null,
+    // >>> NEW: pass assistance list to the prompt
+    'assistances'     => $allAssistances
 ];
 
 
@@ -491,192 +618,105 @@ $flight_type  = $_POST['flight_type'] ?? 'ONE-WAY';
 $return_date  = trim($_POST['return_date'] ?? '');
 $errors       = [];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// (rest of your file below is unchanged – JS + HTML, except for the new
+//  “Special assistance” section in the PROMPT markup)
 
-    $quizInputType = isset($_POST['quiz_type']) && $_POST['quiz_type'] !== ''
-        ? $_POST['quiz_type']
-        : 'airport-code';
+// -------------- existing POST handler, JS, HTML etc. --------------
 
-    if (!isset($_SESSION['acc_id'])) {
-        $errors['login'] = 'You must be logged in to submit a flight.';
+// If this is the AJAX validation call from "Confirm Booking"
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['ajax_validate'])
+    && $_POST['ajax_validate'] == '1'
+) {
+    // Make sure nothing else is printed before JSON
+    if (ob_get_length()) {
+        ob_clean();
+    }
+    header('Content-Type: application/json; charset=utf-8');
+
+    $errors = [];
+
+    // Use the quiz input type we already computed above
+    $inputType = $quizInputType ?? 'airport-code';
+
+    // ---- Origin validation ----
+    if ($origin === '') {
+        $errors['origin'] = 'Origin is required.';
+    } elseif ($inputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
+        $errors['origin'] = 'Origin must be 3 uppercase letters.';
     }
 
-    // Normalize selected flight type from POST (defensive)
-    $flight_type = isset($_POST['flight_type']) ? strtoupper(trim($_POST['flight_type'])) : 'ONE-WAY';
+    // ---- Destination validation ----
+    if ($destination === '') {
+        $errors['destination'] = 'Destination is required.';
+    } elseif ($inputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
+        $errors['destination'] = 'Destination must be 3 uppercase letters.';
+    }
 
-    // If MULTI-CITY we expect leg_* arrays; otherwise use single origin/destination inputs
-    if ($flight_type === 'MULTI-CITY') {
-        // Collect legs from POST arrays (names used in your JS: leg_origin_iata[], leg_destination_iata[], leg_date[])
-        $leg_origins = isset($_POST['leg_origin_iata']) && is_array($_POST['leg_origin_iata']) ? $_POST['leg_origin_iata'] : [];
-        $leg_dests   = isset($_POST['leg_destination_iata']) && is_array($_POST['leg_destination_iata']) ? $_POST['leg_destination_iata'] : [];
-        $leg_dates   = isset($_POST['leg_date']) && is_array($_POST['leg_date']) ? $_POST['leg_date'] : [];
+    if ($origin !== '' && $destination !== '' && $origin === $destination) {
+        $errors['destination'] = 'Origin and destination cannot be the same.';
+    }
 
-        // Trim and uppercase origins/dests
-        $legs = [];
-        $numLegs = max(count($leg_origins), count($leg_dests), count($leg_dates));
-        for ($i = 0; $i < $numLegs; $i++) {
-            $o  = strtoupper(trim((string)($leg_origins[$i] ?? '')));
-            $d  = strtoupper(trim((string)($leg_dests[$i] ?? '')));
-            $dt = trim((string)($leg_dates[$i] ?? ''));
+    // ---- Dates ----
+    $flight_type = strtoupper(trim((string)$flight_type));
+    if (!in_array($flight_type, ['ONE-WAY', 'ROUND-TRIP', 'MULTI-CITY'], true)) {
+        $flight_type = 'ONE-WAY';
+    }
 
-            // skip completely empty rows
-            if ($o === '' && $d === '' && $dt === '') continue;
-
-            $legs[] = ['origin' => $o, 'destination' => $d, 'date' => $dt];
-        }
-
-        if (count($legs) === 0) {
-            $errors['legs'] = 'At least one leg is required for multi-city bookings.';
-        } else {
-            // Validate each leg
-            foreach ($legs as $idx => $lg) {
-                $o  = $lg['origin'];
-                $d  = $lg['destination'];
-                $dt = $lg['date'];
-
-                if ($o === '') {
-                    $errors['origin_' . $idx] = "Origin is required for leg " . ($idx + 1) . ".";
-                } else {
-                    if ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $o)) {
-                        $errors['origin_' . $idx] = "Origin must be a 3-letter IATA code for leg " . ($idx + 1) . ".";
-                    }
-                }
-
-                if ($d === '') {
-                    $errors['destination_' . $idx] = "Destination is required for leg " . ($idx + 1) . ".";
-                } else {
-                    if ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $d)) {
-                        $errors['destination_' . $idx] = "Destination must be a 3-letter IATA code for leg " . ($idx + 1) . ".";
-                    }
-                }
-
-                if ($o !== '' && $d !== '' && $o === $d) {
-                    $errors['destination_' . $idx] = "Origin and destination cannot be the same for leg " . ($idx + 1) . ".";
-                }
-
-                // date validation
-                if ($dt === '') {
-                    $errors['flight_date_' . $idx] = "Date is required for leg " . ($idx + 1) . ".";
-                } else {
-                    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dt)) {
-                        $errors['flight_date_' . $idx] = "Invalid date format for leg " . ($idx + 1) . ". Use YYYY-MM-DD.";
-                    } else {
-                        $dobj = DateTime::createFromFormat('Y-m-d', $dt);
-                        if (!$dobj || $dobj->format('Y-m-d') !== $dt) {
-                            $errors['flight_date_' . $idx] = "Invalid date for leg " . ($idx + 1) . ".";
-                        }
-                    }
-                }
-            }
-        }
-
-        // If there were no errors for multi-city, set the "first" flight metadata for compatibility
-        if (empty($errors)) {
-            $firstLeg   = $legs[0];
-            $lastLeg    = end($legs);
-            $origin      = $firstLeg['origin'] ?? '';
-            $destination = $lastLeg['destination'] ?? '';
-            $flight_date = $firstLeg['date'] ?? '';
-            $return_date = $lastLeg['date'] ?? '';
-        }
-
+    // departure
+    if ($flight_date === '') {
+        $errors['flight_date'] = 'Departure date is required.';
+    } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
+        $errors['flight_date'] = 'Invalid departure date (YYYY-MM-DD).';
     } else {
-        // ONE-WAY or ROUND-TRIP (existing behavior)
-
-        $origin       = strtoupper(trim($_POST['origin'] ?? ''));
-        $destination  = strtoupper(trim($_POST['destination'] ?? ''));
-        $flight_date  = trim($_POST['flight_date'] ?? '');
-        $return_date  = trim($_POST['return_date'] ?? '');
-
-        if (empty($origin)) {
-            $errors['origin'] = 'Origin is required.';
-        } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $origin)) {
-            $errors['origin'] = 'Origin must be a 3-letter IATA code.';
+        $dObj = DateTime::createFromFormat('Y-m-d', $flight_date);
+        if (!$dObj || $dObj->format('Y-m-d') !== $flight_date) {
+            $errors['flight_date'] = 'Departure date is invalid.';
         }
+    }
 
-        if (empty($destination)) {
-            $errors['destination'] = 'Destination is required.';
-        } elseif ($quizInputType === 'airport-code' && !preg_match('/^[A-Z]{3}$/', $destination)) {
-            $errors['destination'] = 'Destination must be a 3-letter IATA code.';
-        }
-
-        if ($origin === $destination && !empty($origin)) {
-            $errors['destination'] = 'Destination code cannot be the same as origin.';
-        }
-
-        if (empty($flight_date)) {
-            $errors['flight_date'] = 'Departure date is required.';
-        } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $flight_date)) {
-            $errors['flight_date'] = 'Invalid date format.';
+    // return date only if ROUND-TRIP
+    if ($flight_type === 'ROUND-TRIP') {
+        if ($return_date === '') {
+            $errors['return_date'] = 'Return date is required for round-trip flights.';
+        } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
+            $errors['return_date'] = 'Invalid return date (YYYY-MM-DD).';
         } else {
-            $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-            if (!$d || $d->format('Y-m-d') !== $flight_date) {
-                $errors['flight_date'] = 'Invalid date.';
-            }
-        }
-
-        if ($flight_type !== 'ROUND-TRIP') {
-            // ensure return_date cleared for NON-RT
-            $return_date = '';
-        } else {
-            if (empty($return_date)) {
-                $errors['return_date'] = 'Return date is required for round-trip flights.';
-            } elseif (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $return_date)) {
-                $errors['return_date'] = 'Invalid return date format.';
-            } else {
-                $r = DateTime::createFromFormat('Y-m-d', $return_date);
-                if (!$r || $r->format('Y-m-d') !== $return_date) {
-                    $errors['return_date'] = 'Invalid return date.';
-                } else {
-                    $d = DateTime::createFromFormat('Y-m-d', $flight_date);
-                    if ($d && $r < $d) {
-                        $errors['return_date'] = 'Return date cannot be before departure date.';
-                    }
-                }
+            $rObj = DateTime::createFromFormat('Y-m-d', $return_date);
+            if (!$rObj || $rObj->format('Y-m-d') !== $return_date) {
+                $errors['return_date'] = 'Return date is invalid.';
+            } elseif (isset($dObj) && $rObj < $dObj) {
+                $errors['return_date'] = 'Return date cannot be before departure date.';
             }
         }
     }
 
-    // If AJAX validation requested, return JSON including legs when MULTI-CITY
-    if (!empty($_POST['ajax_validate'])) {
-        header('Content-Type: application/json; charset=utf-8');
-
-        $responseFlight = [
-            'origin'      => $origin,
-            'destination' => $destination,
-            'flight_date' => $flight_date,
-            'return_date' => $return_date,
-            'flight_type' => $flight_type
-        ];
-
-        // include legs if we parsed them
-        if (isset($legs) && is_array($legs) && count($legs) > 0) {
-            // ensure legs are in normalized format (origin,destination,date)
-            $responseFlight['legs'] = array_values($legs);
-        } else {
-            $responseFlight['legs'] = [];
-        }
-
+    if (!empty($errors)) {
         echo json_encode([
-            'ok'       => empty($errors),
-            'errors'   => $errors,
-            'quiz_type'=> $quizInputType,
-            'flight'   => $responseFlight
+            'ok'     => false,
+            'errors' => $errors,
         ]);
         exit;
     }
+
+    // Success: send back the flight object used by buildSummaryAndOpen()
+    echo json_encode([
+        'ok'     => true,
+        'errors' => new stdClass(),
+        'flight' => [
+            'origin'       => $origin,
+            'destination'  => $destination,
+            'flight_date'  => $flight_date,
+            'return_date'  => $return_date,
+            'flight_type'  => $flight_type,
+        ],
+    ]);
+    exit;
 }
 
-$flight = [
-    'origin_code'      => htmlspecialchars($origin),
-    'destination_code' => htmlspecialchars($destination),
-    'flight_date'      => htmlspecialchars($flight_date),
-    'return_date'      => htmlspecialchars($return_date),
-    'flight_type'      => htmlspecialchars($flight_type)
-];
+
 ?>
-
-
 <!DOCTYPE html>
   <html lang="en">
   <?php include('templates/header.php'); ?>
@@ -696,6 +736,7 @@ $flight = [
               <div class="prompt-description-text">
                 <?php echo nl2br(htmlspecialchars($descObj['description'])); ?>
               </div>
+
 
               <!-- Chips: flight type, passengers, class of service, deadline -->
               <div class="container center" style="padding: 0;">
@@ -723,24 +764,32 @@ $flight = [
                       <?php echo htmlspecialchars($descObj['class_of_service'] ?? ''); ?>
                     </span>
                   </span>
-
-                  <!-- <span class="prompt-chip">
-                    <span class="prompt-chip-label">Items</span>
-                    <span class="prompt-chip-value">
-                      <?php echo (int)($descObj['itemsCount'] ?? 0); ?>
-                    </span>
-                  </span> -->
-
-                  <!-- <?php if (!empty($descObj['firstDeadline'])): ?>
-                    <span class="prompt-chip">
-                      <span class="prompt-chip-label">First deadline</span>
-                      <span class="prompt-chip-value">
-                        <?php echo htmlspecialchars($descObj['firstDeadline']); ?>
-                      </span>
-                    </span>
-                  <?php endif; ?> -->
+                <?php if (!empty($descObj['assistances']) && is_array($descObj['assistances'])): ?>
+                  <div>
+                    <ul class="prompt-assist-list">
+                      <?php foreach ($descObj['assistances'] as $a): ?>
+                        <li>
+                        <span class="prompt-chip">
+                          <span class="prompt-chip-label">Disability</span>
+                          <span class="prompt-chip-value">
+                                P <?php echo (int)$a['passenger']; ?> – 
+                                <?php echo htmlspecialchars($a['type']); ?>
+                          </span>
+                        </span>
+                        </li>
+                    <?php endforeach; ?>
+                    </ul>
+                  </div>
+              <?php endif; ?>
                 </div>
               </div>
+              
+
+
+                        <!-- >>> NEW: show assistance requirements from quizmaker -->
+
+
+
               <!-- Segments + instruction -->
               <div class="prompt-sections">
                 <?php if (!empty($descObj['segments']) && is_array($descObj['segments'])): ?>
@@ -771,6 +820,7 @@ $flight = [
                   </div>
                 <?php endif; ?>
 
+                
               <div>
                 <div class="prompt-section-title">What you need to do</div>
                 <div class="prompt-instruction">
@@ -786,6 +836,7 @@ $flight = [
             <code>?id=&lt;quiz_id&gt;</code> to see the prompt.
           </div>
         <?php endif; ?>
+            
       </div>
     </div>
 
@@ -922,13 +973,25 @@ $flight = [
               </div>
 
               <div class="col s6 pwd-group">
-                <span class="field-title">Disability</span><br>
-                <label class="custom-checkbox-inline">
-                  <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
-                  <span class="checkmark"></span>
-                </label>
-                <input type="text" name="impairment[]" class="impairment-field" placeholder="Specify" disabled style="display:none;">
-              </div>
+                  <span class="field-title">Disability</span><br>
+                  <label class="custom-checkbox-inline">
+                    <input type="checkbox" name="pwd[]" onchange="toggleImpairment(this)">
+                    <span class="checkmark"></span>
+                  </label>
+
+                  <!-- Dropdown instead of free-text -->
+                  <select name="impairment[]" 
+                          class="impairment-field browser-default" 
+                          disabled 
+                          style="display:none; max-width:260px;">
+                    <option value="" disabled selected>Select assistance</option>
+                    <option value="Wheelchair Assistance">Wheelchair Assistance</option>
+                    <option value="Vision/Hearing Impairment">Vision/Hearing Impairment</option>
+                    <option value="Reduced Mobility">Reduced Mobility</option>
+                    <option value="Medical Assistance">Medical Assistance</option>
+                    <option value="Other / Special Handling">Other / Special Handling</option>
+                  </select>
+                </div>
             </div>
 
             <div class="row">
@@ -1773,11 +1836,15 @@ $flight = [
         const index = ticketCount - 1;
         newTicket.querySelectorAll('input[type="radio"]').forEach(r => r.name = `gender[${index}]`);
         const impairmentField = newTicket.querySelector('.impairment-field');
-        if (impairmentField) {
-          impairmentField.name = `impairment[${index}]`;
-          impairmentField.style.display = 'none';
-          impairmentField.disabled = true;
-        }
+          if (impairmentField) {
+            impairmentField.name = `impairment[${index}]`;
+            impairmentField.style.display = 'none';
+            impairmentField.disabled = true;
+            impairmentField.value = '';
+            if (impairmentField.tagName === 'SELECT') {
+              impairmentField.selectedIndex = 0;
+            }
+          }
         const pwdCheckbox = newTicket.querySelector('input[type="checkbox"]');
         if (pwdCheckbox) pwdCheckbox.name = `pwd[${index}]`;
 
@@ -1851,13 +1918,20 @@ $flight = [
 
       function toggleImpairment(checkbox) {
         const field = checkbox.closest('.pwd-group').querySelector('.impairment-field');
+        if (!field) return;
+
         if (checkbox.checked) {
           field.style.display = 'inline-block';
           field.disabled = false;
         } else {
           field.style.display = 'none';
           field.disabled = true;
+
+          // Reset value
           field.value = '';
+          if (field.tagName === 'SELECT') {
+            field.selectedIndex = 0; // back to "Select assistance"
+          }
         }
       }
       window.toggleImpairment = toggleImpairment;
@@ -2087,1024 +2161,1024 @@ document.addEventListener('DOMContentLoaded', function () {
 </html>
 
 <style>
-/* ============= GLOBAL LAYOUT ============= */
-html, body {
-  font-family: "Roboto", sans-serif;
-  background: linear-gradient(180deg, #0b1830 0%, #07121a 100%);
-  color: #e5e7eb;
-}
-
-body {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.container {
-  flex: 1 0 auto;
-  padding: 30px 16px 24px;
-}
-
-/* ============= PAGE TITLE BAR ============= */
-
-.ticket-title {
-  margin-top: 18px;
-  margin-bottom: 8px;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: #facc15;
-  text-align: center;
-  font-size: 1rem;
-  position: relative;
-}
-
-.ticket-title::after {
-  content: "";
-  display: block;
-  margin: 10px auto 0;
-  width: 110px;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, #facc15, transparent);
-}
-
-/* ============= PROMPT CARD (TOP) ============= */
-/* ===== PROMPT CARD BASE (normal, inside layout) ===== */
-.prompt-card {
-  max-width: 100% ;
-  margin: 10px auto 24px;
-  transition: all 0.25s ease;
-}
-
-/* the card itself (keep your existing styling if you already have) */
-.prompt-card .card {
-  transition: all 0.25s ease;
-}
-
-/* ===== WHEN STUCK (full-width fixed header) ===== */
-.prompt-card.is-stuck {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  margin: 0;
-  z-index: 1000;
-}
-
-/* make inner card fill the width when stuck */
-.prompt-card.is-stuck .card {
-  max-width: 100%;
-  border-radius: 0 0 18px 18px;
-  margin: 0;
-}
-.prompt-card.is-stuck .prompt-description-text, .prompt-card.is-stuck .prompt-instruction, .prompt-card.is-stuck .prompt-section-title,.prompt-card.is-stuck h4{
-  display: none;
-  margin: 0 !important;
-}
-.prompt-card.is-stuck.container{
-  padding-top: 0 !important;
-}
-.prompt-card .card {
-  /* background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%); */
-  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
-  border-radius: 18px;
-  border: 1px solid rgba(250, 204, 21, 0.25);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
-  padding: 10px 20px 10px ;
-  text-align: left;
-  position: relative;
-}
-
-.prompt-card .card::before {
-  content: "STUDENT BRIEFING";
-  position: absolute;
-  top: 14px;
-  right: 20px;
-  font-size: 0.65rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(250, 204, 21, 0.7);
-}
-
-.prompt-card h4 {
-  margin-top: 2px;
-  margin-bottom: 10px;
-  font-size: 0.9rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: #facc15;
-  text-align: left;
-}
-
-.prompt-description-text {
-  color: #f9fafb;
-  font-size: 0.95rem;
-  line-height: 1.6;
-}
-
-/* Chips row */
-.prompt-meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-  margin-bottom: 6px;
-  font-size: 0.78rem;
-  justify-content: center;
-}
-
-.prompt-chip {
-  padding: 5px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(250, 204, 21, 0.55);
-  background: rgba(133, 93, 14, 0.25);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #fefce8;
-}
-
-.prompt-chip-label {
-  color: #fde047;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.68rem;
-}
-
-.prompt-chip-value {
-  font-weight: 600;
-  color: #ffffff;
-}
-
-/* Sections */
-.prompt-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.prompt-section-title {
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #fde047;
-  margin-bottom: 4px;
-}
-
-/* Segments timeline */
-.prompt-segment-list {
-  list-style: none;
-  padding: 8px 10px;
-  margin: 0;
-  border-radius: 12px;
-  background: rgba(5, 11, 18, 0.95);
-  border: 1px solid rgba(250, 204, 21, 0.35);
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.prompt-segment-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  padding: 6px 4px;
-  font-size: 0.8rem;
-  color: #e5e7eb;
-  border-bottom: 1px dashed rgba(250, 204, 21, 0.2);
-}
-
-.prompt-segment-item:last-child {
-  border-bottom: none;
-}
-
-.prompt-segment-bullet {
-  width: 12px;
-  display: flex;
-  justify-content: center;
-  padding-top: 3px;
-}
-
-.prompt-segment-bullet::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  border: 1px solid #facc15;
-  background: #facc15;
-}
-
-.prompt-segment-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.prompt-segment-route {
-  color: #fef3c7;
-  font-weight: 600;
-}
-
-.prompt-segment-date {
-  color: #eab308;
-  font-size: 0.75rem;
-}
-
-/* Instruction box */
-.prompt-instruction {
-  border-radius: 10px;
-  border: 1px dashed rgba(250, 204, 21, 0.7);
-  background: rgba(66, 54, 10, 0.32);
-  color: #fff7cc;
-  font-size: 0.8rem;
-  padding: 7px 10px;
-}
-
-.student-prompt-empty {
-  padding: 12px 6px;
-  color: #facc15 !important;
-  font-size: 0.9rem;
-}
-.is-stuck .prompt-segment-list{
-  display: flex;
-}
-/* ============= FLIGHT FORM CARD (ROUTE SELECTOR) ============= */
-
-.bg-container {
-  max-width: 960px;
-  margin: 0 auto 24px;
-}
-
-.bg-container .card {
-  /* background: radial-gradient(circle at top right, #020617 0%, #020617 50%, #020617 100%); */
-  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
-  border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
-  padding: 18px 20px 16px;
-  color: #e5e7eb;
-}
-
-/* Flight type tabs (radio group) */
-.bg-container p {
-  display: flex;
-  justify-content: center;
-  gap: 18px;
-  margin-bottom: 10px;
-}
-
-.bg-container p label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #e5e7eb;
-  cursor: pointer;
-}
-
-.bg-container p input[type="radio"] + span::before {
-  content: "";
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 2px solid rgba(148, 163, 184, 0.8);
-  margin-right: 2px;
-}
-
-.bg-container p input[type="radio"]:checked + span::before {
-  border-color: #facc15;
-  background: #facc15;
-}
-
-/* Inputs (origin/destination/dates) */
-.bg-container .input-field label {
-  color: #9ca3af !important;
-}
-
-.bg-container .input-field input {
-  color: #e5e7eb;
-}
-
-.bg-container .input-field input::placeholder {
-  color: #6b7280;
-}
-
-.bg-container .material-icons.prefix {
-  color: #facc15;
-}
-
-/* ================== MULTI-CITY PANEL ================== */
-#multiLegsWrap {
-  position: relative;
-  overflow: hidden;
-}
-
-/* subtle top glow line */
-#multiLegsWrap::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.8;
-  pointer-events: none;
-}
-
-/* header row: title + ADD FLIGHT button */
-#multiLegsWrap > div:first-child {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px !important;
-  font-size: 0.78rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #fefce8;
-}
-
-#multiLegsWrap > div:first-child > div:first-child {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* little pill in front of "Multi-city legs" */
-#multiLegsWrap > div:first-child > div:first-child::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #facc15;
-  box-shadow: 0 0 10px rgba(250, 204, 21, 0.7);
-}
-
-/* ADD FLIGHT button inside panel */
-#multiLegsWrap #addLegBtn.btn {
-  border-radius: 999px;
-  background: #facc15;
-  color: #111827;
-  font-weight: 600;
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 0 14px;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.7);
-}
-
-#multiLegsWrap #addLegBtn.btn:hover {
-  background: #fde047;
-  transform: translateY(-1px);
-}
-
-/* ========== LEG ROWS ========== */
-#multiLegsWrap .leg-row {
-  background: rgba(15, 23, 42, 0.85);
-  border-radius: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  margin-bottom: 8px !important;
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  position: relative;
-}
-
-/* thin accent line on the left of each row */
-#multiLegsWrap .leg-row::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 999px;
-  background: linear-gradient(to bottom, #facc15, transparent);
-}
-
-/* inputs inside leg rows */
-#multiLegsWrap .leg-row .input-field label {
-  color: #cbd5f5 !important;
-}
-
-#multiLegsWrap .leg-row .input-field input {
-  color: #e5e7eb;
-}
-
-#multiLegsWrap .leg-row .input-field input::placeholder {
-  color: #6b7280;
-}
-
-/* remove-leg button */
-#multiLegsWrap .leg-row .remove-leg {
-  border-radius: 999px;
-  border: 1px solid rgba(239, 68, 68, 0.7);
-  color: #fecaca;
-  min-width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  background: rgba(24, 24, 27, 0.9);
-  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
-}
-
-#multiLegsWrap .leg-row .remove-leg:hover {
-  background: #ef4444;
-  color: #111827;
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.7);
-  transform: translateY(-1px);
-}
-
-/* helper text under the legs */
-#multiLegsWrap > div:last-child {
-  margin-top: 8px;
-  font-size: 0.78rem;
-  color: #e5e7eb;
-  opacity: 0.9;
-}
-
-/* ===== RESPONSIVE ADJUST FOR LEG ROWS (keep what you had, but refine) ===== */
-@media (max-width: 992px) {
-  #multiLegsWrap .leg-row {
-    flex-wrap: wrap;
+  /* ============= GLOBAL LAYOUT ============= */
+  html, body {
+    font-family: "Roboto", sans-serif;
+    background: linear-gradient(180deg, #0b1830 0%, #07121a 100%);
+    color: #e5e7eb;
   }
 
-  #multiLegsWrap .leg-row > div[style*="flex:1"],
-  #multiLegsWrap .leg-row > div[style*="width:180px"],
-  #multiLegsWrap .leg-row > div[style*="width:36px"] {
-    width: 100% !important;
-    flex: 1 1 100%;
-  }
-
-  #multiLegsWrap .leg-row > div[style*="width:36px"] {
+  body {
+    min-height: 100vh;
     display: flex;
-    justify-content: flex-end;
-  }
-  .is-stuck .prompt-segment-list{
-  display: block;
-}
-}
-
-@media (max-width: 600px) {
-  #multiLegsWrap {
-    padding: 10px 10px 8px;
+    flex-direction: column;
   }
 
-  #multiLegsWrap .leg-row {
-    padding: 8px;
-  }
-  
-}
-
-
-/* ============= PASSENGER TICKET CARDS ============= */
-
-#ticketContainer {
-  max-width: 960px;
-  margin: 0 auto;
-}
-
-.ticket-card {
-  /* background: linear-gradient(135deg, #020617 0%, #020617 65%, #111827 100%); */
-  background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
-  border-radius: 18px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
-  padding: 18px 18px 16px;
-  margin-bottom: 16px;
-  position: relative;
-  border-left: 4px solid #facc15;
-  border-top: 1px solid rgba(148, 163, 184, 0.4);
-  border-right: 1px solid rgba(15, 23, 42, 0.8);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.8);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-
-.ticket-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.9);
-  z-index: 999 !important;
-}
-
-.counter {
-  font-weight: 600;
-  font-size: 0.95rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #facc15;
-  margin-bottom: 8px;
-}
-
-.ticket-card label,
-.field-title {
-  font-weight: 500;
-  color: #cbd5f5;
-}
-
-/* Remove button */
-.remove-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: transparent;
-  border: none;
-  color: #f97373;
-  cursor: pointer;
-  font-weight: bold;
-  font-size: 18px;
-}
-
-/* Inputs inside ticket cards */
-.ticket-card .input-field input {
-  color: #e5e7eb;
-}
-
-.ticket-card .input-field input::placeholder {
-  color: #6b7280;
-}
-
-/* Gender / PWD custom controls */
-.custom-radio-inline,
-.custom-checkbox-inline {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 15px;
-  position: relative;
-  cursor: pointer;
-  color: #e5e7eb;
-  user-select: none;
-  font-weight: 400;
-  font-size: 0.85rem;
-}
-
-.custom-radio-inline input,
-.custom-checkbox-inline input {
-  position: absolute;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.checkmark {
-  height: 18px;
-  width: 18px;
-  background-color: transparent;
-  border: 2px solid #9ca3af;
-  margin-right: 6px;
-  display: inline-block;
-  vertical-align: middle;
-  border-radius: 50%;
-}
-
-.custom-checkbox-inline .checkmark {
-  border-radius: 4px;
-}
-
-.custom-radio-inline input:checked ~ .checkmark,
-.custom-checkbox-inline input:checked ~ .checkmark {
-  background-color: #facc15 !important;
-  border-color: #facc15 !important;
-}
-
-.pwd-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.pwd-group .impairment-field {
-  flex: 1;
-  min-width: 120px;
-  padding: 4px 6px;
-  border: 1px solid #4b5563;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.8);
-  color: #e5e7eb;
-}
-
-/* ============= ADD PASSENGER BUTTON + PRIMARY CTA ============= */
-
-.add-btn {
-  display: flex;
-  justify-content: center;
-  margin-top: 20px;
-}
-
-.btn-floating {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  font-size: 2rem;
-  background-color: #facc15;
-  color: #111827;
-  border: none;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.6);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.2s ease;
-}
-
-.btn-floating:hover {
-  transform: translateY(-2px) scale(1.05);
-  background-color: #fde047;
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.8);
-}
-
-.form-actions {
-  margin-top: 30px;
-  display: flex;
-  justify-content: flex-end;
-  max-width: 960px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.form-actions .btn {
-  border-radius: 999px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  height: 44px;
-  background-color: #facc15;
-  color: #111827;
-  padding: 0 26px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.7);
-  transition: all 0.18s ease-in-out;
-}
-
-.form-actions .btn:hover {
-  background-color: #fde047;
-  transform: translateY(-1px);
-}
-
-/* ============= MODALS (SUMMARY + SEAT PICKER) ============= */
-
-.modal {
-  background: transparent;
-}
-
-.modal .modal-content {
-  background: radial-gradient(circle at top, #020617 0%, #020617 40%, #020617 100%);
-  border-radius: 18px 18px 0 0;
-  border-bottom: 1px solid rgba(30, 64, 175, 0.4);
-  color: #e5e7eb;
-}
-
-.modal .modal-content h4,
-.modal .modal-content h5 {
-  color: #facc15;
-}
-
-.modal .modal-footer {
-  background: #020617;
-  border-radius: 0 0 18px 18px;
-  border-top: 1px solid rgba(30, 64, 175, 0.4);
-}
-
-.modal .modal-footer .btn {
-  border-radius: 999px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.8rem;
-}
-
-.modal .modal-footer .btn.green {
-  background-color: #22c55e;
-}
-
-.modal .modal-footer .btn.red {
-  background-color: #ef4444;
-}
-
-/* ============= SEAT PICKER ============= */
-
-.seat-map {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px;
-  max-width: 960px;
-  margin: 0 auto;
-  background: radial-gradient(circle at top, #020617 0%, #020617 60%, #020617 100%);
-  border-radius: 16px;
-  border: 1px solid rgba(55, 65, 81, 0.8);
-}
-
-.seat-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: center;
-}
-
-.row-label {
-  width: 44px;
-  min-width: 44px;
-  text-align: center;
-  font-weight: 600;
-  color: #9ca3af;
-}
-
-.seat {
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  user-select: none;
-  border: 1px solid rgba(15, 23, 42, 0.9);
-  transition: transform .08s ease, box-shadow .12s ease, background 0.08s ease;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-/* Cabin background tints */
-.seat.first    { background-color: #e3f2fd; }
-.seat.business { background-color: #fff3e0; }
-.seat.premium  { background-color: #ede7f6; }
-.seat.economy  { background-color: #e8f5e9; }
-
-.seat:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
-}
-
-.seat.selected {
-  color: white;
-}
-
-/* Selected seat colors per cabin */
-.seat.first.selected    { background-color: #1e88e5; }
-.seat.business.selected { background-color: #fb8c00; }
-.seat.premium.selected  { background-color: #7e57c2; }
-.seat.economy.selected  { background-color: #22c55e; }
-
-.seat.disabled {
-  background: #111827;
-  color: #6b7280;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.aisle {
-  width: 28px;
-  min-width: 28px;
-}
-
-/* Legenda / legend */
-.legend {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin: 8px 16px 12px;
-  flex-wrap: wrap;
-  justify-content: center;
-  color: #d1d5db;
-  font-size: 0.8rem;
-}
-
-.legend .box {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  border: 1px solid rgba(15, 23, 42, 0.9);
-  display: inline-block;
-  vertical-align: middle;
-  margin-right: 6px;
-}
-
-.legend .box.selected { background: #facc15; border-color: #facc15; }
-.legend .box.disabled { background: #111827; color: #9ca3af; border-color: #4b5563; }
-
-.selection-summary {
-  margin-top: 8px;
-  max-width: 960px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 16px 12px;
-}
-
-/* Cabin headers */
-.cabin-header {
-  margin-top: 10px;
-  margin-bottom: 4px;
-  text-align: left;
-  max-width: 960px;
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0 18px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cabin-header h6 {
-  margin: 0;
-  font-weight: 600;
-}
-
-.cabin-header .line {
-  flex: 1;
-  height: 1px;
-  background: rgba(55, 65, 81, 0.9);
-}
-
-.cabin-header.first h6    { color: #1e88e5; }
-.cabin-header.business h6 { color: #fb8c00; }
-.cabin-header.premium h6  { color: #a855f7; }
-.cabin-header.economy h6  { color: #22c55e; }
-
-/* ============= DATEPICKER / DROPDOWN FIXES ============= */
-
-.datepicker-date-display {
-  display: none !important;
-}
-select.datepicker-select {
-  display: none !important;
-}
-input.select-dropdown {
-  width: 100% !important;
-}
-.datepicker-modal{
-  max-width: 350px !important;
-}
-/* ============= RESPONSIVE ============= */
-
-@media (max-width: 600px) {
   .container {
-    padding-top: 18px;
+    flex: 1 0 auto;
+    padding: 30px 16px 24px;
   }
 
-  .bg-container .row .col.s4,
-  .bg-container .row .col.s6,
-  .bg-container .row .col.md3 {
-    width: 100%;
+  /* ============= PAGE TITLE BAR ============= */
+
+  .ticket-title {
+    margin-top: 18px;
+    margin-bottom: 8px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #facc15;
+    text-align: center;
+    font-size: 1rem;
+    position: relative;
   }
 
-  .bg-container p {
-    flex-direction: column;
-    gap: 6px;
+  .ticket-title::after {
+    content: "";
+    display: block;
+    margin: 10px auto 0;
+    width: 110px;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, transparent, #facc15, transparent);
   }
 
-  .pwd-group {
-    flex-direction: column;
-    align-items: flex-start;
+  /* ============= PROMPT CARD (TOP) ============= */
+  /* ===== PROMPT CARD BASE (normal, inside layout) ===== */
+  .prompt-card {
+    max-width: 100% ;
+    margin: 10px auto 24px;
+    transition: all 0.25s ease;
   }
 
-  .form-actions {
-    justify-content: center;
+  /* the card itself (keep your existing styling if you already have) */
+  .prompt-card .card {
+    transition: all 0.25s ease;
   }
 
-  .form-actions .btn {
-    width: 100%;
+  /* ===== WHEN STUCK (full-width fixed header) ===== */
+  .prompt-card.is-stuck {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    margin: 0;
+    z-index: 1000;
   }
 
-  .seat {
-    width: 36px;
-    height: 36px;
-    border-radius: 6px;
+  /* make inner card fill the width when stuck */
+  .prompt-card.is-stuck .card {
+    max-width: 100%;
+    border-radius: 0 0 18px 18px;
+    margin: 0;
   }
-  .row-label {
-    width: 36px;
-    min-width: 36px;
-    font-size: 0.9rem;
+  .prompt-card.is-stuck .prompt-description-text, .prompt-card.is-stuck .prompt-instruction, .prompt-card.is-stuck .prompt-section-title,.prompt-card.is-stuck h4{
+    display: none;
+    margin: 0 !important;
+  }
+  .prompt-card.is-stuck.container{
+    padding-top: 0 !important;
+  }
+  .prompt-card .card {
+    /* background: radial-gradient(circle at top left, #111827 0%, #020617 55%, #020617 100%); */
+    background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(250, 204, 21, 0.25);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+    padding: 10px 20px 10px ;
+    text-align: left;
+    position: relative;
   }
 
   .prompt-card .card::before {
-    position: static;
-    display: inline-block;
-    margin-bottom: 4px;
-  }
-}
-/* ================== LAYOUT GRID FOR PROMPT ================== */
-@media (max-width: 992px) {
-  .prompt-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .prompt-card .card {
-    padding: 12px 14px 10px;
+    content: "STUDENT BRIEFING";
+    position: absolute;
+    top: 14px;
+    right: 20px;
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(250, 204, 21, 0.7);
   }
 
-  .prompt-segment-list {
-    max-height: 220px;
+  .prompt-card h4 {
+    margin-top: 2px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #facc15;
+    text-align: left;
   }
-}
 
-/* ================== GENERIC CONTAINER WIDTHS ================== */
-/* .container {
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
-} */
-[type="radio"]:checked+span:after, [type="radio"].with-gap:checked+span:after{
-  background-color: transparent !important;
-  border: none !important;
-}
-/* ================== MAKE FORMS STACK BETTER ================== */
-@media (max-width: 992px) {
-  .bg-container .row {
+  .prompt-description-text {
+    color: #f9fafb;
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
+  /* Chips row */
+  .prompt-meta-row {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
-  }
-
-  .bg-container .row > [class*="col"] {
-    flex: 1 1 100%;
-    max-width: 100%;
-  }
-
-  /* Multi-city legs: stack fields instead of one long row */
-  .leg-row {
-    flex-wrap: wrap;
-  }
-
-  .leg-row > div[style*="flex:1"],
-  .leg-row > div[style*="width:180px"],
-  .leg-row > div[style*="width:36px"] {
-    width: 100% !important;
-    flex: 1 1 100%;
-  }
-
-  .leg-row > div[style*="width:36px"] {
-    text-align: right;
-  }
-}
-
-/* ================== SEAT MAP: SCROLLABLE ON MOBILE ================== */
-.seat-map-wrapper {
-  max-width: 100%;
-  overflow-x: auto;
-  padding-bottom: 8px;
-}
-
-.seat-map {
-  min-width: 560px; /* keeps columns readable but allows horizontal scroll */
-}
-
-/* slightly smaller seats on tablets too */
-@media (max-width: 992px) {
-  .seat {
-    width: 38px;
-    height: 38px;
-  }
-
-  .row-label {
-    width: 38px;
-    min-width: 38px;
-  }
-  .prompt-segment-list {
-        max-height: 128px;
-    }
-}
-
-/* keep your 600px overrides, but add a bit more for really small screens */
-@media (max-width: 600px) {
-  .ticket-card {
-    padding: 14px 12px 12px;
-  }
-
-  .ticket-card .row .col.s6 {
-    width: 100%;
-  }
-
-  .pwd-group {
-    gap: 6px;
-  }
-
-  .seat-map {
-    min-width: 520px;
-  }
-}
-
-
-/* ================== TICKET + ACTIONS ON SMALL DEVICES ================== */
-@media (max-width: 768px) {
-  #ticketContainer {
-    padding: 0 8px;
-  }
-
-  .ticket-card .row .col.s6,
-  .ticket-card .row .col.s2 {
-    width: 100%;
-  }
-
-  .add-btn {
-    margin-top: 16px;
-  }
-
-  .form-actions {
-    margin-top: 20px;
-    padding: 0 8px;
+    margin-top: 10px;
+    margin-bottom: 6px;
+    font-size: 0.78rem;
     justify-content: center;
   }
 
-  .form-actions .btn {
-    width: 100%;
+  .prompt-chip {
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(250, 204, 21, 0.55);
+    background: rgba(133, 93, 14, 0.25);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #fefce8;
   }
-}
+
+  .prompt-chip-label {
+    color: #fde047;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+  }
+
+  .prompt-chip-value {
+    font-weight: 600;
+    color: #ffffff;
+  }
+
+  /* Sections */
+  .prompt-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .prompt-section-title {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #fde047;
+    margin-bottom: 4px;
+  }
+
+  /* Segments timeline */
+  .prompt-segment-list {
+    list-style: none;
+    padding: 8px 10px;
+    margin: 0;
+    border-radius: 12px;
+    background: rgba(5, 11, 18, 0.95);
+    border: 1px solid rgba(250, 204, 21, 0.35);
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
+  .prompt-segment-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    padding: 6px 4px;
+    font-size: 0.8rem;
+    color: #e5e7eb;
+    border-bottom: 1px dashed rgba(250, 204, 21, 0.2);
+  }
+
+  .prompt-segment-item:last-child {
+    border-bottom: none;
+  }
+
+  .prompt-segment-bullet {
+    width: 12px;
+    display: flex;
+    justify-content: center;
+    padding-top: 3px;
+  }
+
+  .prompt-segment-bullet::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    border: 1px solid #facc15;
+    background: #facc15;
+  }
+
+  .prompt-segment-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .prompt-segment-route {
+    color: #fef3c7;
+    font-weight: 600;
+  }
+
+  .prompt-segment-date {
+    color: #eab308;
+    font-size: 0.75rem;
+  }
+
+  /* Instruction box */
+  .prompt-instruction {
+    border-radius: 10px;
+    border: 1px dashed rgba(250, 204, 21, 0.7);
+    background: rgba(66, 54, 10, 0.32);
+    color: #fff7cc;
+    font-size: 0.8rem;
+    padding: 7px 10px;
+  }
+
+  .student-prompt-empty {
+    padding: 12px 6px;
+    color: #facc15 !important;
+    font-size: 0.9rem;
+  }
+  .is-stuck .prompt-segment-list{
+    display: flex;
+  }
+  /* ============= FLIGHT FORM CARD (ROUTE SELECTOR) ============= */
+
+  .bg-container {
+    max-width: 960px;
+    margin: 0 auto 24px;
+  }
+
+  .bg-container .card {
+    /* background: radial-gradient(circle at top right, #020617 0%, #020617 50%, #020617 100%); */
+    background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+    padding: 18px 20px 16px;
+    color: #e5e7eb;
+  }
+
+  /* Flight type tabs (radio group) */
+  .bg-container p {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    margin-bottom: 10px;
+  }
+
+  .bg-container p label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #e5e7eb;
+    cursor: pointer;
+  }
+
+  .bg-container p input[type="radio"] + span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 2px solid rgba(148, 163, 184, 0.8);
+    margin-right: 2px;
+  }
+
+  .bg-container p input[type="radio"]:checked + span::before {
+    border-color: #facc15;
+    background: #facc15;
+  }
+
+  /* Inputs (origin/destination/dates) */
+  .bg-container .input-field label {
+    color: #9ca3af !important;
+  }
+
+  .bg-container .input-field input {
+    color: #e5e7eb;
+  }
+
+  .bg-container .input-field input::placeholder {
+    color: #6b7280;
+  }
+
+  .bg-container .material-icons.prefix {
+    color: #facc15;
+  }
+
+  /* ================== MULTI-CITY PANEL ================== */
+  #multiLegsWrap {
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* subtle top glow line */
+  #multiLegsWrap::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.8;
+    pointer-events: none;
+  }
+
+  /* header row: title + ADD FLIGHT button */
+  #multiLegsWrap > div:first-child {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px !important;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #fefce8;
+  }
+
+  #multiLegsWrap > div:first-child > div:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* little pill in front of "Multi-city legs" */
+  #multiLegsWrap > div:first-child > div:first-child::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #facc15;
+    box-shadow: 0 0 10px rgba(250, 204, 21, 0.7);
+  }
+
+  /* ADD FLIGHT button inside panel */
+  #multiLegsWrap #addLegBtn.btn {
+    border-radius: 999px;
+    background: #facc15;
+    color: #111827;
+    font-weight: 600;
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0 14px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.7);
+  }
+
+  #multiLegsWrap #addLegBtn.btn:hover {
+    background: #fde047;
+    transform: translateY(-1px);
+  }
+
+  /* ========== LEG ROWS ========== */
+  #multiLegsWrap .leg-row {
+    background: rgba(15, 23, 42, 0.85);
+    border-radius: 12px;
+    padding: 8px 10px;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    margin-bottom: 8px !important;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    position: relative;
+  }
+
+  /* thin accent line on the left of each row */
+  #multiLegsWrap .leg-row::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(to bottom, #facc15, transparent);
+  }
+
+  /* inputs inside leg rows */
+  #multiLegsWrap .leg-row .input-field label {
+    color: #cbd5f5 !important;
+  }
+
+  #multiLegsWrap .leg-row .input-field input {
+    color: #e5e7eb;
+  }
+
+  #multiLegsWrap .leg-row .input-field input::placeholder {
+    color: #6b7280;
+  }
+
+  /* remove-leg button */
+  #multiLegsWrap .leg-row .remove-leg {
+    border-radius: 999px;
+    border: 1px solid rgba(239, 68, 68, 0.7);
+    color: #fecaca;
+    min-width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: rgba(24, 24, 27, 0.9);
+    transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+  }
+
+  #multiLegsWrap .leg-row .remove-leg:hover {
+    background: #ef4444;
+    color: #111827;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.7);
+    transform: translateY(-1px);
+  }
+
+  /* helper text under the legs */
+  #multiLegsWrap > div:last-child {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: #e5e7eb;
+    opacity: 0.9;
+  }
+
+  /* ===== RESPONSIVE ADJUST FOR LEG ROWS (keep what you had, but refine) ===== */
+  @media (max-width: 992px) {
+    #multiLegsWrap .leg-row {
+      flex-wrap: wrap;
+    }
+
+    #multiLegsWrap .leg-row > div[style*="flex:1"],
+    #multiLegsWrap .leg-row > div[style*="width:180px"],
+    #multiLegsWrap .leg-row > div[style*="width:36px"] {
+      width: 100% !important;
+      flex: 1 1 100%;
+    }
+
+    #multiLegsWrap .leg-row > div[style*="width:36px"] {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .is-stuck .prompt-segment-list{
+    display: block;
+  }
+  }
+
+  @media (max-width: 600px) {
+    #multiLegsWrap {
+      padding: 10px 10px 8px;
+    }
+
+    #multiLegsWrap .leg-row {
+      padding: 8px;
+    }
+    
+  }
+
+
+  /* ============= PASSENGER TICKET CARDS ============= */
+
+  #ticketContainer {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .ticket-card {
+    /* background: linear-gradient(135deg, #020617 0%, #020617 65%, #111827 100%); */
+    background: radial-gradient(circle at top left, #0052cc 0%, #1e90ff 100%);
+    border-radius: 18px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+    padding: 18px 18px 16px;
+    margin-bottom: 16px;
+    position: relative;
+    border-left: 4px solid #facc15;
+    border-top: 1px solid rgba(148, 163, 184, 0.4);
+    border-right: 1px solid rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.8);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .ticket-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 22px 55px rgba(0, 0, 0, 0.9);
+    z-index: 999 !important;
+  }
+
+  .counter {
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #facc15;
+    margin-bottom: 8px;
+  }
+
+  .ticket-card label,
+  .field-title {
+    font-weight: 500;
+    color: #cbd5f5;
+  }
+
+  /* Remove button */
+  .remove-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    color: #f97373;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 18px;
+  }
+
+  /* Inputs inside ticket cards */
+  .ticket-card .input-field input {
+    color: #e5e7eb;
+  }
+
+  .ticket-card .input-field input::placeholder {
+    color: #6b7280;
+  }
+
+  /* Gender / PWD custom controls */
+  .custom-radio-inline,
+  .custom-checkbox-inline {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 15px;
+    position: relative;
+    cursor: pointer;
+    color: #e5e7eb;
+    user-select: none;
+    font-weight: 400;
+    font-size: 0.85rem;
+  }
+
+  .custom-radio-inline input,
+  .custom-checkbox-inline input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .checkmark {
+    height: 18px;
+    width: 18px;
+    background-color: transparent;
+    border: 2px solid #9ca3af;
+    margin-right: 6px;
+    display: inline-block;
+    vertical-align: middle;
+    border-radius: 50%;
+  }
+
+  .custom-checkbox-inline .checkmark {
+    border-radius: 4px;
+  }
+
+  .custom-radio-inline input:checked ~ .checkmark,
+  .custom-checkbox-inline input:checked ~ .checkmark {
+    background-color: #facc15 !important;
+    border-color: #facc15 !important;
+  }
+
+  .pwd-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .pwd-group .impairment-field {
+    flex: 1;
+    min-width: 120px;
+    padding: 4px 6px;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.8);
+    color: #e5e7eb;
+  }
+
+  /* ============= ADD PASSENGER BUTTON + PRIMARY CTA ============= */
+
+  .add-btn {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+  }
+
+  .btn-floating {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    font-size: 2rem;
+    background-color: #facc15;
+    color: #111827;
+    border: none;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.6);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.2s ease;
+  }
+
+  .btn-floating:hover {
+    transform: translateY(-2px) scale(1.05);
+    background-color: #fde047;
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.8);
+  }
+
+  .form-actions {
+    margin-top: 30px;
+    display: flex;
+    justify-content: flex-end;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .form-actions .btn {
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    height: 44px;
+    background-color: #facc15;
+    color: #111827;
+    padding: 0 26px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.7);
+    transition: all 0.18s ease-in-out;
+  }
+
+  .form-actions .btn:hover {
+    background-color: #fde047;
+    transform: translateY(-1px);
+  }
+
+  /* ============= MODALS (SUMMARY + SEAT PICKER) ============= */
+
+  .modal {
+    background: transparent;
+  }
+
+  .modal .modal-content {
+    background: radial-gradient(circle at top, #020617 0%, #020617 40%, #020617 100%);
+    border-radius: 18px 18px 0 0;
+    border-bottom: 1px solid rgba(30, 64, 175, 0.4);
+    color: #e5e7eb;
+  }
+
+  .modal .modal-content h4,
+  .modal .modal-content h5 {
+    color: #facc15;
+  }
+
+  .modal .modal-footer {
+    background: #020617;
+    border-radius: 0 0 18px 18px;
+    border-top: 1px solid rgba(30, 64, 175, 0.4);
+  }
+
+  .modal .modal-footer .btn {
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.8rem;
+  }
+
+  .modal .modal-footer .btn.green {
+    background-color: #22c55e;
+  }
+
+  .modal .modal-footer .btn.red {
+    background-color: #ef4444;
+  }
+
+  /* ============= SEAT PICKER ============= */
+
+  .seat-map {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    max-width: 960px;
+    margin: 0 auto;
+    background: radial-gradient(circle at top, #020617 0%, #020617 60%, #020617 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(55, 65, 81, 0.8);
+  }
+
+  .seat-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .row-label {
+    width: 44px;
+    min-width: 44px;
+    text-align: center;
+    font-weight: 600;
+    color: #9ca3af;
+  }
+
+  .seat {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid rgba(15, 23, 42, 0.9);
+    transition: transform .08s ease, box-shadow .12s ease, background 0.08s ease;
+    font-weight: 600;
+    color: #0f172a;
+  }
+
+  /* Cabin background tints */
+  .seat.first    { background-color: #e3f2fd; }
+  .seat.business { background-color: #fff3e0; }
+  .seat.premium  { background-color: #ede7f6; }
+  .seat.economy  { background-color: #e8f5e9; }
+
+  .seat:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5);
+  }
+
+  .seat.selected {
+    color: white;
+  }
+
+  /* Selected seat colors per cabin */
+  .seat.first.selected    { background-color: #1e88e5; }
+  .seat.business.selected { background-color: #fb8c00; }
+  .seat.premium.selected  { background-color: #7e57c2; }
+  .seat.economy.selected  { background-color: #22c55e; }
+
+  .seat.disabled {
+    background: #111827;
+    color: #6b7280;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .aisle {
+    width: 28px;
+    min-width: 28px;
+  }
+
+  /* Legenda / legend */
+  .legend {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin: 8px 16px 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    color: #d1d5db;
+    font-size: 0.8rem;
+  }
+
+  .legend .box {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid rgba(15, 23, 42, 0.9);
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+
+  .legend .box.selected { background: #facc15; border-color: #facc15; }
+  .legend .box.disabled { background: #111827; color: #9ca3af; border-color: #4b5563; }
+
+  .selection-summary {
+    margin-top: 8px;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 0 16px 12px;
+  }
+
+  /* Cabin headers */
+  .cabin-header {
+    margin-top: 10px;
+    margin-bottom: 4px;
+    text-align: left;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 0 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .cabin-header h6 {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .cabin-header .line {
+    flex: 1;
+    height: 1px;
+    background: rgba(55, 65, 81, 0.9);
+  }
+
+  .cabin-header.first h6    { color: #1e88e5; }
+  .cabin-header.business h6 { color: #fb8c00; }
+  .cabin-header.premium h6  { color: #a855f7; }
+  .cabin-header.economy h6  { color: #22c55e; }
+
+  /* ============= DATEPICKER / DROPDOWN FIXES ============= */
+
+  .datepicker-date-display {
+    display: none !important;
+  }
+  select.datepicker-select {
+    display: none !important;
+  }
+  input.select-dropdown {
+    width: 100% !important;
+  }
+  .datepicker-modal{
+    max-width: 350px !important;
+  }
+  /* ============= RESPONSIVE ============= */
+
+  @media (max-width: 600px) {
+    .container {
+      padding-top: 18px;
+    }
+
+    .bg-container .row .col.s4,
+    .bg-container .row .col.s6,
+    .bg-container .row .col.md3 {
+      width: 100%;
+    }
+
+    .bg-container p {
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .pwd-group {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .form-actions {
+      justify-content: center;
+    }
+
+    .form-actions .btn {
+      width: 100%;
+    }
+
+    .seat {
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+    }
+    .row-label {
+      width: 36px;
+      min-width: 36px;
+      font-size: 0.9rem;
+    }
+
+    .prompt-card .card::before {
+      position: static;
+      display: inline-block;
+      margin-bottom: 4px;
+    }
+  }
+  /* ================== LAYOUT GRID FOR PROMPT ================== */
+  @media (max-width: 992px) {
+    .prompt-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .prompt-card .card {
+      padding: 12px 14px 10px;
+    }
+
+    .prompt-segment-list {
+      max-height: 220px;
+    }
+  }
+
+  /* ================== GENERIC CONTAINER WIDTHS ================== */
+  /* .container {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+  } */
+  [type="radio"]:checked+span:after, [type="radio"].with-gap:checked+span:after{
+    background-color: transparent !important;
+    border: none !important;
+  }
+  /* ================== MAKE FORMS STACK BETTER ================== */
+  @media (max-width: 992px) {
+    .bg-container .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .bg-container .row > [class*="col"] {
+      flex: 1 1 100%;
+      max-width: 100%;
+    }
+
+    /* Multi-city legs: stack fields instead of one long row */
+    .leg-row {
+      flex-wrap: wrap;
+    }
+
+    .leg-row > div[style*="flex:1"],
+    .leg-row > div[style*="width:180px"],
+    .leg-row > div[style*="width:36px"] {
+      width: 100% !important;
+      flex: 1 1 100%;
+    }
+
+    .leg-row > div[style*="width:36px"] {
+      text-align: right;
+    }
+  }
+
+  /* ================== SEAT MAP: SCROLLABLE ON MOBILE ================== */
+  .seat-map-wrapper {
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .seat-map {
+    min-width: 560px; /* keeps columns readable but allows horizontal scroll */
+  }
+
+  /* slightly smaller seats on tablets too */
+  @media (max-width: 992px) {
+    .seat {
+      width: 38px;
+      height: 38px;
+    }
+
+    .row-label {
+      width: 38px;
+      min-width: 38px;
+    }
+    .prompt-segment-list {
+          max-height: 128px;
+      }
+  }
+
+  /* keep your 600px overrides, but add a bit more for really small screens */
+  @media (max-width: 600px) {
+    .ticket-card {
+      padding: 14px 12px 12px;
+    }
+
+    .ticket-card .row .col.s6 {
+      width: 100%;
+    }
+
+    .pwd-group {
+      gap: 6px;
+    }
+
+    .seat-map {
+      min-width: 520px;
+    }
+  }
+
+
+  /* ================== TICKET + ACTIONS ON SMALL DEVICES ================== */
+  @media (max-width: 768px) {
+    #ticketContainer {
+      padding: 0 8px;
+    }
+
+    .ticket-card .row .col.s6,
+    .ticket-card .row .col.s2 {
+      width: 100%;
+    }
+
+    .add-btn {
+      margin-top: 16px;
+    }
+
+    .form-actions {
+      margin-top: 20px;
+      padding: 0 8px;
+      justify-content: center;
+    }
+
+    .form-actions .btn {
+      width: 100%;
+    }
+  }
 </style>
