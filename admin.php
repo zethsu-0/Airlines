@@ -919,7 +919,7 @@ body{
             <input type="text" id="displayName" name="display_name" class="browser-default"
                    value="<?php echo htmlspecialchars($displayName); ?>">
           </div>
-          <div class="profile-modal-row">
+<!--           <div class="profile-modal-row">
             <label for="currentPwd">Current Password (required to change)</label>
             <input type="password" id="currentPwd" name="current_password" class="browser-default">
           </div>
@@ -930,7 +930,7 @@ body{
           <div class="profile-modal-row">
             <label for="confirmPwd">Retype New Password</label>
             <input type="password" id="confirmPwd" name="confirm_password" class="browser-default">
-          </div>
+          </div> -->
 
           <label class="profile-modal-confirm">
             <input type="checkbox" id="confirmSave">
